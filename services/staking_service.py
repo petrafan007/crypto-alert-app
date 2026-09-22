@@ -207,6 +207,96 @@ def calculate_staking_value_for_user(cred, user_id=None):
 
     return active_value, pending_value
 
+def get_user_staked_balance_map(user_id, cred=None):
+    """
+    Returns a dict mapping asset symbol to staking balance info for a user:
+    {
+        'GRAM': {
+            'staked_amount': 68.64,
+            'active_amount': 0.0,
+            'pending_amount': 68.64,
+            'status': 'processing',
+            'is_staked': True
+        }
+    }
+    """
+    result = {}
+    if not user_id:
+        return result
+
+    try:
+        staked_records = StakedCoin.query.filter_by(user_id=user_id).all()
+        for record in staked_records:
+            asset = (record.symbol or '').upper().strip()
+            amount = float(record.amount or 0.0)
+            status = (record.status or 'active').lower()
+            if not asset or amount <= 0:
+                continue
+            if status in ('unstaked', 'cancelled', 'canceled', 'failed'):
+                continue
+
+            if asset not in result:
+                result[asset] = {
+                    'staked_amount': 0.0,
+                    'active_amount': 0.0,
+                    'pending_amount': 0.0,
+                    'status': status,
+                    'is_staked': True
+                }
+            result[asset]['staked_amount'] += amount
+            if status in ('active', 'staked'):
+                result[asset]['active_amount'] += amount
+            else:
+                result[asset]['pending_amount'] += amount
+                result[asset]['status'] = status
+    except Exception as err:
+        logger.error(f"Error querying local staked records for user {user_id}: {err}")
+
+    if cred:
+        try:
+            overview = build_staking_balance_view(cred)
+            active_positions = overview.get('activePositions', [])
+            pending_positions = overview.get('pendingPositions', [])
+
+            if active_positions or pending_positions:
+                for pos in active_positions:
+                    asset = str(pos.get('asset', '')).upper().strip()
+                    amount = _coerce_float(pos.get('amount', 0.0), 0.0)
+                    if asset and amount > 0:
+                        if asset not in result:
+                            result[asset] = {
+                                'staked_amount': 0.0,
+                                'active_amount': 0.0,
+                                'pending_amount': 0.0,
+                                'status': 'active',
+                                'is_staked': True
+                            }
+                        result[asset]['active_amount'] = amount
+                        result[asset]['staked_amount'] = result[asset]['active_amount'] + result[asset]['pending_amount']
+                        result[asset]['status'] = 'active'
+
+                for pos in pending_positions:
+                    asset = str(pos.get('asset', '')).upper().strip()
+                    amount = _coerce_float(pos.get('amount', 0.0), 0.0)
+                    status = str(pos.get('status', 'processing')).lower()
+                    if asset and amount > 0:
+                        if asset not in result:
+                            result[asset] = {
+                                'staked_amount': 0.0,
+                                'active_amount': 0.0,
+                                'pending_amount': 0.0,
+                                'status': status,
+                                'is_staked': True
+                            }
+                        result[asset]['pending_amount'] = amount
+                        result[asset]['staked_amount'] = result[asset]['active_amount'] + result[asset]['pending_amount']
+                        if result[asset]['active_amount'] == 0:
+                            result[asset]['status'] = status
+        except Exception as api_err:
+            logger.debug(f"Error merging live staking balance in get_user_staked_balance_map: {api_err}")
+
+    return result
+
 def binance_has_staking_permission(cred):
     """Best-effort check to see if the key can access staking endpoints."""
     try:

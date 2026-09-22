@@ -3545,6 +3545,23 @@ body.light-mode *[style*="color:'#666'"] {
   color: #f1f5f9 !important;
 }
 
+/* Staked / Partially Staked Asset Highlight - Diamond Cyan Accent (Not Yellow) */
+.table-container tr.staked-coin-row,
+.table-container tbody tr.staked-coin-row,
+.table-container tr.staked-coin-row td,
+.table-container tbody tr.staked-coin-row td,
+.table-container tr.staked-coin-row .symbol-cell,
+.table-container tbody tr.staked-coin-row .symbol-cell {
+  background: rgba(6, 182, 212, 0.22) !important;
+  background-color: rgba(6, 182, 212, 0.22) !important;
+  color: #e0f2fe !important;
+}
+
+.table-container tr.staked-coin-row td:first-child,
+.table-container tbody tr.staked-coin-row td:first-child {
+  border-left: 4px solid #06b6d4 !important;
+}
+
 /* Sentiment contrast protection on pending-order highlighted rows */
 .table-container tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment,
 .table-container tbody tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment {
@@ -3681,6 +3698,22 @@ body.dark-mode .table-container tbody tr.auto-both-active .symbol-cell {
   color: #ffffff !important;
 }
 
+body.dark-mode .table-container tr.staked-coin-row,
+body.dark-mode .table-container tbody tr.staked-coin-row,
+body.dark-mode .table-container tr.staked-coin-row td,
+body.dark-mode .table-container tbody tr.staked-coin-row td,
+body.dark-mode .table-container tr.staked-coin-row .symbol-cell,
+body.dark-mode .table-container tbody tr.staked-coin-row .symbol-cell {
+  background: rgba(6, 182, 212, 0.25) !important;
+  background-color: rgba(6, 182, 212, 0.25) !important;
+  color: #e0f2fe !important;
+}
+
+body.dark-mode .table-container tr.staked-coin-row td:first-child,
+body.dark-mode .table-container tbody tr.staked-coin-row td:first-child {
+  border-left: 4px solid #06b6d4 !important;
+}
+
 /* Light mode overrides */
 body.light-mode .table-container tr.pending-order,
 body.light-mode .table-container tbody tr.pending-order,
@@ -3727,6 +3760,23 @@ body.light-mode .table-container tbody tr.auto-both-active .symbol-cell {
   background-color: rgba(168, 85, 247, 0.24) !important;
   color: #3b0764 !important;
   font-weight: 500;
+}
+
+body.light-mode .table-container tr.staked-coin-row,
+body.light-mode .table-container tbody tr.staked-coin-row,
+body.light-mode .table-container tr.staked-coin-row td,
+body.light-mode .table-container tbody tr.staked-coin-row td,
+body.light-mode .table-container tr.staked-coin-row .symbol-cell,
+body.light-mode .table-container tbody tr.staked-coin-row .symbol-cell {
+  background: rgba(6, 182, 212, 0.16) !important;
+  background-color: rgba(6, 182, 212, 0.16) !important;
+  color: #0369a1 !important;
+  font-weight: 500;
+}
+
+body.light-mode .table-container tr.staked-coin-row td:first-child,
+body.light-mode .table-container tbody tr.staked-coin-row td:first-child {
+  border-left: 4px solid #0891b2 !important;
 }
 
 /* Mobile Dashboard Tabs - hidden on desktop */

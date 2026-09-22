@@ -893,6 +893,23 @@ body.light-mode .action-icon-btn.note-btn:hover {
   font-weight: 500;
 }
 
+.light-mode .table-container tr.staked-coin-row,
+.light-mode .table-container tbody tr.staked-coin-row,
+.light-mode .table-container tr.staked-coin-row td,
+.light-mode .table-container tbody tr.staked-coin-row td,
+.light-mode .table-container tr.staked-coin-row .symbol-cell,
+.light-mode .table-container tbody tr.staked-coin-row .symbol-cell {
+  background: rgba(6, 182, 212, 0.16) !important;
+  background-color: rgba(6, 182, 212, 0.16) !important;
+  color: #0369a1 !important;
+  font-weight: 500;
+}
+
+.light-mode .table-container tr.staked-coin-row td:first-child,
+.light-mode .table-container tbody tr.staked-coin-row td:first-child {
+  border-left: 4px solid #0891b2 !important;
+}
+
 /* Actions cell styling */
 .actions-cell,
 .portfolio-table td.actions-cell,

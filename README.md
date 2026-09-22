@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.8.1
+**Version:** 3.8.2
 
 ## Recent Updates
+
+### v3.8.2
+- **Staked Asset Portfolio Integration & Total Balance Sync:** Staked and bonding assets (such as GRAM) are now fully integrated into the Portfolio overview and Allocations donut chart. Instead of displaying zero balance and $0.00, rows reflect the user's total holdings (`spot_amount + staked_amount`), available trading balance, and true market value. Staked assets are protected from zero-balance auto-hiding while active.
+- **Distinct Row Highlighting (Dark & Light Mode):** Staked and partially staked asset rows are styled with a modern cyan accent glow (`#06b6d4` / `#0891b2`) with subtle borders and clear contrast in both dark and light modes, avoiding generic yellow styling.
+- **Informative Available-for-Trading Tooltips:** Hovering over staked asset rows and amount cells provides explicit tooltips displaying exact amounts available for trading alongside staked and bonding quantities.
+- **Dynamic Contextual Actions Menu (Stake & Unstake):** The Actions dropdown dynamically adapts to staking status: 0% staked assets display "Stake", partially staked assets display both "Stake" and "Unstake" (with Unstake positioned directly below Stake), and 100% staked assets display "Unstake" only. Clicking Unstake navigates directly to the Staking view and launches the Unstake modal.
+- **Background Worker Loop Stability:** Resolved an `ImportError` in the scheduler worker service (`ladder_order_worker_loop`), restoring reliable background task execution, Binance account balance syncing, price alert evaluations, and synthetic order monitoring.
 
 ### v3.8.1
 - **Pending Staking Position & Value Deduplication:** Fixed an issue where pending or processing staking transactions from the Binance.US exchange were displayed alongside local pending database records, erroneously doubling the Total Staked Value and reporting extra pending positions. Pending records are now de-duplicated by transaction ID and asset/amount, synchronizing the live processing status and accurately reporting 1 position and true staked value.

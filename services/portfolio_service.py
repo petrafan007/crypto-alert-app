@@ -63,7 +63,10 @@ def compute_portfolio_total_value(user_id, username=None, cred=None, include_sta
             if cred:
                 from services.staking_service import calculate_staking_value_for_user
                 staking_active, staking_pending = calculate_staking_value_for_user(cred, user_id)
-                staking_total = staking_active + staking_pending
+                staked_in_portfolio = sum(
+                    (c.get("current_value") or 0.0) for c in portfolio if c.get("is_staked")
+                )
+                staking_total = max(0.0, (staking_active + staking_pending) - staked_in_portfolio)
                 total_value += staking_total
         except Exception as staking_err:
             logger.error(f"Staking aggregation error for user {user_id}: {staking_err}")
@@ -134,6 +137,8 @@ def record_portfolio_history(user_id, value, source='all'):
 def get_portfolio_data_for_user(user_id):
     """Get comprehensive portfolio data from all crypto databases."""
     try:
+        from services.staking_service import get_user_staked_balance_map
+        staked_map = get_user_staked_balance_map(user_id)
         cost_basis_map = get_cost_basis_from_transactions(user_id)
         all_coins = Coin.query.filter_by(user_id=user_id).all()
         
@@ -141,8 +146,13 @@ def get_portfolio_data_for_user(user_id):
         for coin in all_coins:
             try:
                 symbol = coin.symbol.upper()
-                amount = float(coin.amount or 0.0)
-                if amount < 0.0001:
+                spot_amount = float(coin.amount or 0.0)
+                staked_info = staked_map.get(symbol, {})
+                staked_amount = float(staked_info.get('staked_amount', 0.0))
+                is_staked = staked_amount > 0.000001
+                total_amount = spot_amount + staked_amount
+
+                if total_amount < 0.0001:
                     continue
                 
                 if symbol in ['USD', 'USDT', 'USDC', 'DAI']:
@@ -150,21 +160,21 @@ def get_portfolio_data_for_user(user_id):
                 else:
                     current_price = coin.current if coin.current and coin.current > 0 else (coin.avg_entry or 0)
                 
-                current_value = amount * current_price if current_price else 0.0
+                current_value = total_amount * current_price if current_price else 0.0
                 
-                if current_value < 1.0 and coin.hidden and not coin.force_visible:
+                if current_value < 1.0 and coin.hidden and not coin.force_visible and not is_staked:
                     continue
                     
                 cost_info = cost_basis_map.get(coin.symbol.upper())
-                if cost_info and cost_info.get('quantity', 0) > 0 and coin.amount > 0:
+                if cost_info and cost_info.get('quantity', 0) > 0 and total_amount > 0:
                     effective_avg_entry = cost_info['cost_basis'] / cost_info['quantity']
-                    derived_cost_basis = effective_avg_entry * coin.amount
+                    derived_cost_basis = effective_avg_entry * total_amount
                 elif coin.initial_value and coin.initial_value > 0:
-                    effective_avg_entry = (coin.initial_value / coin.amount) if coin.amount else coin.avg_entry or 0
+                    effective_avg_entry = (coin.initial_value / total_amount) if total_amount else coin.avg_entry or 0
                     derived_cost_basis = coin.initial_value
                 else:
                     effective_avg_entry = coin.avg_entry or 0
-                    derived_cost_basis = effective_avg_entry * coin.amount if coin.amount else 0
+                    derived_cost_basis = effective_avg_entry * total_amount if total_amount else 0
 
                 pct_change = 0
                 if effective_avg_entry and effective_avg_entry > 0:
@@ -173,12 +183,16 @@ def get_portfolio_data_for_user(user_id):
                 portfolio.append({
                     "id": coin.id,
                     "symbol": coin.symbol,
-                    "amount": coin.amount,
+                    "amount": total_amount,
+                    "available_amount": spot_amount,
+                    "staked_amount": staked_amount,
+                    "is_staked": is_staked,
+                    "staking_status": staked_info.get('status', 'staked') if is_staked else None,
                     "avg_entry": effective_avg_entry,
                     "initial_value": derived_cost_basis,
                     "purchase_date": coin.purchase_date,
                     "current_price": current_price,
-                    "current_value": current_value,
+                    "current_value": round(current_value, 2),
                     "pct_change": pct_change,
                     "sentiment": getattr(coin, 'sentiment', None),
                     "sentiment_reason": getattr(coin, 'sentiment_reason', "") or "",

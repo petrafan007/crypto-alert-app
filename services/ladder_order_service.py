@@ -664,3 +664,17 @@ def evaluate_active_ladder_orders():
             db.session.commit()
     except Exception as e:
         logger.error(f"Error during evaluate_active_ladder_orders cycle: {e}")
+
+
+def ladder_order_worker_loop(app):
+    """
+    Background worker daemon evaluating active ladder orders every 2 seconds.
+    """
+    logger.info("Starting ladder_order_worker_loop background thread...")
+    while True:
+        try:
+            with app.app_context():
+                evaluate_active_ladder_orders()
+        except Exception as e:
+            logger.error(f"Unhandled exception in ladder_order_worker_loop: {e}")
+        time.sleep(2.0)

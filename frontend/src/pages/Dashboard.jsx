@@ -184,7 +184,7 @@ function Dashboard({ isLightMode }) {
         prevMap.set(key, { ...(prevMap.get(key) || {}), ...val });
       });
 
-      // Return stable array preserving previous order, filtering out zero-balance coins that no longer have pending orders
+      // Return stable array preserving previous order, filtering out zero-balance coins that no longer have pending orders or staking
       const updated = [];
       const seen = new Set();
       prev.forEach(p => {
@@ -193,7 +193,8 @@ function Dashboard({ isLightMode }) {
         const item = prevMap.get(key);
         if (item) {
           const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-          if (hasHoldings || item.hasPendingOrder || item.force_visible) {
+          const isStaked = !!item.is_staked || Number(item.staked_amount || 0) > 0;
+          if (hasHoldings || isStaked || item.hasPendingOrder || item.force_visible) {
             updated.push(item);
           }
           seen.add(key);
@@ -208,7 +209,8 @@ function Dashboard({ isLightMode }) {
           const item = prevMap.get(key);
           if (item) {
             const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-            if (hasHoldings || item.hasPendingOrder || item.force_visible) {
+            const isStaked = !!item.is_staked || Number(item.staked_amount || 0) > 0;
+            if (hasHoldings || isStaked || item.hasPendingOrder || item.force_visible) {
               updated.push(item);
             }
           }
@@ -1752,6 +1754,14 @@ function Dashboard({ isLightMode }) {
       lines.push(`⚡ Active Auto-Sell: Automatically sells for ${quote} on -${vol}% drop in ${volatilityHoursSetting}h only after it holds for ${automatedTriggerConfirmationMinutes}m${pending}`);
     }
 
+    if (coin.is_staked || Number(coin.staked_amount || 0) > 0) {
+      const avail = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
+      const staked = Number(coin.staked_amount || 0);
+      const sym = (coin.symbol || '').toUpperCase();
+      const statusStr = (coin.staking_status || 'staked').toUpperCase();
+      lines.push(`🔷 Staked Asset (${statusStr}): ${staked.toFixed(4)} ${sym} staked · ${avail.toFixed(4)} ${sym} available for trading`);
+    }
+
     return lines.join('\n');
   };
 
@@ -1772,8 +1782,9 @@ function Dashboard({ isLightMode }) {
 
     const orders = getPendingOrdersForCoin(coin);
     const hasTriggers = coin.auto_buy_enabled || coin.auto_sell_enabled;
+    const isStaked = !!coin.is_staked || Number(coin.staked_amount || 0) > 0;
 
-    if (orders.length > 0 || hasTriggers) {
+    if (orders.length > 0 || hasTriggers || isStaked) {
       const rect = event.currentTarget.getBoundingClientRect();
       setOrderTooltip({
         visible: true,
@@ -1832,7 +1843,8 @@ function Dashboard({ isLightMode }) {
               if (!c || !c.symbol || !String(c.symbol).trim()) return false;
               const hasHoldings = Number(c.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
               const hasPending = getPendingOrdersForCoin(c, pendingOrdersData).length > 0;
-              return hasHoldings || hasPending || c.force_visible;
+              const isStaked = !!c.is_staked || Number(c.staked_amount || 0) > 0;
+              return hasHoldings || hasPending || isStaked || c.force_visible;
             })
             .map((c) => ({
               ...c,
@@ -2976,18 +2988,34 @@ function Dashboard({ isLightMode }) {
                 </>
               )
             )}
-            {isPortfolio && !isWebullAsset(coin) && (
-              <button
-                onClick={() => { handleStakeClick(coin); closeActionMenu(); }}
-                disabled={
-                  !stakeableCoins.includes(coin.symbol) ||
-                  isPlaceholder ||
-                  (coin.current_value && coin.current_value < 1)
-                }
-              >
-                Stake
-              </button>
-            )}
+            {(() => {
+              const isStakeable = isPortfolio && stakeableCoins.includes(coin.symbol) && !isPlaceholder;
+              const stakedAmount = Number(coin.staked_amount || 0);
+              const availableAmount = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
+              const hasStakedBalance = stakedAmount > 0.00001;
+              const hasUnstakedBalance = availableAmount >= 0.0001;
+              const canStake = isStakeable && hasUnstakedBalance && (!coin.current_value || (availableAmount * (coin.current_price || 1)) >= 1);
+              const canUnstake = isPortfolio && !isWebullAsset(coin) && !isPlaceholder && hasStakedBalance;
+
+              return (
+                <>
+                  {isPortfolio && !isWebullAsset(coin) && canStake && (
+                    <button
+                      onClick={() => { handleStakeClick(coin); closeActionMenu(); }}
+                    >
+                      Stake
+                    </button>
+                  )}
+                  {isPortfolio && !isWebullAsset(coin) && canUnstake && (
+                    <button
+                      onClick={() => { handleUnstakeClick(coin); closeActionMenu(); }}
+                    >
+                      Unstake
+                    </button>
+                  )}
+                </>
+              );
+            })()}
             {isPortfolio && (() => {
               const allPendingItems = getAllPendingItemsForCoin(coin);
               const hasOrders = allPendingItems.length > 0;
@@ -3055,7 +3083,13 @@ function Dashboard({ isLightMode }) {
     const allPendingItems = getAllPendingItemsForCoin(pendingSubject);
     const hasOrders = allPendingItems.length > 0;
     const canSell = isPortfolio && coin.symbol !== 'USD' && Number(coin.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-    const canStake = isPortfolio && stakeableCoins.includes(coin.symbol) && !isPlaceholder && (!coin.current_value || coin.current_value >= 1);
+    const isStakeable = isPortfolio && stakeableCoins.includes(coin.symbol) && !isPlaceholder;
+    const stakedAmount = Number(coin.staked_amount || 0);
+    const availableAmount = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
+    const hasStakedBalance = stakedAmount > 0.00001;
+    const hasUnstakedBalance = availableAmount >= 0.0001;
+    const canStake = isStakeable && hasUnstakedBalance && (!coin.current_value || (availableAmount * (coin.current_price || 1)) >= 1);
+    const canUnstake = isPortfolio && !isWebullAsset(coin) && !isPlaceholder && hasStakedBalance;
 
     return createPortal(
       <div
@@ -3146,13 +3180,20 @@ function Dashboard({ isLightMode }) {
             </button>
           )
         )}
-        {isPortfolio && !isWebullAsset(coin) && (
+        {isPortfolio && !isWebullAsset(coin) && canStake && (
           <button
             role="menuitem"
-            onClick={() => { if (canStake) handleStakeClick(coin); closeActionMenu(); }}
-            disabled={!canStake}
+            onClick={() => { handleStakeClick(coin); closeActionMenu(); }}
           >
             <span>🔷</span>Stake
+          </button>
+        )}
+        {isPortfolio && !isWebullAsset(coin) && canUnstake && (
+          <button
+            role="menuitem"
+            onClick={() => { handleUnstakeClick(coin); closeActionMenu(); }}
+          >
+            <span>🔓</span>Unstake
           </button>
         )}
         <button
@@ -3404,6 +3445,11 @@ function Dashboard({ isLightMode }) {
   // Stake coin function - navigate to Staking page with pre-selected coin
   const handleStakeClick = (coin) => {
     navigate(`/trading/binance?tab=staking&coin=${encodeURIComponent(coin.symbol)}`);
+  };
+
+  // Unstake coin function - navigate to Staking page with pre-selected coin & action=unstake
+  const handleUnstakeClick = (coin) => {
+    navigate(`/trading/binance?tab=staking&coin=${encodeURIComponent(coin.symbol)}&action=unstake`);
   };
 
   const handleStakeSubmit = async () => {
@@ -4821,6 +4867,9 @@ function Dashboard({ isLightMode }) {
                     const hasExchangeOrder = getPendingOrdersForCoin(coin).length > 0 || hasLockedQuote;
                     const isAutoBuy = !!coin.auto_buy_enabled;
                     const isAutoSell = !!coin.auto_sell_enabled;
+                    const isStaked = !isExternal && (!!coin.is_staked || Number(coin.staked_amount || 0) > 0);
+                    const stakedAmount = Number(coin.staked_amount || 0);
+                    const availableAmount = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
 
                     let rowClass = '';
                     if (hasExchangeOrder) {
@@ -4831,13 +4880,22 @@ function Dashboard({ isLightMode }) {
                       rowClass = 'auto-buy-active';
                     } else if (isAutoSell) {
                       rowClass = 'auto-sell-active';
+                    } else if (isStaked) {
+                      rowClass = 'staked-coin-row';
+                    }
+
+                    let rowTitle = undefined;
+                    if (isStaked) {
+                      rowTitle = `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} staked)`;
+                    } else if (hasLockedQuote) {
+                      rowTitle = `${availableQuote.toFixed(2)} available`;
                     }
 
                     return (
                       <tr
                         key={coin.id || coin.symbol}
                         className={rowClass}
-                        title={hasLockedQuote ? `${availableQuote.toFixed(2)} available` : undefined}
+                        title={rowTitle}
                         onMouseMove={(e) => handleRowHover(coin, e)}
                         onMouseLeave={handleRowLeave}
                       >
@@ -4883,7 +4941,11 @@ function Dashboard({ isLightMode }) {
                               return <td key="type" className="asset-type-cell"><span className="asset-type-pill">{coin.webull_account_type || (isCryptoAsset ? 'Crypto' : coin.symbol === 'USD' ? 'Cash' : 'Securities')}</span></td>;
                             case 'amount':
                               return (
-                                <td key="amount" style={{ textAlign: 'center' }}>
+                                <td
+                                  key="amount"
+                                  style={{ textAlign: 'center' }}
+                                  title={isStaked ? `${availableAmount.toFixed(4)} ${coin.symbol} available for trading (${stakedAmount.toFixed(4)} ${coin.symbol} staked)` : undefined}
+                                >
                                   {coin.pendingPlaceholder ? '0.0000' : (coin.amount !== undefined && coin.amount !== null ? coin.amount.toFixed(4) : '—')}
                                 </td>
                               );

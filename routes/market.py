@@ -183,13 +183,20 @@ def api_coin_data_live():
 
         news_cache = get_user_latest_news_cache(current_user.id)
         ticker_map = _get_binance_24h_tickers()
+        from services.staking_service import get_user_staked_balance_map
+        staked_map = get_user_staked_balance_map(current_user.id)
 
         for coin in coins:
             try:
                 symbol = (coin.symbol or '').upper().strip()
                 if not symbol:
                     continue
-                amount = _to_float(coin.amount)
+                spot_amount = _to_float(coin.amount)
+                staked_info = staked_map.get(symbol, {})
+                staked_amount = float(staked_info.get('staked_amount', 0.0))
+                is_staked = staked_amount > 0.000001
+                total_amount = spot_amount + staked_amount
+                available_amount = spot_amount
 
                 current_price = coin.current or 0.0
                 if not current_price:
@@ -203,30 +210,34 @@ def api_coin_data_live():
                         except Exception:
                             current_price = 0.0
 
-                current_value = amount * current_price if current_price else 0.0
+                current_value = total_amount * current_price if current_price else 0.0
 
                 now_timestamp = int(time.time())
                 if record_price_history_snapshot(symbol, current_price, now_timestamp):
                     price_changed = True
 
-                if coin.hidden:
+                if coin.hidden and not is_staked:
                     continue
 
-                if amount < 0.0001 and not getattr(coin, 'force_visible', False):
+                if total_amount < 0.0001 and not getattr(coin, 'force_visible', False):
                     if not coin.hidden:
                         coin.hidden = True
                         coin.auto_hidden = True
                         visibility_changed = True
                     continue
+                elif is_staked and coin.hidden and getattr(coin, 'auto_hidden', False):
+                    coin.hidden = False
+                    coin.auto_hidden = False
+                    visibility_changed = True
 
-                avg_entry_val = _to_float(coin.avg_entry) if amount > 0.00000001 else 0.0
+                avg_entry_val = _to_float(coin.avg_entry) if total_amount > 0.00000001 else 0.0
                 cost_basis = get_cost_basis_for_asset(
                     current_user.id,
                     symbol,
-                    target_amount=amount,
-                ) if amount > 0.00000001 else 0.0
+                    target_amount=total_amount,
+                ) if total_amount > 0.00000001 else 0.0
                 pct_change = 0.0
-                if amount > 0.00000001 and avg_entry_val > 0:
+                if total_amount > 0.00000001 and avg_entry_val > 0:
                     pct_change = ((current_price - avg_entry_val) / avg_entry_val) * 100
 
                 sentiment = get_coin_sentiment(symbol, coin, current_price, current_user.username)
@@ -241,13 +252,17 @@ def api_coin_data_live():
                 portfolio.append({
                     "id": coin.id,
                     "symbol": symbol,
-                    "amount": amount,
+                    "amount": total_amount,
+                    "available_amount": available_amount,
+                    "staked_amount": staked_amount,
+                    "is_staked": is_staked,
+                    "staking_status": staked_info.get('status', 'staked') if is_staked else None,
                     "initial_price": avg_entry_val,
                     "avg_entry": avg_entry_val,
-                    "initial_value": (coin.initial_value if _to_float(coin.initial_value) > 0 else (avg_entry_val * amount if avg_entry_val and amount else 0.0)),
+                    "initial_value": (coin.initial_value if _to_float(coin.initial_value) > 0 else (avg_entry_val * total_amount if avg_entry_val and total_amount else 0.0)),
                     "purchase_date": coin.purchase_date,
                     "current_price": current_price,
-                    "current_value": current_value,
+                    "current_value": round(current_value, 2),
                     "cost_basis": cost_basis,
                     "pct_change": pct_change,
                     "high_24h": high_24h,
@@ -291,24 +306,33 @@ def api_coin_data_live():
             except Exception as e:
                 try:
                     symbol = (coin.symbol or '').upper()
-                    amount = _to_float(getattr(coin, 'amount', 0))
+                    spot_amount = _to_float(getattr(coin, 'amount', 0))
+                    staked_info = staked_map.get(symbol, {})
+                    staked_amount = float(staked_info.get('staked_amount', 0.0))
+                    is_staked = staked_amount > 0.000001
+                    total_amount = spot_amount + staked_amount
+                    available_amount = spot_amount
                     avg_entry_val = _to_float(getattr(coin, 'avg_entry', 0))
                     current_price = _to_float(getattr(coin, 'current', 0)) or avg_entry_val
-                    current_value = amount * (current_price or 0)
+                    current_value = total_amount * (current_price or 0)
                     cid = getattr(coin, 'id', None)
                     fallback_news = news_cache.get(cid, {}) if cid else {}
-                    if amount < 0.0001:
+                    if total_amount < 0.0001:
                         continue
                     portfolio.append({
                         "id": getattr(coin, 'id', None),
                         "symbol": symbol,
-                        "amount": amount,
+                        "amount": total_amount,
+                        "available_amount": available_amount,
+                        "staked_amount": staked_amount,
+                        "is_staked": is_staked,
+                        "staking_status": staked_info.get('status', 'staked') if is_staked else None,
                         "initial_price": avg_entry_val,
                         "avg_entry": avg_entry_val,
-                        "initial_value": (getattr(coin, 'initial_value', 0) if _to_float(getattr(coin, 'initial_value', 0)) > 0 else (avg_entry_val * amount if avg_entry_val and amount else 0.0)),
+                        "initial_value": (getattr(coin, 'initial_value', 0) if _to_float(getattr(coin, 'initial_value', 0)) > 0 else (avg_entry_val * total_amount if avg_entry_val and total_amount else 0.0)),
                         "purchase_date": getattr(coin, 'purchase_date', None),
                         "current_price": current_price,
-                        "current_value": current_value,
+                        "current_value": round(current_value, 2),
                         "pct_change": 0.0,
                         "sentiment": getattr(coin, 'sentiment', 'Error') or 'Error',
                         "sentiment_reason": getattr(coin, 'sentiment_reason', "") or "",
@@ -388,42 +412,49 @@ def api_coin_data():
 
         news_cache = get_user_latest_news_cache(current_user.id)
         ticker_map = _get_binance_24h_tickers()
+        from services.staking_service import get_user_staked_balance_map
+        staked_map = get_user_staked_balance_map(current_user.id)
 
         for coin in coins:
             try:
                 symbol = (coin.symbol or '').upper().strip()
                 if not symbol:
                     continue
-                # logger.error(f"[DEBUG] Processing coin: {symbol}")
-                amount = _to_float(coin.amount)
-                # logger.error(f"[DEBUG] {symbol} amount: {amount}")
+                spot_amount = _to_float(coin.amount)
+                staked_info = staked_map.get(symbol, {})
+                staked_amount = float(staked_info.get('staked_amount', 0.0))
+                is_staked = staked_amount > 0.000001
+                total_amount = spot_amount + staked_amount
+                available_amount = spot_amount
 
                 if symbol in ['USD', 'USDT', 'USDC', 'DAI']:
                     current_price = 1.0
                 else:
                     current_price = coin.current or _to_float(coin.avg_entry) or 0
 
-                current_value = amount * current_price if current_price else 0
-                # logger.error(f"[DEBUG] {symbol} current_value: {current_value}")
+                current_value = total_amount * current_price if current_price else 0
 
-                if coin.hidden:
-                    # logger.error(f"[DEBUG] {symbol} skipped: hidden flag")
+                if coin.hidden and not is_staked:
                     continue
 
-                if amount < 0.0001 and not getattr(coin, 'force_visible', False):
+                if total_amount < 0.0001 and not getattr(coin, 'force_visible', False):
                     if not coin.hidden:
                         coin.hidden = True
                         coin.auto_hidden = True
                         visibility_changed = True
                     continue
+                elif is_staked and coin.hidden and getattr(coin, 'auto_hidden', False):
+                    coin.hidden = False
+                    coin.auto_hidden = False
+                    visibility_changed = True
 
                 cost_basis = get_cost_basis_for_asset(
                     current_user.id,
                     symbol,
-                    target_amount=amount,
-                ) if amount > 0.00000001 else 0.0
-                avg_entry_val = _to_float(coin.avg_entry) if amount > 0.00000001 else 0.0
-                pct_change = round(((current_price - avg_entry_val) / avg_entry_val * 100), 6) if (amount > 0.00000001 and avg_entry_val > 0 and current_price) else 0.0
+                    target_amount=total_amount,
+                ) if total_amount > 0.00000001 else 0.0
+                avg_entry_val = _to_float(coin.avg_entry) if total_amount > 0.00000001 else 0.0
+                pct_change = round(((current_price - avg_entry_val) / avg_entry_val * 100), 6) if (total_amount > 0.00000001 and avg_entry_val > 0 and current_price) else 0.0
                 purchase_date = coin.purchase_date
                 coin_news = news_cache.get(coin.id) or news_cache.get(symbol) or {}
 
@@ -433,18 +464,21 @@ def api_coin_data():
                 volume_24h = float(ticker_info.get('quoteVolume') or ticker_info.get('volume') or 0.0) if (ticker_info.get('quoteVolume') or ticker_info.get('volume')) else None
                 change_24h = float(ticker_info['priceChangePercent']) if ticker_info.get('priceChangePercent') else None
 
-                # logger.error(f"[DEBUG] {symbol} included in portfolio response")
                 portfolio.append({
                     "id": coin.id,
                     "symbol": symbol,
+                    "amount": total_amount,
+                    "available_amount": available_amount,
+                    "staked_amount": staked_amount,
+                    "is_staked": is_staked,
+                    "staking_status": staked_info.get('status', 'staked') if is_staked else None,
                     "initial_price": avg_entry_val,
                     "avg_entry": avg_entry_val,
-                    "initial_value": (coin.initial_value if _to_float(coin.initial_value) > 0 else (avg_entry_val * amount if avg_entry_val and amount else 0.0)),
+                    "initial_value": (coin.initial_value if _to_float(coin.initial_value) > 0 else (avg_entry_val * total_amount if avg_entry_val and total_amount else 0.0)),
                     "purchase_date": purchase_date,
                     "current_price": current_price,
-                    "amount": amount,
                     "cost_basis": cost_basis,
-                    "current_value": round(current_value, 6),
+                    "current_value": round(current_value, 2),
                     "pct_change": pct_change,
                     "high_24h": high_24h,
                     "low_24h": low_24h,

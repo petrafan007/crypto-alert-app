@@ -79,13 +79,30 @@ export default function Staking({ isLightMode }) {
   // Auto-open stake modal if coin parameter is present
   useEffect(() => {
     const coinParam = searchParams.get('coin');
-    if (coinParam && stakingAssets.length > 0 && !showStakeModal) {
+    const actionParam = searchParams.get('action');
+    if (coinParam && actionParam === 'unstake' && !showUnstakeModal) {
+      const staked = (stakedCoins || []).find(c => (c.symbol || c.asset) === coinParam)
+        || (pendingPositions || []).find(p => (p.asset || p.symbol) === coinParam)
+        || (portfolioMap[coinParam] ? {
+            asset: coinParam,
+            stakingAmount: parseFloat(portfolioMap[coinParam].balance || 0),
+            currentPrice: portfolioMap[coinParam].price || 0
+          } : null);
+      if (staked) {
+        handleUnstakeClick({
+          ...staked,
+          asset: staked.asset || staked.symbol || coinParam,
+          stakingAmount: Number(staked.stakingAmount || staked.amount || 0),
+          currentPrice: Number(staked.currentPrice || staked.current_price || 0)
+        });
+      }
+    } else if (coinParam && stakingAssets.length > 0 && !showStakeModal && actionParam !== 'unstake') {
       const asset = stakingAssets.find(a => a.stakingAsset === coinParam);
       if (asset) {
         handleStakeClick(asset);
       }
     }
-  }, [searchParams, stakingAssets]);
+  }, [searchParams, stakingAssets, stakedCoins, pendingPositions, portfolioMap, showUnstakeModal, showStakeModal]);
 
   const fetchSettings = async () => {
     try {
