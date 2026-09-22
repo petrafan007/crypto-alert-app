@@ -461,6 +461,11 @@ def api_place_order():
         
         if not all([side, symbol, order_type, quantity]):
             return jsonify({'success': False, 'error': 'Missing required fields'})
+
+        from services.trading_2fa_service import require_live_trading_2fa
+        two_factor_error = require_live_trading_2fa(current_user.id, data, 'place this live Binance.US order')
+        if two_factor_error:
+            return jsonify(success=False, error=two_factor_error, requires_2fa=True), 403
         
         # Get Binance credentials for the user
         creds = Credential.query.filter_by(user_id=current_user.id).first()
@@ -1147,25 +1152,18 @@ def api_portfolio_analysis():
 @portfolio_bp.route('/api/cancel-order/<order_id>', methods=['POST'])
 @login_required
 def api_cancel_order(order_id):
-    """Cancel an existing Binance order with optional 2FA verification"""
+    """Cancel an existing Binance order after fresh 2FA verification."""
     try:
         data = request.get_json() or {}
         symbol = (data.get('symbol') or '').upper()
-        two_factor_code = data.get('two_factor_code') or ''
 
         if not symbol:
             return jsonify({'error': 'Symbol is required for order cancellation'}), 400
 
-        settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
-        if settings and settings.require_2fa and settings.totp_secret:
-            if not two_factor_code:
-                return jsonify({'error': 'Two-factor code is required', 'requires_2fa': True}), 400
-            try:
-                if not verify_totp_code(settings.totp_secret, two_factor_code):
-                    return jsonify({'error': 'Invalid two-factor code', 'requires_2fa': True}), 400
-            except Exception as totp_err:
-                logger.error(f"2FA verification failed: {totp_err}")
-                return jsonify({'error': 'Two-factor verification failed', 'requires_2fa': True}), 400
+        from services.trading_2fa_service import require_live_trading_2fa
+        two_factor_error = require_live_trading_2fa(current_user.id, data, 'cancel this live Binance.US order')
+        if two_factor_error:
+            return jsonify(error=two_factor_error, requires_2fa=True), 403
 
         # Use SQLAlchemy ORM instead of direct SQLite
         creds = Credential.query.filter_by(user_id=current_user.id).first()
@@ -2657,7 +2655,7 @@ def verify_2fa_code():
         
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
         if not settings or not settings.totp_secret:
-            return jsonify({'success': False, 'error': '2FA is not enabled'}), 400
+            return jsonify({'success': False, 'error': 'Set up two-factor authentication in Settings before placing live orders.'}), 400
         
         # Verify code
         if not verify_totp_code(settings.totp_secret, code):
@@ -2949,25 +2947,10 @@ def place_real_order():
             data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount')
         )
         
-        # Check if 2FA is required (ALWAYS for real orders)
-        if settings.require_2fa and settings.totp_secret:
-            # Verify 2FA token
-            twofa_token = data.get('twofa_token')
-            if not twofa_token:
-                return jsonify({'success': False, 'error': '2FA verification required for real orders', 'requires_2fa': True}), 403
-            
-            # Check token validity
-            token_data = session.get(f'2fa_verified_{twofa_token}')
-            if not token_data or token_data['user_id'] != current_user.id:
-                return jsonify({'success': False, 'error': '2FA verification invalid or expired', 'requires_2fa': True}), 403
-            
-            # Check if token is not older than 2 minutes
-            if (time.time() - token_data['timestamp']) > 120:
-                session.pop(f'2fa_verified_{twofa_token}', None)
-                return jsonify({'success': False, 'error': '2FA verification expired. Please verify again.', 'requires_2fa': True}), 403
-            
-            # Clear the token after use
-            session.pop(f'2fa_verified_{twofa_token}', None)
+        from services.trading_2fa_service import require_live_trading_2fa
+        two_factor_error = require_live_trading_2fa(current_user.id, data, 'place this live Binance.US order')
+        if two_factor_error:
+            return jsonify(success=False, error=two_factor_error, requires_2fa=True), 403
         
         # Get Binance.US Trading credentials using SQLAlchemy ORM
         creds = Credential.query.filter_by(user_id=current_user.id).first()
@@ -3327,12 +3310,11 @@ def _synthetic_request_mode(data):
         return None, (jsonify(success=False, error='Disable test mode in settings before creating a live synthetic order.'), 409)
     if broker == 'webull' and test_mode and not paper_enabled:
         return None, (jsonify(success=False, error='Enable Webull Test Mode before creating a paper order.'), 409)
-    if not test_mode and settings and settings.require_2fa and settings.totp_secret:
-        token = data.get('twofa_token')
-        verified = session.get(f'2fa_verified_{token}', {}) if token else {}
-        if verified.get('user_id') != current_user.id or time.time() - verified.get('timestamp', 0) > 120:
-            return None, (jsonify(success=False, error='Two-factor verification is required.', requires_2fa=True), 403)
-        session.pop(f'2fa_verified_{token}', None)
+    if not test_mode:
+        from services.trading_2fa_service import require_live_trading_2fa
+        two_factor_error = require_live_trading_2fa(current_user.id, data, 'create this live synthetic strategy')
+        if two_factor_error:
+            return None, (jsonify(success=False, error=two_factor_error, requires_2fa=True), 403)
     if broker == 'webull' and not test_mode:
         from types import SimpleNamespace
         from services.synthetic_execution_service import webull_credentials, environment_for
@@ -3422,6 +3404,13 @@ def api_get_trailing_orders():
 def api_cancel_trailing_order(order_id):
     """Cancel an active trailing order"""
     try:
+        from trading_models import TrailingOrder
+        order = TrailingOrder.query.filter_by(id=order_id, user_id=current_user.id).first_or_404()
+        if not order.test_mode:
+            from services.trading_2fa_service import require_live_trading_2fa
+            error = require_live_trading_2fa(current_user.id, request.get_json(silent=True) or {}, 'cancel this live synthetic strategy')
+            if error:
+                return jsonify(success=False, error=error, requires_2fa=True), 403
         from services.trailing_order_service import cancel_trailing_order
         cancelled = cancel_trailing_order(order_id, current_user.id)
         return jsonify({'success': True, 'trailing_order': cancelled})
@@ -3529,6 +3518,13 @@ def api_get_ladder_orders():
 def api_cancel_ladder_order(ladder_id):
     """Cancel an active ladder order and remaining rungs"""
     try:
+        from trading_models import LadderOrder
+        order = LadderOrder.query.filter_by(id=ladder_id, user_id=current_user.id).first_or_404()
+        if not order.test_mode:
+            from services.trading_2fa_service import require_live_trading_2fa
+            error = require_live_trading_2fa(current_user.id, request.get_json(silent=True) or {}, 'cancel this live synthetic strategy')
+            if error:
+                return jsonify(success=False, error=error, requires_2fa=True), 403
         from services.ladder_order_service import cancel_ladder_order
         cancelled = cancel_ladder_order(ladder_id, current_user.id)
         return jsonify({'success': True, 'ladder_order': cancelled})
@@ -4445,6 +4441,11 @@ def place_real_oco_order():
                         }), 400
             except Exception as balance_err:
                 logger.error(f"OCO sell base balance check failed: {balance_err}")
+
+        from services.trading_2fa_service import require_live_trading_2fa
+        two_factor_error = require_live_trading_2fa(current_user.id, data, 'place this live Binance.US OCO order')
+        if two_factor_error:
+            return jsonify(success=False, error=two_factor_error, requires_2fa=True), 403
 
         # Place real OCO order on Binance.US
         try:

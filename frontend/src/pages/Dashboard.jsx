@@ -8,6 +8,8 @@ import PriceHistoryPopup from '../components/PriceHistoryPopup';
 import AIAnalysisModal from '../components/AIAnalysisModal';
 import { useAuth } from '../components/AuthContext';
 import { showAppToast } from '../utils/toast';
+import { showAppAlert } from '../components/AppDialog';
+import TotpCodeInput from '../components/TotpCodeInput';
 import { formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import FearGreedWidget from '../components/FearGreedWidget';
 import CBBIWidget from '../components/CBBIWidget';
@@ -610,6 +612,7 @@ function Dashboard({ isLightMode }) {
     volatilityPct: 0,
     volatilityHours: 24,
     confirmationMinutes: 15,
+    twoFactorCode: '',
     loading: false,
     error: ''
   });
@@ -623,6 +626,7 @@ function Dashboard({ isLightMode }) {
     volatilityPct: 0,
     volatilityHours: 24,
     confirmationMinutes: 15,
+    twoFactorCode: '',
     freeBalance: 0,
     reservedBalance: 0,
     availableBalance: 0,
@@ -1125,6 +1129,7 @@ function Dashboard({ isLightMode }) {
       volatilityPct: volPct > 0 ? volPct : (coin?.auto_sell_volatility_pct || 5),
       volatilityHours: volatilityHoursSetting,
       confirmationMinutes: automatedTriggerConfirmationMinutes,
+      twoFactorCode: '',
       loading: false,
       error: ''
     });
@@ -1132,6 +1137,10 @@ function Dashboard({ isLightMode }) {
 
   const handleConfirmAutoSell = async (enable = true) => {
     if (!autoSellModal.symbol) return;
+    if (!/^\d{6}$/.test(autoSellModal.twoFactorCode || '')) {
+      setAutoSellModal(prev => ({ ...prev, error: 'Enter a fresh 6-digit two-factor authentication code.' }));
+      return;
+    }
     setAutoSellModal(prev => ({ ...prev, loading: true, error: '' }));
     try {
       const payload = {
@@ -1140,7 +1149,8 @@ function Dashboard({ isLightMode }) {
         table_type: autoSellModal.tableType,
         quote_currency: autoSellModal.quoteCurrency,
         volatility_pct: autoSellModal.volatilityPct,
-        enabled: enable
+        enabled: enable,
+        two_factor_code: autoSellModal.twoFactorCode,
       };
       const res = await axios.post('/api/portfolio/trigger-auto-sell', payload, { withCredentials: true });
       if (res.data.success) {
@@ -1218,6 +1228,7 @@ function Dashboard({ isLightMode }) {
       volatilityPct: volPct > 0 ? volPct : (coin?.auto_buy_volatility_pct || 5),
       volatilityHours: volatilityHoursSetting,
       confirmationMinutes: automatedTriggerConfirmationMinutes,
+      twoFactorCode: '',
       freeBalance: 0,
       reservedBalance: 0,
       availableBalance: 0,
@@ -1256,6 +1267,10 @@ function Dashboard({ isLightMode }) {
 
   const handleConfirmAutoBuy = async (enable = true) => {
     if (!autoBuyModal.symbol) return;
+    if (!/^\d{6}$/.test(autoBuyModal.twoFactorCode || '')) {
+      setAutoBuyModal(prev => ({ ...prev, error: 'Enter a fresh 6-digit two-factor authentication code.' }));
+      return;
+    }
     if (enable) {
       const numAmt = parseFloat(autoBuyModal.amount);
       if (isNaN(numAmt) || numAmt < 1.00) {
@@ -1280,7 +1295,8 @@ function Dashboard({ isLightMode }) {
         quote_currency: autoBuyModal.quoteCurrency,
         amount: parseFloat(autoBuyModal.amount) || 0,
         volatility_pct: autoBuyModal.volatilityPct,
-        enabled: enable
+        enabled: enable,
+        two_factor_code: autoBuyModal.twoFactorCode,
       };
       const res = await axios.post('/api/portfolio/trigger-auto-buy', payload, { withCredentials: true });
       if (res.data.success) {
@@ -3455,7 +3471,7 @@ function Dashboard({ isLightMode }) {
 
   const handleStakeSubmit = async () => {
     if (!stakingCoin || !stakeAmount || parseFloat(stakeAmount) <= 0) {
-      alert('Please enter a valid amount');
+      showAppAlert('Please enter a valid amount.');
       return;
     }
 
@@ -3468,15 +3484,15 @@ function Dashboard({ isLightMode }) {
 
       if (response.data.success) {
         setShowStakeModal(false);
-        alert(`Successfully staked ${stakeAmount} ${stakingCoin.symbol}`);
+        showAppAlert(`Successfully staked ${stakeAmount} ${stakingCoin.symbol}.`, { title: 'Staking Submitted' });
         // Refresh portfolio data
         window.location.reload();
       } else {
-        alert(response.data.error || 'Staking failed');
+        showAppAlert(response.data.error || 'Staking failed.', { title: 'Staking Failed' });
       }
     } catch (err) {
       console.error('Staking error:', err);
-      alert(err.response?.data?.error || 'Failed to stake asset');
+      showAppAlert(err.response?.data?.error || 'Failed to stake asset.', { title: 'Staking Failed' });
     }
   };
 
@@ -5913,6 +5929,20 @@ function Dashboard({ isLightMode }) {
                 </div>
               )}
 
+              <div style={{ marginBottom: '16px' }}>
+                <label htmlFor="auto-sell-totp" style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600 }}>
+                  2FA code required to {autoSellModal.coin?.auto_sell_enabled ? 'update or disable' : 'enable'} this live strategy
+                </label>
+                <TotpCodeInput
+                  id="auto-sell-totp"
+                  value={autoSellModal.twoFactorCode}
+                  onChange={(event) => setAutoSellModal(prev => ({ ...prev, twoFactorCode: event.target.value, error: '' }))}
+                  placeholder="000000"
+                  className="two-factor-input"
+                  disabled={autoSellModal.loading}
+                />
+              </div>
+
               {autoSellModal.error && (
                 <div style={{
                   padding: '10px 14px',
@@ -5933,7 +5963,7 @@ function Dashboard({ isLightMode }) {
                   className="btn btn-secondary"
                   style={{ marginRight: 'auto', color: '#f87171', borderColor: 'rgba(239,68,68,0.4)' }}
                   onClick={() => handleConfirmAutoSell(false)}
-                  disabled={autoSellModal.loading}
+                  disabled={autoSellModal.loading || !/^\d{6}$/.test(autoSellModal.twoFactorCode || '')}
                 >
                   Disable Auto-Sell
                 </button>
@@ -5949,7 +5979,7 @@ function Dashboard({ isLightMode }) {
                 className="btn btn-primary"
                 style={{ backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#fff', fontWeight: '600' }}
                 onClick={() => handleConfirmAutoSell(true)}
-                disabled={autoSellModal.loading}
+                disabled={autoSellModal.loading || !/^\d{6}$/.test(autoSellModal.twoFactorCode || '')}
               >
                 {autoSellModal.loading ? 'Enabling...' : 'Yes'}
               </button>
@@ -6091,6 +6121,20 @@ function Dashboard({ isLightMode }) {
                 </div>
               )}
 
+              <div style={{ marginBottom: '16px' }}>
+                <label htmlFor="auto-buy-totp" style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600 }}>
+                  2FA code required to {autoBuyModal.coin?.auto_buy_enabled ? 'update or disable' : 'enable'} this live strategy
+                </label>
+                <TotpCodeInput
+                  id="auto-buy-totp"
+                  value={autoBuyModal.twoFactorCode}
+                  onChange={(event) => setAutoBuyModal(prev => ({ ...prev, twoFactorCode: event.target.value, error: '' }))}
+                  placeholder="000000"
+                  className="two-factor-input"
+                  disabled={autoBuyModal.loading}
+                />
+              </div>
+
               {autoBuyModal.error && (
                 <div style={{
                   padding: '10px 14px',
@@ -6111,7 +6155,7 @@ function Dashboard({ isLightMode }) {
                   className="btn btn-secondary"
                   style={{ marginRight: 'auto', color: '#f87171', borderColor: 'rgba(239,68,68,0.4)' }}
                   onClick={() => handleConfirmAutoBuy(false)}
-                  disabled={autoBuyModal.loading}
+                  disabled={autoBuyModal.loading || !/^\d{6}$/.test(autoBuyModal.twoFactorCode || '')}
                 >
                   Disable Auto-Buy
                 </button>
@@ -6127,7 +6171,7 @@ function Dashboard({ isLightMode }) {
                 className="btn btn-primary"
                 style={{ backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#fff', fontWeight: '600' }}
                 onClick={() => handleConfirmAutoBuy(true)}
-                disabled={autoBuyModal.loading || autoBuyModal.availableBalance < 1.00 || !autoBuyModal.amount || parseFloat(autoBuyModal.amount) < 1.00}
+                disabled={autoBuyModal.loading || autoBuyModal.availableBalance < 1.00 || !autoBuyModal.amount || parseFloat(autoBuyModal.amount) < 1.00 || !/^\d{6}$/.test(autoBuyModal.twoFactorCode || '')}
               >
                 {autoBuyModal.loading ? 'Enabling...' : 'Enable Auto-Buy'}
               </button>

@@ -23,6 +23,7 @@ const TradingRiskDisclosure = React.lazy(() => import('./pages/TradingRiskDisclo
 const Support = React.lazy(() => import('./pages/Support'));
 import ToastNotifications from './components/ToastNotifications';
 import ErrorBoundary from './components/ErrorBoundary';
+import AppDialogHost from './components/AppDialog';
 import { APP_VERSION } from './version';
 import './App.css';
 import './theme.css';
@@ -620,6 +621,7 @@ export default function App() {
 
       {/* Global Toast Notifications */}
       <ToastNotifications isLightMode={isLightMode} />
+      <AppDialogHost />
     </div>
   );
 }

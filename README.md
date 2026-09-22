@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.9.2
+**Version:** 3.9.3
 
 ## Recent Updates
+
+### v3.9.3
+- **App-owned confirmations:** Removed native browser alerts and confirmations from the frontend. Synthetic strategy cancellation, paper-account reset, exports, analysis, staking, and other notices now use responsive, theme-aware application dialogs.
+- **Mandatory 2FA for live trading:** Every user-initiated Binance.US and Webull live order placement, replacement, schedule, synthetic strategy creation, and cancellation requires a fresh authenticator code or a single-use verified token. This applies to market, limit, stop, take-profit, OCO, bracket, trailing, ladder, multi-leg, scheduled, and auto-buy/auto-sell actions even when the legacy 2FA preference is off. Live trading is blocked until an authenticator is enrolled; paper orders remain exempt.
+- **Protected synthetic cancellation:** Consolidated Orders and both trading pages now show the app cancellation modal with broker, account, symbol, unfilled-strategy behavior, reconciliation details, and a required 6-digit code for live strategies. Filled quantities are explicitly identified as irreversible.
+- [Dialog and live-trading authorization details](docs/live_trading_2fa_v3.9.3.md).
 
 ### v3.9.2
 - **Complete portfolio tooltips:** Synthetic order hover text now includes both profit and protection, per-side step progress and next triggers, filled/remaining quantity, correct quote currency, and trailing activation/stop details.

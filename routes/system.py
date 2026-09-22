@@ -551,29 +551,9 @@ system_bp = Blueprint('system', __name__)
 
 
 def _cancellation_2fa_error(data):
-    """Return a cancellation 2FA error message, or ``None`` when verified.
-
-    The UI always presents the native six-digit confirmation modal.  When the
-    user has trading 2FA enabled, this server-side check is the authority that
-    prevents a Webull or app-trigger cancellation from bypassing that modal.
-    """
-    from trading_models import TradingSettings
-
-    settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
-    if not settings or not getattr(settings, 'require_2fa', False) or not getattr(settings, 'totp_secret', None):
-        return None
-
-    code = str((data or {}).get('two_factor_code') or (data or {}).get('twofa_code') or '').strip()
-    if len(code) != 6 or not code.isdigit():
-        return 'A valid 6-digit two-factor authentication code is required to cancel this order.'
-
-    try:
-        if not verify_totp_code(settings.totp_secret, code):
-            return 'Invalid or expired two-factor authentication code.'
-    except Exception as exc:
-        logger.error('Cancellation 2FA verification failed: %s', exc)
-        return 'Two-factor authentication verification failed.'
-    return None
+    """Require fresh 2FA for every live cancellation."""
+    from services.trading_2fa_service import require_live_trading_2fa
+    return require_live_trading_2fa(current_user.id, data, 'cancel this live order')
 
 
 GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/petrafan007/crypto-alert-app/releases'
@@ -2577,29 +2557,10 @@ def api_webull_create_scheduled_order():
         except WebullConnectionError as exc:
             return jsonify({'success': False, 'message': str(exc)}), 400
 
-        # Enforce 2FA verification if enabled for user
-        from trading_models import TradingSettings
-        trading_settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
-        if trading_settings and getattr(trading_settings, 'require_2fa', False) and getattr(trading_settings, 'totp_secret', None):
-            twofa_token = data.get('twofa_token')
-            twofa_code = data.get('twofa_code') or data.get('two_factor_code')
-            verified = False
-            if twofa_token:
-                token_data = session.get(f'2fa_verified_{twofa_token}')
-                if token_data and token_data.get('user_id') == current_user.id:
-                    if time.time() - token_data.get('timestamp', 0) <= 120:
-                        verified = True
-                        session.pop(f'2fa_verified_{twofa_token}', None)
-            if not verified and twofa_code:
-                if verify_totp_code(trading_settings.totp_secret, twofa_code):
-                    verified = True
-
-            if not verified:
-                return jsonify({
-                    'success': False,
-                    'message': 'Two-factor authentication (2FA) verification is required to schedule orders.',
-                    'requires_2fa': True,
-                }), 403
+        from services.trading_2fa_service import require_live_trading_2fa
+        two_factor_error = require_live_trading_2fa(current_user.id, data, 'schedule this live Webull order')
+        if two_factor_error:
+            return jsonify(success=False, message=two_factor_error, requires_2fa=True), 403
 
         from services.webull_scheduled_order_service import create_scheduled_fractional_order
         order_dict = create_scheduled_fractional_order(
@@ -2785,28 +2746,12 @@ def api_webull_place_order():
                 return jsonify({'success': False, 'message': str(exc)}), 400
 
         replacing_order_id = data.get('replacing_order_id')
-        if replacing_order_id:
-            if is_test_order:
-                from services.webull_paper_trading_service import cancel_webull_test_order
-                try:
-                    cancel_webull_test_order(current_user.id, replacing_order_id)
-                except Exception as cancel_err:
-                    logger.warning(f"Could not cancel simulated order {replacing_order_id} during replace: {cancel_err}")
-            else:
-                credential = Credential.query.filter_by(user_id=current_user.id).first()
-                environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
-                acc_id = data.get('account_id')
-                if credential and credential.webull_access_token and acc_id:
-                    try:
-                        from services.webull_service import cancel_webull_order
-                        cancel_webull_order(
-                            credential.webull_app_key, credential.webull_app_secret,
-                            environment, credential.webull_access_token,
-                            account_id=acc_id, order_id=replacing_order_id,
-                        )
-                        time.sleep(1.0)
-                    except Exception as cancel_err:
-                        logger.warning(f"Could not cancel live order {replacing_order_id} during replace: {cancel_err}")
+        if replacing_order_id and is_test_order:
+            from services.webull_paper_trading_service import cancel_webull_test_order
+            try:
+                cancel_webull_test_order(current_user.id, replacing_order_id)
+            except Exception as cancel_err:
+                logger.warning(f"Could not cancel simulated order {replacing_order_id} during replace: {cancel_err}")
 
         if is_test_order:
             data['test_mode'] = True
@@ -3116,29 +3061,22 @@ def api_webull_place_order():
                     ),
                 }), 400
 
-        # Enforce 2FA verification if enabled for user
-        from trading_models import TradingSettings
-        trading_settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
-        if trading_settings and getattr(trading_settings, 'require_2fa', False) and getattr(trading_settings, 'totp_secret', None):
-            twofa_token = data.get('twofa_token')
-            twofa_code = data.get('twofa_code') or data.get('two_factor_code')
-            verified = False
-            if twofa_token:
-                token_data = session.get(f'2fa_verified_{twofa_token}')
-                if token_data and token_data.get('user_id') == current_user.id:
-                    if time.time() - token_data.get('timestamp', 0) <= 120:
-                        verified = True
-                        session.pop(f'2fa_verified_{twofa_token}', None)
-            if not verified and twofa_code:
-                if verify_totp_code(trading_settings.totp_secret, twofa_code):
-                    verified = True
+        from services.trading_2fa_service import require_live_trading_2fa
+        two_factor_error = require_live_trading_2fa(current_user.id, data, 'place or replace this live Webull order')
+        if two_factor_error:
+            return jsonify(success=False, message=two_factor_error, requires_2fa=True), 403
 
-            if not verified:
-                return jsonify({
-                    'success': False,
-                    'message': 'Two-factor authentication (2FA) verification is required to place orders.',
-                    'requires_2fa': True,
-                }), 403
+        if replacing_order_id:
+            try:
+                from services.webull_service import cancel_webull_order
+                cancel_webull_order(
+                    credential.webull_app_key, credential.webull_app_secret,
+                    environment, credential.webull_access_token,
+                    account_id=account_id, order_id=replacing_order_id,
+                )
+                time.sleep(1.0)
+            except Exception as cancel_err:
+                logger.warning(f"Could not cancel live order {replacing_order_id} during replace: {cancel_err}")
 
         result = place_webull_order(
             credential.webull_app_key, credential.webull_app_secret,
@@ -4372,10 +4310,14 @@ def trigger_auto_sell():
             quote_currency = 'USDT'
         enabled = data.get('enabled', True)
         volatility_pct = data.get('volatility_pct')
-        if not enabled:
-            two_factor_error = _cancellation_2fa_error(data)
-            if two_factor_error:
-                return jsonify({'success': False, 'error': two_factor_error, 'requires_2fa': True}), 403
+        from services.trading_2fa_service import require_live_trading_2fa
+        two_factor_error = require_live_trading_2fa(
+            current_user.id,
+            data,
+            f"{'enable' if enabled else 'cancel'} this live Binance.US auto-sell strategy",
+        )
+        if two_factor_error:
+            return jsonify({'success': False, 'error': two_factor_error, 'requires_2fa': True}), 403
         
         user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         vol_hours = int(getattr(user_setting, 'volatility_hours', 24) or 24)
@@ -4520,10 +4462,14 @@ def trigger_auto_buy():
         enabled = data.get('enabled', True)
         amount = data.get('amount')
         volatility_pct = data.get('volatility_pct')
-        if not enabled:
-            two_factor_error = _cancellation_2fa_error(data)
-            if two_factor_error:
-                return jsonify({'success': False, 'error': two_factor_error, 'requires_2fa': True}), 403
+        from services.trading_2fa_service import require_live_trading_2fa
+        two_factor_error = require_live_trading_2fa(
+            current_user.id,
+            data,
+            f"{'enable' if enabled else 'cancel'} this live Binance.US auto-buy strategy",
+        )
+        if two_factor_error:
+            return jsonify({'success': False, 'error': two_factor_error, 'requires_2fa': True}), 403
 
         user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         vol_hours = int(getattr(user_setting, 'volatility_hours', 24) or 24)

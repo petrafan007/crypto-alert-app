@@ -13,6 +13,7 @@ import { Line } from 'react-chartjs-2';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import OptionsThesisModal from './OptionsThesisModal';
+import { showAppAlert } from './AppDialog';
 import {
   adaptiveScenarioRangePercent,
   americanOptionPrice,
@@ -282,7 +283,7 @@ export default function OptionsPayoffChart({
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error(error);
-      alert('Failed to export thesis');
+      showAppAlert('Failed to export thesis.');
     }
   };
 

@@ -282,6 +282,27 @@ class SyntheticLifecycleTests(unittest.TestCase):
             _, error = portfolio._synthetic_request_mode({'broker': 'binance', 'test_mode': False})
             self.assertEqual(error[1], 409)
 
+    def test_live_synthetic_cancellation_requires_code_but_paper_does_not(self):
+        from routes import portfolio
+        paper = self.create(test_mode=True)
+        live = self.create(test_mode=False)
+        with self.app.test_request_context(method='POST', json={}), \
+                patch.object(portfolio, 'current_user', SimpleNamespace(id=1)):
+            response = portfolio.api_cancel_ladder_order.__wrapped__(paper.id)
+            self.assertTrue(response.get_json()['success'])
+            response, status_code = portfolio.api_cancel_ladder_order.__wrapped__(live.id)
+            self.assertEqual(status_code, 403)
+            self.assertTrue(response.get_json()['requires_2fa'])
+
+        settings = db.session.get(TradingSettings, 1)
+        settings.totp_secret = 'secret'
+        db.session.commit()
+        with self.app.test_request_context(method='POST', json={'two_factor_code': '123456'}), \
+                patch.object(portfolio, 'current_user', SimpleNamespace(id=1)), \
+                patch('services.trading_2fa_service.verify_totp_code', return_value=True):
+            response = portfolio.api_cancel_ladder_order.__wrapped__(live.id)
+            self.assertTrue(response.get_json()['success'])
+
     def test_live_webull_routes_each_supported_instrument_and_waits_for_confirmation(self):
         cred = SimpleNamespace(webull_app_key='key', webull_app_secret='secret', webull_access_token='token')
         self.webull_submit.side_effect = None

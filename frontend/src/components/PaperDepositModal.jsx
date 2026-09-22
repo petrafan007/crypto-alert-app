@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { money } from '../utils/syntheticOrders.mjs';
 import './PaperDepositModal.css';
+import { showAppConfirm } from './AppDialog';
 
 export default function PaperDepositModal({ visible, broker, balances = {}, currencies = ['USD'], initialCurrency = 'USD', submitting, error, onClose, onDeposit, onReset }) {
   const [amount, setAmount] = useState('1000');
@@ -36,7 +37,10 @@ export default function PaperDepositModal({ visible, broker, balances = {}, curr
         <input id="paper-deposit-amount" ref={input} type="number" min="0.01" max="1000000000" step="0.01" value={amount} disabled={submitting} onChange={e => setAmount(e.target.value)} />
         {error && <p className="paper-deposit-error" role="alert">{error}</p>}
         <div className="paper-deposit-actions">
-          <button type="button" className="paper-reset" disabled={submitting} onClick={() => { if (window.confirm(`Reset the ${broker} paper account to zero, clear simulated holdings, and cancel active paper orders? Live balances are unaffected.`)) onReset(); }}>🔄 Reset Account</button>
+          <button type="button" className="paper-reset" disabled={submitting} onClick={async () => {
+            const confirmed = await showAppConfirm(`Reset the ${broker} paper account to zero, clear simulated holdings, and cancel active paper orders? Live balances are unaffected.`, { title: `Reset ${broker} Paper Account`, confirmLabel: 'Reset Account', cancelLabel: 'Keep Account', tone: 'danger' });
+            if (confirmed) onReset();
+          }}>🔄 Reset Account</button>
           <button type="button" disabled={submitting} onClick={onClose}>Cancel</button>
           <button type="submit" className="paper-confirm" disabled={!valid || submitting}>{submitting ? 'Processing…' : 'Confirm Deposit'}</button>
         </div>

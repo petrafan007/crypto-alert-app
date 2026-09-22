@@ -7,6 +7,7 @@ import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import TotpCodeInput from '../components/TotpCodeInput';
 import { formatEasternDateTime } from '../utils/dateTime';
+import { showAppAlert } from '../components/AppDialog';
 
 export default function Staking({ isLightMode }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -305,7 +306,7 @@ export default function Staking({ isLightMode }) {
         setTwoFactorCode('');
         setVerifying2FA(false);
         setError('');
-        alert(`Successfully staked ${payload.amount} ${payload.stakingAsset}`);
+        showAppAlert(`Successfully staked ${payload.amount} ${payload.stakingAsset}.`, { title: 'Staking Submitted' });
         fetchStakingData(); // Refresh data
       } else {
         setError(response.data.error || 'Staking failed');
@@ -321,7 +322,7 @@ export default function Staking({ isLightMode }) {
       if (err.response?.data?.requires_2fa) {
         setShowTwoFactorInput(true);
       } else {
-        alert(errorMsg);
+        showAppAlert(errorMsg, { title: 'Staking Failed' });
       }
     }
   };
@@ -384,7 +385,7 @@ export default function Staking({ isLightMode }) {
         setTwoFactorCode('');
         setVerifying2FA(false);
         setError('');
-        alert(response.data.message);
+        showAppAlert(response.data.message, { title: 'Redemption Submitted' });
         fetchStakingData(); // Refresh data
       } else {
         setError(response.data.error || 'Unstaking failed');
@@ -399,7 +400,7 @@ export default function Staking({ isLightMode }) {
       if (err.response?.data?.requires_2fa) {
         setShowTwoFactorInput(true);
       } else {
-        alert(errorMsg);
+        showAppAlert(errorMsg, { title: 'Redemption Failed' });
       }
     }
   };

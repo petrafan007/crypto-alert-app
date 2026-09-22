@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatEasternDateTime } from '../utils/dateTime';
+import { showAppAlert } from '../components/AppDialog';
 const QuantitativeStrategyEngine = React.lazy(() => import('../components/QuantitativeStrategyEngine'));
 import ProviderHealth from '../components/ProviderHealth';
 import PortfolioAuditProgress from '../components/PortfolioAuditProgress';
@@ -610,7 +611,7 @@ export default function Settings({ isLightMode }) {
       }
     } catch (err) {
       console.error('Failed to save Event Strategy AI config:');
-      alert(err.response?.data?.message || 'Failed to save AI configuration.');
+      showAppAlert(err.response?.data?.message || 'Failed to save AI configuration.');
     } finally {
       setEventStrategyAISaving(false);
     }
@@ -1722,7 +1723,7 @@ export default function Settings({ isLightMode }) {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Failed to export tax data:');
-      alert('Failed to export tax data. Please try again.');
+      showAppAlert('Failed to export tax data. Please try again.');
     }
   };
 

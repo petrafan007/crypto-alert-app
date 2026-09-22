@@ -5,6 +5,7 @@ import { formatEasternDate } from '../utils/dateTime';
 import { getAssetDisplaySymbol } from '../utils/assetDisplay';
 import { useAuth } from '../components/AuthContext';
 import ConfigurableOrderTable from '../components/ConfigurableOrderTable';
+import { showAppAlert } from '../components/AppDialog';
 
 export default function TaxReport({ isLightMode, source = 'binance' }) {
   const { user } = useAuth();
@@ -229,7 +230,7 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     try {
       // Validate required fields
       if (!newTransaction.date || !newTransaction.type || !newTransaction.asset || !newTransaction.amount) {
-        alert('Please fill in all required fields: Date, Type, Asset, and Amount');
+        showAppAlert('Please fill in all required fields: Date, Type, Asset, and Amount.');
         return;
       }
 
@@ -239,13 +240,13 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
         // Refresh the tax report data
         await fetchTaxReport();
         closeAddTransactionModal();
-        alert('Transaction added successfully!');
+        showAppAlert('Transaction added successfully!', { title: 'Transaction Added' });
       } else {
-        alert('Error: ' + (response.data.error || 'Failed to add transaction'));
+        showAppAlert(response.data.error || 'Failed to add transaction.', { title: 'Transaction Failed' });
       }
     } catch (err) {
       console.error('Error adding transaction:', err);
-      alert('Failed to add transaction: ' + (err.response?.data?.error || err.message));
+      showAppAlert(err.response?.data?.error || err.message || 'Failed to add transaction.', { title: 'Transaction Failed' });
     }
   };
 
@@ -314,7 +315,7 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
       setEditValue('');
     } catch (err) {
       console.error('Error saving edit:', err);
-      alert('Failed to save changes');
+      showAppAlert('Failed to save changes.');
     }
   };
 

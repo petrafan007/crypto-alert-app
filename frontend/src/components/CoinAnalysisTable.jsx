@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import ReportModal from './ReportModal';
+import { showAppAlert } from './AppDialog';
 import './CoinAnalysisTable.css';
 
 export default function CoinAnalysisTable() {
@@ -59,7 +60,7 @@ export default function CoinAnalysisTable() {
       }
     } catch (error) {
       console.error('Error running analysis:', error);
-      alert('Failed to run analysis. Please try again.');
+      showAppAlert('Failed to run analysis. Please try again.');
     } finally {
       setRunningAnalysis(prev => ({ ...prev, [identifier]: false }));
     }
@@ -183,4 +184,4 @@ export default function CoinAnalysisTable() {
       />
     </div>
   );
-} 
+}

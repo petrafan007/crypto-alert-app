@@ -1816,7 +1816,7 @@ const Trading = ({ isLightMode = false }) => {
         }
       }
 
-      if (settings.require_2fa && settings.totp_enabled) {
+      if (!settings.test_mode_enabled) {
         setTwoFactorModal({
           isVisible: true,
           orderData: buildOrderConfirmationDetails()
@@ -2205,7 +2205,7 @@ const Trading = ({ isLightMode = false }) => {
       <ConvertDustModal
         isVisible={dustModal.isVisible}
         onClose={() => setDustModal({ isVisible: false })}
-        require2fa={settings.require_2fa}
+        require2fa={!settings.test_mode_enabled}
         onSuccess={handleDustSuccess}
       />
 

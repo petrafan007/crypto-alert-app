@@ -252,7 +252,7 @@ class WebullScheduledOrdersTests(unittest.TestCase):
         self.assertTrue(mock_place.called)
 
     def test_endpoints_2fa_enforcement(self):
-        """Verify POST /api/webull/scheduled-orders enforces 2FA when require_2fa is enabled."""
+        """Every live scheduled order requires 2FA even if the legacy preference is off."""
         with self.app.test_request_context(
             '/api/webull/scheduled-orders',
             method='POST',
@@ -260,7 +260,7 @@ class WebullScheduledOrdersTests(unittest.TestCase):
         ):
             with patch.object(system, 'current_user', SimpleNamespace(id=1)), \
                  patch.object(system.UserSetting, 'query', _Query(SimpleNamespace())), \
-                 patch('trading_models.TradingSettings.query', _Query(SimpleNamespace(require_2fa=True, totp_secret='secret'))), \
+                 patch('trading_models.TradingSettings.query', _Query(SimpleNamespace(require_2fa=False, totp_secret='secret'))), \
                  patch.object(system, '_require_webull_account_access', return_value='acc-1'):
                 response, status_code = system.api_webull_create_scheduled_order.__wrapped__()
                 self.assertEqual(status_code, 403)

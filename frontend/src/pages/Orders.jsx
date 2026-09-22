@@ -439,23 +439,6 @@ export default function Orders() {
     }
   };
 
-  const handleCancelScheduledOrder = async (orderId) => {
-    if (!window.confirm('Are you sure you want to cancel this scheduled 9:30 AM order?')) return;
-    try {
-      setCancellingScheduledId(orderId);
-      const res = await axios.post(`/api/webull/scheduled-orders/${orderId}/cancel`, {}, { withCredentials: true });
-      if (res.data?.success) {
-        setScheduledOrders((prev) => prev.filter((o) => o.id !== orderId));
-      } else {
-        alert(res.data?.message || 'Failed to cancel scheduled order.');
-      }
-    } catch (err) {
-      alert(err.response?.data?.message || err.message || 'Failed to cancel scheduled order.');
-    } finally {
-      setCancellingScheduledId(null);
-    }
-  };
-
   const replaceOpenOrdersForSource = (source, orders) => {
     setOpenOrders((previous) => {
       const combined = new Map();
@@ -715,7 +698,9 @@ export default function Orders() {
       order: {
         ...order,
         cancel_provider: isWebull(order) ? 'Webull' : 'Binance.US',
-        cancel_account_label: isWebull(order) ? (account ? accountLabel(account) : order.webull_account_type || 'Webull account') : 'Binance.US',
+        cancel_account_label: isWebull(order)
+          ? (account ? accountLabel(account) : order.cancel_account_label || order.account_name || order.webull_account_type || order.account_id || 'Webull account')
+          : 'Binance.US',
       },
       error: '',
       loading: false,
@@ -734,7 +719,21 @@ export default function Orders() {
     setCancelModal((current) => ({ ...current, loading: true, error: '' }));
     setCancellingId(order.id);
     try {
-      if (isAutoTrigger) {
+      if (order.is_scheduled_order) {
+        setCancellingScheduledId(order.id);
+        const response = await axios.post(
+          `/api/webull/scheduled-orders/${order.id}/cancel`,
+          { two_factor_code: twoFactorCode },
+          { withCredentials: true },
+        );
+        if (response.data?.success) {
+          setScheduledOrders((previous) => previous.filter((candidate) => candidate.id !== order.id));
+          setNotice(response.data.message || 'Scheduled Webull order cancelled.');
+          setCancelModal({ isVisible: false, order: null, error: '', loading: false });
+        } else {
+          setCancelModal((current) => ({ ...current, loading: false, error: response.data?.message || 'Failed to cancel scheduled order.' }));
+        }
+      } else if (isAutoTrigger) {
         const response = await axios.post(
           triggerType === 'auto_buy' ? '/api/portfolio/trigger-auto-buy' : '/api/portfolio/trigger-auto-sell',
           {
@@ -784,6 +783,7 @@ export default function Orders() {
       }));
     } finally {
       setCancellingId(null);
+      setCancellingScheduledId(null);
     }
   };
 
@@ -924,7 +924,13 @@ export default function Orders() {
                                   type="button"
                                   className="btn btn-danger btn-sm"
                                   disabled={cancellingScheduledId === order.id}
-                                  onClick={() => handleCancelScheduledOrder(order.id)}
+                                  onClick={() => openCancelModalForOrder({
+                                    ...order,
+                                    source: 'webull',
+                                    is_scheduled_order: true,
+                                    cancel_provider: 'Webull',
+                                    cancel_account_label: order.account_name || order.account_id || 'Webull account',
+                                  })}
                                   style={{ padding: '4px 10px', fontSize: '12px' }}
                                 >
                                   {cancellingScheduledId === order.id ? 'Cancelling…' : 'Cancel'}

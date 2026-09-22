@@ -48,6 +48,7 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
     if (!details) return '';
     const side = (details.side || 'BUY').toUpperCase();
     const { baseAsset, quoteAsset } = splitSymbol(details.symbol);
+    if (side === 'MULTI-LEG') return `Submit ${details.type || 'combo'} for ${baseAsset}`;
     if (side === 'STAKE') return `Stake ${baseAsset}`;
     if (side === 'SELL') return `Sell ${baseAsset}${quoteAsset ? ` for ${quoteAsset}` : ''}`;
     if (side === 'SHORT') return `Short ${baseAsset}`;
@@ -83,6 +84,9 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
     // Handle staking operations
     if (side === 'STAKE' && type === 'STAKING') {
       return `This will stake ${qtyText} ${baseAsset} on Binance.US. Your staked assets will earn rewards and can be unstaked at any time (subject to unstaking periods).`;
+    }
+    if (side === 'MULTI-LEG') {
+      return `This will submit the reviewed ${type.toLowerCase()} for ${baseAsset} as one live Webull multi-leg order.`;
     }
 
     const actionVerb = side === 'SHORT' ? 'short' : side === 'SELL' ? 'sell' : 'buy';

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import CancelOrderModal from './CancelOrderModal';
 import { orderKey, strategyKind, number, money, timestamp, trailLabel, matchesStatus, quoteCurrency } from '../utils/syntheticOrders.mjs';
 import './SyntheticOrders.css';
 
@@ -46,6 +47,8 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
   const [notice, setNotice] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [updated, setUpdated] = useState(null);
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelError, setCancelError] = useState('');
   useEffect(() => setBroker(defaultBroker), [defaultBroker]);
   useEffect(() => {
     let stopped = false, running = false;
@@ -90,20 +93,20 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
     && (kind === 'ALL' || strategyKind(o) === kind)
     && (mode === 'all' || Boolean(o.test_mode) === (mode === 'paper'))
     && `${o.symbol} ${o.account_id || ''} ${o.instrument_type}`.toLowerCase().includes(search.toLowerCase())), [orders, status, kind, mode, search]);
-  const cancel = async order => {
-    if (!window.confirm(`Cancel remaining strategy #${order.id}? Any submitted execution will be reconciled with the broker. Already filled quantities cannot be cancelled.`)) return;
+  const cancel = async (order, twoFactorCode) => {
     setBusy(orderKey(order)); setNotice('');
     try {
-      const result = await axios.post(`/api/trading/${order.parentKind === 'LADDER' ? 'ladder' : 'trailing'}-orders/${order.id}/cancel`, {}, { withCredentials: true });
+      const result = await axios.post(`/api/trading/${order.parentKind === 'LADDER' ? 'ladder' : 'trailing'}-orders/${order.id}/cancel`, { two_factor_code: twoFactorCode }, { withCredentials: true });
       if (!result.data?.success) throw new Error(result.data?.error || 'Cancellation failed.');
       const saved = result.data.ladder_order || result.data.trailing_order;
       setNotice(saved?.status === 'CANCEL_PENDING' ? 'Cancellation requested; awaiting the broker’s final execution state.' : 'Remaining strategy cancelled.');
       setOrders(prev => prev.map(o => orderKey(o) === orderKey(order) ? { ...o, ...saved } : o));
+      setCancelTarget(null); setCancelError('');
       onOrderCancelled?.(order.id);
-    } catch (error) { setNotice(error.response?.data?.error || error.message || 'Cancellation failed.'); }
+    } catch (error) { setCancelError(error.response?.data?.error || error.message || 'Cancellation failed.'); }
     finally { setBusy(null); }
   };
-  return <div className="synthetic-orders">
+  return <><div className="synthetic-orders">
     <div className="synthetic-filters">
       {showBrokerFilter && <label>Broker<select aria-label="Broker" value={broker} onChange={e => setBroker(e.target.value)}><option value="all">All brokers</option><option value="binance">Binance.US</option><option value="webull">Webull</option></select></label>}
       <label>Strategy<select aria-label="Strategy" value={kind} onChange={e => setKind(e.target.value)}><option value="ALL">All strategies</option>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
@@ -132,7 +135,7 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
           <td><span className={`synthetic-status state-${order.status.toLowerCase()}`}>{order.status.replaceAll('_', ' ')}</span><small>Last price: {money(order.last_price, currency)}</small><small>Checked: {timestamp(order.last_checked_at)}</small>
             {(order.monitoring_error || order.error_message) && <small className="synthetic-warning">{order.monitoring_error || order.error_message}</small>}</td>
           <td><div className="synthetic-actions"><button type="button" aria-expanded={open} onClick={() => setExpanded(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; })}>{open ? 'Hide details' : 'Details'}</button>
-            {canCancel(order.status) && <button type="button" className="synthetic-cancel" disabled={busy === key} onClick={() => cancel(order)}>{busy === key ? 'Cancelling…' : 'Cancel'}</button>}</div></td>
+            {canCancel(order.status) && <button type="button" className="synthetic-cancel" disabled={busy === key} onClick={() => { setCancelTarget(order); setCancelError(''); }}>{busy === key ? 'Cancelling…' : 'Cancel'}</button>}</div></td>
         </tr>{open && <tr><td colSpan="6" className="synthetic-detail">
           <p>Updated: {timestamp(order.updated_at)} · Both sides share the total quantity. Failed strategies and strategies needing review are paused.</p>
           {!!order.rungs?.length && <div className="synthetic-step-grid">{order.rungs.map(rung => <div key={rung.id || rung.rung_number} className="synthetic-step">
@@ -150,5 +153,18 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
             </div>)}</div>}
         </td></tr>}</React.Fragment>;
       })}</tbody></table></div>}
-  </div>;
+  </div><CancelOrderModal
+    isVisible={Boolean(cancelTarget)}
+    onClose={() => { if (!busy) { setCancelTarget(null); setCancelError(''); } }}
+    onConfirm={(code) => cancel(cancelTarget, code)}
+    order={cancelTarget ? {
+      ...cancelTarget,
+      is_synthetic_strategy: true,
+      cancel_provider: cancelTarget.broker === 'webull' ? 'Webull' : 'Binance.US',
+      cancel_account_label: cancelTarget.account_id || (cancelTarget.broker === 'webull' ? 'Webull account' : 'Binance.US spot'),
+    } : null}
+    loading={Boolean(cancelTarget && busy === orderKey(cancelTarget))}
+    error={cancelError}
+    requiresTwoFactor={!cancelTarget?.test_mode}
+  /></>;
 }

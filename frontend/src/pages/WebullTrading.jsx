@@ -1534,7 +1534,6 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   // 2FA State
-  const [require2fa, setRequire2fa] = useState(false);
   const [twoFactorModal, setTwoFactorModal] = useState({ isVisible: false, orderData: null });
   const [scheduledOrderModalOpen, setScheduledOrderModalOpen] = useState(false);
   const [scheduledOrderData, setScheduledOrderData] = useState(null);
@@ -1989,12 +1988,11 @@ export default function WebullTrading({ isLightMode = false }) {
   const load = async (forcedTestMode = null) => {
     setLoading(true); setError('');
     try {
-      // 1. Fetch lightweight core data needed for trading UI (accounts & portfolio holdings & 2FA setting)
-      const [portfolioResponse, accRes, signalSettingsResponse, tradingSettingsRes, testStatusRes] = await Promise.all([
+      // 1. Fetch lightweight core data needed for the trading UI.
+      const [portfolioResponse, accRes, signalSettingsResponse, testStatusRes] = await Promise.all([
         axios.get('/api/coin-data-live', { withCredentials: true, timeout: 15000 }),
         axios.get('/api/webull/accounts', { withCredentials: true, timeout: 15000 }),
         axios.get('/api/webull/ai-settings', { withCredentials: true, timeout: 15000 }),
-        axios.get('/api/trading/settings', { withCredentials: true, timeout: 15000 }).catch(() => ({ data: {} })),
         axios.get('/api/webull/test/status', { withCredentials: true, timeout: 15000 }).catch(() => ({ data: {} })),
       ]);
       const urlParams = new URLSearchParams(window.location.search);
@@ -2046,9 +2044,6 @@ export default function WebullTrading({ isLightMode = false }) {
         setTradingMode((prev) => (prev === 'QUANT' ? 'QUANT' : (testModeActive ? 'TEST' : 'REAL')));
       }
 
-      if (tradingSettingsRes.data?.settings?.require_2fa) {
-        setRequire2fa(true);
-      }
       const importedHoldings = (portfolioResponse.data?.portfolio || []).filter(
         (item) => item?.is_external || item?.source === 'webull'
       );
@@ -3678,7 +3673,7 @@ export default function WebullTrading({ isLightMode = false }) {
     );
     if (!ready) return;
     setPendingEventPositionOrder(null);
-    if (require2fa && !isTestMode) {
+    if (!isTestMode) {
       setTwoFactorModal({ isVisible: true, orderData: webullTwoFactorOrderDetails() });
     } else {
       setShowConfirmModal(true);
@@ -3693,7 +3688,6 @@ export default function WebullTrading({ isLightMode = false }) {
     orderForm.eventOutcome,
     orderForm.quantity,
     orderForm.price,
-    require2fa,
     isTestMode,
   ]);
 
@@ -3967,7 +3961,7 @@ export default function WebullTrading({ isLightMode = false }) {
     }
     // Simulated Webull orders are isolated in the paper engine and never reach
     // the live OpenAPI order path, so trading 2FA is reserved for live orders.
-    if (require2fa && !isTestMode) {
+    if (!isTestMode) {
       setTwoFactorModal({ isVisible: true, orderData: webullTwoFactorOrderDetails() });
     } else {
       setShowConfirmModal(true);
@@ -4191,7 +4185,7 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
-  const handleComboSubmit = async () => {
+  const handleComboSubmit = async (twofaToken = null) => {
     if (!selectedAccountId) {
       setOrderFeedback({ type: 'error', message: 'Please select a Webull account.' });
       return;
@@ -4224,12 +4218,31 @@ export default function WebullTrading({ isLightMode = false }) {
       }
     }
 
+    if (!isTestMode && !twofaToken) {
+      setTwoFactorModal({
+        isVisible: true,
+        action: 'COMBO',
+        orderData: {
+          provider: 'Webull',
+          accountLabel: activeAccountLabel(),
+          symbol: sym,
+          instrumentType: 'SECURITIES',
+          side: 'MULTI-LEG',
+          type: `${comboForm.comboType || 'CUSTOM'} combo`,
+          quantity: `${comboForm.legs.length} legs`,
+          currency: 'USD',
+        },
+      });
+      return;
+    }
+
     setOrderSubmitting(true);
     try {
       const payload = {
         test_mode: isTestMode,
         account_id: selectedAccountId,
         combo_type: comboForm.comboType,
+        twofa_token: twofaToken || undefined,
         combo_orders: comboForm.legs.map((leg) => ({
           symbol: sym,
           side: leg.side,
@@ -4293,8 +4306,10 @@ export default function WebullTrading({ isLightMode = false }) {
   const handleTwoFactorVerify = async (code) => {
     const res = await axios.post('/api/trading/2fa/verify', { code }, { withCredentials: true });
     if (res.data?.success && res.data?.token) {
+      const action = twoFactorModal.action;
       setTwoFactorModal({ isVisible: false, orderData: null });
-      await handleConfirmSubmit(res.data.token);
+      if (action === 'COMBO') await handleComboSubmit(res.data.token);
+      else await handleConfirmSubmit(res.data.token);
     } else {
       throw new Error(res.data?.error || 'Invalid 2FA code');
     }
@@ -7312,7 +7327,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       cursor: 'pointer',
                     }}
                     disabled={orderSubmitting}
-                    onClick={handleComboSubmit}
+                    onClick={() => handleComboSubmit(null)}
                   >
                     {orderSubmitting ? 'Submitting Combo Order…' : `Submit Webull ${formatOrderType(comboForm.comboType)} Order`}
                   </button>
@@ -7414,7 +7429,7 @@ export default function WebullTrading({ isLightMode = false }) {
         isOpen={scheduledOrderModalOpen}
         onClose={() => setScheduledOrderModalOpen(false)}
         orderData={scheduledOrderData}
-        require2fa={require2fa && !isTestMode}
+        require2fa={!isTestMode}
         onSuccess={handleScheduledOrderSuccess}
       />
       <CancelOrderModal

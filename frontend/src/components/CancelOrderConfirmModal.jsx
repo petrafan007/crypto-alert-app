@@ -13,10 +13,12 @@ export default function CancelOrderConfirmModal({
   error = null
 }) {
   const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [localError, setLocalError] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       setTwoFactorCode('');
+      setLocalError('');
     }
   }, [isOpen, order]);
 
@@ -66,6 +68,11 @@ export default function CancelOrderConfirmModal({
   }
 
   const handleConfirmClick = async () => {
+    if (!/^\d{6}$/.test(twoFactorCode)) {
+      setLocalError('Enter a valid 6-digit two-factor authentication code.');
+      return;
+    }
+    setLocalError('');
     await onConfirm(order, twoFactorCode);
   };
 
@@ -168,7 +175,7 @@ export default function CancelOrderConfirmModal({
               id="cancel-totp"
               placeholder="000000"
               value={twoFactorCode}
-              onChange={(e) => setTwoFactorCode(e.target.value)}
+              onChange={(e) => { setTwoFactorCode(e.target.value); setLocalError(''); }}
               onKeyDown={handleKeyDown}
               className="cancel-2fa-input"
               autoFocus
@@ -176,9 +183,9 @@ export default function CancelOrderConfirmModal({
             />
           </div>
 
-          {error && (
+          {(localError || error) && (
             <div className="cancel-confirm-error">
-              ❌ {error}
+              ❌ {localError || error}
             </div>
           )}
         </div>
@@ -196,7 +203,7 @@ export default function CancelOrderConfirmModal({
             type="button"
             className="btn btn-danger cancel-yes-btn"
             onClick={handleConfirmClick}
-            disabled={loading}
+            disabled={loading || !/^\d{6}$/.test(twoFactorCode)}
           >
             {loading ? 'Canceling...' : isAutoTrigger ? 'Yes, Cancel Trigger' : 'Yes, Cancel Order'}
           </button>

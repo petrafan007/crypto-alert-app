@@ -30,6 +30,7 @@ export default function CancelOrderModal({
   const isAutoBuy = Boolean(order?.is_auto_trigger) && automationType === 'auto_buy';
   const isAutoSell = Boolean(order?.is_auto_trigger) && automationType === 'auto_sell';
   const isAutoTrigger = isAutoBuy || isAutoSell;
+  const isSyntheticStrategy = Boolean(order?.is_synthetic_strategy);
   const tradingPair = order?.symbol || 'this trading pair';
   const baseSymbol = order?.base_symbol || tradingPair;
   const provider = order?.cancel_provider || 'Binance.US';
@@ -65,7 +66,7 @@ export default function CancelOrderModal({
     <div className="two-factor-modal-backdrop" onClick={handleBackdropClick}>
       <div className="two-factor-modal">
         <div className="two-factor-modal-header">
-          <h3>{isAutoBuy ? 'Cancel Auto-Buy Trigger' : isAutoSell ? 'Cancel Auto-Sell Trigger' : `Cancel ${provider} Order`}</h3>
+          <h3>{isAutoBuy ? 'Cancel Auto-Buy Trigger' : isAutoSell ? 'Cancel Auto-Sell Trigger' : isSyntheticStrategy ? `Cancel ${provider} Strategy` : `Cancel ${provider} Order`}</h3>
           {!loading && (
             <button
               className="two-factor-close"
@@ -82,6 +83,11 @@ export default function CancelOrderModal({
             {isAutoTrigger ? (
               <>
                 Enter your 6-digit two-factor authentication code to confirm cancellation of the active <strong>{isAutoBuy ? 'Auto-Buy' : 'Auto-Sell'}</strong> trigger for <strong>{baseSymbol}</strong> {order?.trigger_details ? `(${order.trigger_details})` : ''} in <strong>{accountLabel}</strong>.
+              </>
+            ) : isSyntheticStrategy ? (
+              <>
+                {requiresTwoFactor ? 'Enter a fresh 6-digit two-factor authentication code to cancel the unfilled portion of this live ' : 'Confirm cancellation of the unfilled portion of this simulated '}
+                <strong>{provider}</strong> strategy for <strong>{tradingPair}</strong> in <strong>{accountLabel}</strong>. Broker-submitted executions will be reconciled, and filled quantities cannot be reversed.
               </>
             ) : (
               <>
@@ -110,7 +116,7 @@ export default function CancelOrderModal({
               </div>
             ) : (
               <div className="paper-cancel-confirmation" role="status">
-                🧪 Paper Trading cancellation — no authenticator code is required and no live Webull order will be changed.
+                🧪 Paper Trading cancellation — no authenticator code is required and no live {provider} order will be changed.
               </div>
             )}
 

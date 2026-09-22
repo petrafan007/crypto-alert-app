@@ -19,6 +19,7 @@ try {
     import Config, {defaultLadderState} from './src/components/LadderOrderConfig.jsx';
     import TwoFactorModal from './src/components/TwoFactorModal.jsx';
     import PaperDepositModal from './src/components/PaperDepositModal.jsx';
+    import AppDialogHost from './src/components/AppDialog.jsx';
     import {buildSyntheticReview,buildSyntheticPayload} from './src/utils/syntheticOrders.mjs';
     import './src/theme.css'; import './src/light-theme.css'; import './src/theme-variables.css';
     import './src/index.css'; import './src/pages/Trading.css'; import './src/pages/Trading.theme.css';
@@ -35,7 +36,7 @@ try {
           <button onClick={()=>setConfig({...config,upsideMode:'TRAILING',upsideActivationPrice:'200',upsideTrailValue:'2'})}>Set activation scenario</button>
           <TwoFactorModal isVisible={modal==='2fa'} onClose={()=>setModal('')} onVerify={()=>{}} orderDetails={{side,quantity:10,symbol:'BTCUSD',type:'LADDER',syntheticReview:buildSyntheticReview(config,{side,quantity:10,currentPrice:100,baseAsset:'BTC',fees})}}/>
           <PaperDepositModal visible={modal==='paper'} broker="Binance.US" balances={{USD:1200,USDT:2500}} currencies={['USD','USDT']} onClose={()=>setModal('')} onDeposit={(amount,currency)=>{window.deposit={amount,currency};setModal('')}} onReset={()=>{window.reset=true;setModal('')}}/>
-        </section></main>}
+        </section><AppDialogHost/></main>}
     createRoot(document.getElementById('root')).render(<App/>);` }, bundle: true, outfile: path.join(scratch, 'app.js'), loader: { '.woff2': 'dataurl', '.woff': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl', '.png': 'dataurl' } });
   server = http.createServer(async (req, res) => {
     if (req.url.startsWith('/app.')) {
@@ -49,12 +50,17 @@ try {
     for (const broker of ['all','binance','webull']) {
       const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
       const runtimeErrors=[]; page.on('pageerror', error=>runtimeErrors.push(error.message));
-      let failTrailing=false, loads=0;
+      let nativeDialogs=0; page.on('dialog', async dialog=>{nativeDialogs++;await dialog.dismiss();});
+      let failTrailing=false, loads=0, cancellationPayload=null;
       const base={id:1, broker:broker==='all'?'binance':broker, account_id:broker==='webull'?'ACCOUNT_A':null, symbol:'BTCUSD', side:'SELL', instrument_type:'CRYPTO', test_mode:false, created_at:'2026-09-22T12:00:00', status:'ACTIVE', total_quantity:1.23456789, filled_quantity:0, remaining_quantity:1.23456789, executions:[], upside_mode:'LADDER',downside_mode:'NONE',rungs:[{id:1,rung_number:1,rung_type:'TAKE_PROFIT',target_price:0.00000012,quantity:1.23456789,percentage_of_total:100,estimated_usd:.00001,status:'PENDING'}]};
       base.downside_mode='LADDER';
       base.rungs=Array.from({length:7},(_,i)=>({...base.rungs[0],id:i+1,rung_number:i+1,rung_type:i<4?'TAKE_PROFIT':'STOP_LOSS',percentage_of_total:24.940047961631,target_price:i===0?.00000012:90515.26,estimated_usd:282.4076112,error_message:'Example-long-error-'+ 'x'.repeat(90)}));
       await page.route('**/api/trading/**', async route=> {
         const isTrailing=route.request().url().includes('trailing-orders');loads++;
+        if(route.request().method()==='POST'&&route.request().url().includes('/cancel')){
+          cancellationPayload=route.request().postDataJSON();
+          return route.fulfill({json:{success:true,ladder_order:{...base,status:'CANCELLED'}}});
+        }
         if(isTrailing&&failTrailing) return route.fulfill({status:503,json:{success:false}});
         return route.fulfill({json:isTrailing ? {success:true,trailing_orders:[{...base,trail_type:'AMOUNT',trail_value:5,status:'FILLED',quantity:1.23456789,is_activated:true,highest_price:105,current_stop_price:100,rungs:undefined}]} : {success:true,ladder_orders:[base]}});
       });
@@ -129,9 +135,11 @@ try {
       await page.getByRole('button',{name:'Confirm Deposit'}).click();
       assert.deepEqual(await page.evaluate(()=>window.deposit),{amount:123.45,currency:'USD'});
       await page.getByRole('button',{name:'Open deposit'}).click();
-      page.once('dialog',dialog=>dialog.dismiss());await page.getByRole('button',{name:'Reset Account'}).click();
+      await page.getByRole('button',{name:'Reset Account'}).click();
+      await page.locator('.app-dialog').getByRole('button',{name:'Keep Account'}).click();
       assert.equal(await page.evaluate(()=>window.reset),undefined);
-      page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'Reset Account'}).click();
+      await page.getByRole('button',{name:'Reset Account'}).click();
+      await page.locator('.app-dialog').getByRole('button',{name:'Reset Account'}).click();
       assert.equal(await page.evaluate(()=>window.reset),true);
       // A failed automatic refresh must retain the last known trailing row and surface an error.
       failTrailing=true; const before=loads; await page.getByRole('alert').waitFor({timeout:8000});
@@ -139,6 +147,14 @@ try {
       await page.setViewportSize({width:390,height:844});
       const dimensions = await page.locator('.synthetic-scroll').evaluate(el=>({scroll:el.scrollWidth,client:el.clientWidth,viewport:innerWidth,table:el.querySelector('table').offsetWidth}));
       assert.ok(dimensions.scroll>dimensions.client, JSON.stringify(dimensions));
+      failTrailing=false;
+      await page.getByLabel('Status',{exact:true}).selectOption('ACTIVE');
+      await page.getByRole('button',{name:'Cancel',exact:true}).click();
+      assert.ok((await page.locator('.two-factor-modal').innerText()).includes('filled quantities cannot be reversed'));
+      await page.getByLabel('Two-factor authentication code').fill('123456');
+      await page.locator('.two-factor-modal').getByRole('button',{name:'Confirm',exact:true}).click();
+      assert.equal(cancellationPayload.two_factor_code,'123456');
+      assert.equal(nativeDialogs,0);
       assert.deepEqual(runtimeErrors,[]);
       await page.close();
     }
