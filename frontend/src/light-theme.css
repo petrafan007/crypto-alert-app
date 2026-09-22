@@ -910,12 +910,6 @@ body.light-mode .action-icon-btn.note-btn:hover {
   border-left: 4px solid #059669 !important;
 }
 
-.light-mode .table-container tr.staked-coin-row td,
-.light-mode .table-container tr.staked-coin-row span:not(.badge):not(.asset-type-pill):not(.sentiment-pill-wrapper):not(.staked-badge-pill) {
-  color: #064e3b !important;
-  font-weight: 500;
-}
-
 /* Actions cell styling */
 .actions-cell,
 .portfolio-table td.actions-cell,

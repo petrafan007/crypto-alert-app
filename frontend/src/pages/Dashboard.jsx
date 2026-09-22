@@ -4953,32 +4953,6 @@ function Dashboard({ isLightMode }) {
                                     >
                                       {isCryptoAsset ? <FaBitcoin /> : <FaDollarSign />}
                                     </span>
-                                    {isStaked && (
-                                      <span
-                                        className="staked-badge-pill"
-                                        title={['processing', 'pending'].includes((coin.staking_status || '').toLowerCase())
-                                          ? `Staked Asset (Bonding / Processing): ${stakedAmount.toFixed(4)} ${coin.symbol} locked in bonding`
-                                          : `Staked Asset: ${stakedAmount.toFixed(4)} ${coin.symbol} staked`}
-                                        style={{
-                                          fontSize: '0.68rem',
-                                          fontWeight: '700',
-                                          padding: '1px 5px',
-                                          borderRadius: '4px',
-                                          background: ['processing', 'pending'].includes((coin.staking_status || '').toLowerCase())
-                                            ? 'rgba(245, 158, 11, 0.25)'
-                                            : 'rgba(16, 185, 129, 0.25)',
-                                          color: ['processing', 'pending'].includes((coin.staking_status || '').toLowerCase())
-                                            ? '#fbbf24'
-                                            : '#34d399',
-                                          border: `1px solid ${['processing', 'pending'].includes((coin.staking_status || '').toLowerCase()) ? 'rgba(245, 158, 11, 0.45)' : 'rgba(16, 185, 129, 0.45)'}`,
-                                          marginLeft: '2px',
-                                          letterSpacing: '0.02em',
-                                          whiteSpace: 'nowrap'
-                                        }}
-                                      >
-                                        {['processing', 'pending'].includes((coin.staking_status || '').toLowerCase()) ? '⏳ BONDING' : '🔷 STAKED'}
-                                      </span>
-                                    )}
                                   </div>
                                 </td>
                               );

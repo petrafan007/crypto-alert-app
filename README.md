@@ -1,13 +1,16 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.8.3
+**Version:** 3.8.4
 
 ## Recent Updates
+
+### v3.8.4
+- **Clean Symbol Presentation (Removed Bonding Badge Pill):** Removed the inline bonding badge tag from the symbol column in the portfolio table. Staking bonding and processing details remain cleanly accessible via the row and amount hover tooltips without cluttering the asset name.
+- **Exchange & Asset Icon Color Fidelity:** Eliminated generic table row `span` CSS overrides that forced the Binance exchange icon (`#f3ba2f` yellow) and Crypto asset icon (`#f7931a` orange) to white on staked asset rows. All exchange logos and asset class icons now preserve their distinct, vibrant branding colors across both dark and light modes.
 
 ### v3.8.3
 - **Unstake Modal Re-open Loop & Flashing Glitch Fix:** Resolved an issue where closing the Unstake modal (via Cancel, close button, or backdrop click) triggered an immediate auto-reopen re-render loop due to lingering URL parameters. Cleaned up query parameters upon dismissal and hardened the auto-open effect to fire only once per navigation.
 - **Staking Bonding Period Eligibility Guard:** Gated the "Unstake" option in the Actions menu to assets with active, fully bonded balances (`active_staked_amount > 0`). Assets still processing in their Binance.US validator bonding period (such as GRAM) now correctly suppress "Unstake" until the bonding period completes and funds become eligible for unstaking.
-- **Visual Staking Bonding Badges:** Added a distinct `⏳ BONDING` badge for assets undergoing validator bonding and `🔷 STAKED` for active staking positions directly in the coin symbol cell, complete with informative hover tooltips.
 - **High-Contrast Deep Emerald Row Highlighting:** Upgraded staked asset row styling from light cyan to an ultra-high-contrast Deep Emerald theme (`rgba(6, 78, 59, 0.68)`) in dark mode with a `#10b981` border and crisp `#ffffff` text (>9:1 contrast ratio, WCAG AAA compliant), preventing washed-out text while avoiding generic yellow styling. Soft mint with dark forest green text in light mode.
 
 ### v3.8.2
