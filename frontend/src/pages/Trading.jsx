@@ -958,19 +958,36 @@ const Trading = ({ isLightMode = false }) => {
         : '/api/trading/order-types';
       const response = await axios.get(url);
       if (response.data.success) {
-        const newTypes = response.data.order_types;
+        const rawTypes = response.data.order_types || [];
+        // Consolidate LADDER and TRAILING_STOP into a single Ladder / Trailing Stop tab
+        const hasLadder = rawTypes.some(t => t.value === 'LADDER');
+        const newTypes = rawTypes
+          .filter(t => t.value !== 'TRAILING_STOP' && t.value !== 'SYNTHETIC')
+          .map(t => t.value === 'LADDER' ? { ...t, label: 'Ladder / Trailing Stop' } : t);
+        if (!hasLadder && rawTypes.some(t => t.value === 'TRAILING_STOP')) {
+          newTypes.push({
+            value: 'LADDER',
+            label: 'Ladder / Trailing Stop',
+            description: 'Advanced synthetic multi-mode ladder and trailing stop order'
+          });
+        }
         setOrderTypes(newTypes);
-        // If current order type is not in the new list, reset to first available
-        const currentTypeValid = newTypes.some(t => t.value === orderForm.type);
-        if (!currentTypeValid && newTypes.length > 0) {
-          setOrderForm(prev => ({
-            ...prev,
-            type: newTypes[0].value,
-            price: '',
-            stopPrice: '',
-            stopLimitPrice: ''
-          }));
-          setQuoteQuantity('');
+        // If current order type was TRAILING_STOP or SYNTHETIC, migrate to LADDER
+        if (orderForm.type === 'TRAILING_STOP' || orderForm.type === 'SYNTHETIC') {
+          setOrderForm(prev => ({ ...prev, type: 'LADDER' }));
+        } else {
+          // If current order type is not in the new list, reset to first available
+          const currentTypeValid = newTypes.some(t => t.value === orderForm.type);
+          if (!currentTypeValid && newTypes.length > 0) {
+            setOrderForm(prev => ({
+              ...prev,
+              type: newTypes[0].value,
+              price: '',
+              stopPrice: '',
+              stopLimitPrice: ''
+            }));
+            setQuoteQuantity('');
+          }
         }
       }
     } catch (error) {
@@ -2573,7 +2590,7 @@ const Trading = ({ isLightMode = false }) => {
                         }}
                         title={t.description}
                       >
-                        {t.label.replace(' Order', '')}
+                        {t.value === 'LADDER' ? 'Ladder / Trailing Stop' : t.label.replace(' Order', '')}
                       </button>
                     ))}
                   </div>
@@ -2749,8 +2766,8 @@ const Trading = ({ isLightMode = false }) => {
                 ) : (
                   <span>
                     {settings.test_mode_enabled
-                      ? `🧪 Place Test ${orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : ['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? 'Synthetic Bracket' : ''} Order`
-                      : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : ['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? 'Synthetic Bracket' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
+                      ? `🧪 Place Test ${['LADDER', 'SYNTHETIC', 'TRAILING_STOP'].includes(orderForm.type) ? 'Ladder / Trailing Stop' : ''} Order`
+                      : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : ['LADDER', 'SYNTHETIC', 'TRAILING_STOP'].includes(orderForm.type) ? 'Ladder / Trailing Stop' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
                   </span>
                 )}
               </button>

@@ -1450,26 +1450,9 @@ def get_trading_order_types():
                 'requires_stop_limit_price': True
             },
             {
-                'value': 'SYNTHETIC',
-                'label': 'Synthetic (Trailing / Ladder)',
-                'description': 'Advanced multi-mode synthetic bracket order combining take-profit (Single, Ladder, Trailing) and capital protection',
-                'requires_price': False,
-                'requires_stop_price': False,
-                'requires_time_in_force': False
-            },
-            {
-                'value': 'TRAILING_STOP',
-                'label': 'Trailing Stop',
-                'description': 'Dynamic trailing stop order that ratchets with favorable price movement',
-                'requires_price': False,
-                'requires_stop_price': False,
-                'requires_trail_value': True,
-                'requires_time_in_force': False
-            },
-            {
                 'value': 'LADDER',
-                'label': 'Ladder',
-                'description': 'Server-side ladder order for staged scale-in or scale-out execution across multiple price rungs',
+                'label': 'Ladder / Trailing Stop',
+                'description': 'Advanced multi-mode synthetic ladder and trailing stop bracket order (Single Target, Ladder, Trailing Stop)',
                 'requires_price': False,
                 'requires_stop_price': False,
                 'requires_time_in_force': False
@@ -1501,7 +1484,6 @@ def get_trading_order_types():
                                 allowed_types = set(sym_info.get('orderTypes', []))
                                 if sym_info.get('ocoAllowed', False) or 'STOP_LOSS_LIMIT' in allowed_types:
                                      allowed_types.add('OCO')
-                                allowed_types.add('TRAILING_STOP')
                                 allowed_types.add('LADDER')
                                 order_types = [ot for ot in all_order_types if ot['value'] in allowed_types]
                                 logger.info(f"Filtered order types for {symbol}: {[ot['value'] for ot in order_types]}")

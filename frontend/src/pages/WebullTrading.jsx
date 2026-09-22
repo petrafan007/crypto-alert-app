@@ -1356,9 +1356,7 @@ export default function WebullTrading({ isLightMode = false }) {
         { value: 'MARKET', label: 'Market', description: 'Execute immediately at the best available price' },
         commonLimit,
         stopLossLimit,
-        { value: 'TRAILING_STOP', label: 'Trailing Stop', description: 'Server-side synthetic trailing stop order' },
-        { value: 'SYNTHETIC', label: 'Synthetic Bracket', description: 'Advanced multi-mode synthetic bracket combining profit targets and trailing protection' },
-        { value: 'LADDER', label: 'Ladder Order', description: 'Server-side automated ladder order' },
+        { value: 'LADDER', label: 'Ladder / Trailing Stop', description: 'Advanced synthetic multi-mode ladder and trailing stop order' },
       ];
     }
     if (selectedInstrumentType === 'FUTURES') {
@@ -1376,10 +1374,7 @@ export default function WebullTrading({ isLightMode = false }) {
       { value: 'MARKET', label: 'Market', description: 'Execute immediately at the best available price' },
       stopLoss,
       stopLossLimit,
-      { value: 'TRAILING_STOP', label: 'Trailing Stop', description: 'Synthetic trailing stop that monitors market and fires when target trigger is breached' },
-      { value: 'SYNTHETIC', label: 'Synthetic Bracket', description: 'Advanced multi-mode synthetic bracket combining profit targets and trailing protection' },
-      { value: 'LADDER', label: 'Ladder Order', description: 'Automated tiered scale-in or scale-out ladder with optional stop-loss' },
-      { value: 'TRAILING_STOP_LOSS', label: 'Trailing Stop (Webull DAY)', description: 'Stop price trails the market price by a set amount or percentage (DAY only)' },
+      { value: 'LADDER', label: 'Ladder / Trailing Stop', description: 'Advanced synthetic multi-mode ladder and trailing stop order' },
       { value: 'MARKET_ON_OPEN', label: formatOrderType('MARKET_ON_OPEN'), description: 'Execute at the opening auction price' },
       { value: 'MARKET_ON_CLOSE', label: formatOrderType('MARKET_ON_CLOSE'), description: 'Execute at the closing auction price' },
       { value: 'LIMIT_ON_OPEN', label: formatOrderType('LIMIT_ON_OPEN'), description: 'Limit order executed at the market-open auction' },

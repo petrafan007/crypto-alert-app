@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.8.4
+**Version:** 3.8.5
 
 ## Recent Updates
+
+### v3.8.5
+- **Single Unified Order Types Tab ("Ladder / Trailing Stop"):** Consolidated separate "Ladder", "Trailing Stop", and "Synthetic Bracket" order type buttons into one single tab named `Ladder / Trailing Stop` across Binance Trading (`/trading`), Webull Cryptos, and Webull Equities & ETFs (real and paper trading). Selecting this tab provides immediate access to the full multi-mode strategy engine (Mode A Single Target/Stop, Mode B Multi-Rung Ladder, and Mode C Trailing Stop).
+- **50 / 50 Responsive Split Strategy Layout:** Redesigned the strategy configuration container to sit directly below the Quantity and Order Value input fields in a symmetrical two-column layout:
+  - **Left Column (under Quantity):** Upside Strategy (Take Profit) header, Mode A / B / C selector buttons, active mode configuration card, and Stepped Execution Preview.
+  - **Right Column (under Order Value):** Downside Strategy (Stop Loss) header, active toggle switch, Mode A / B / C selector buttons, active mode configuration card, and Downside Stop Preview.
+- **Unified Strategy Header Typography:** Harmonized the typography of the Upside and Downside strategy headers using the shared `.order-field-label` style with identical font family, weight (`700`), uppercase text transform, and letter spacing (`0.05em`) across both sections.
 
 ### v3.8.4
 - **Clean Symbol Presentation (Removed Bonding Badge Pill):** Removed the inline bonding badge tag from the symbol column in the portfolio table. Staking bonding and processing details remain cleanly accessible via the row and amount hover tooltips without cluttering the asset name.
