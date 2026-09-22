@@ -109,7 +109,7 @@ class TestSmartBracketOrders(unittest.TestCase):
         self.assertTrue(updated)
         self.assertEqual(sl_rung1.status, 'TRIGGERED')
         self.assertEqual(sl_rung2.status, 'PENDING')
-        self.assertEqual(order.status, 'PARTIALLY_FILLED')
+        self.assertEqual(order.status, 'ACTIVE')
 
     def test_mode_b_ladder_up_and_mode_c_trailing_stop_down(self):
         """
@@ -164,7 +164,7 @@ class TestSmartBracketOrders(unittest.TestCase):
         self.assertTrue(updated)
         self.assertEqual(tp_rung1.status, 'TRIGGERED')
         self.assertEqual(tp_rung2.status, 'PENDING')
-        self.assertEqual(order.status, 'PARTIALLY_FILLED')
+        self.assertEqual(order.status, 'ACTIVE')
         # Downside trailing stop ratchets with peak 106 -> 106 * (1 - 0.03) = 102.82
         self.assertAlmostEqual(order.downside_current_stop_price, 102.82)
 
@@ -194,7 +194,7 @@ class TestSmartBracketOrders(unittest.TestCase):
         # Price reaches $2510 (Target hit)
         updated, count = evaluate_single_ladder_order(order, 2510.0, execute_trigger=False)
         self.assertTrue(updated)
-        self.assertEqual(order.status, 'COMPLETED')
+        self.assertEqual(order.status, 'ACTIVE')
 
     def test_mode_a_single_stop_loss_trigger(self):
         """Verify Mode A single stop loss triggers when price breaks below stop."""
@@ -220,9 +220,9 @@ class TestSmartBracketOrders(unittest.TestCase):
         # Price drops to $209 (Stop hit)
         updated, count = evaluate_single_ladder_order(order, 209.0, execute_trigger=False)
         self.assertTrue(updated)
-        self.assertEqual(order.status, 'STOPPED_OUT')
+        self.assertEqual(order.status, 'ACTIVE')
 
-    @patch('services.ladder_order_service.execute_ladder_rung_trigger')
+    @patch('services.synthetic_execution_service.submit_execution')
     def test_webull_bracket_execution(self, mock_rung_trigger):
         """Verify Webull equity/crypto execution routing."""
         order = LadderOrder(
@@ -243,9 +243,10 @@ class TestSmartBracketOrders(unittest.TestCase):
             rungs=[]
         )
 
+        mock_rung_trigger.return_value = Mock(rung_id=None, quantity=20, filled_quantity=0, status='SUBMITTED')
         updated, count = evaluate_single_ladder_order(order, 252.0, execute_trigger=True)
         self.assertTrue(updated)
-        self.assertEqual(order.status, 'COMPLETED')
+        self.assertEqual(order.status, 'SUBMITTED')
         mock_rung_trigger.assert_called_once()
 
 if __name__ == '__main__':

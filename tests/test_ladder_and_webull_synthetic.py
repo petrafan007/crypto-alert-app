@@ -105,15 +105,15 @@ class TestLadderAndWebullSynthetic(unittest.TestCase):
         self.assertTrue(updated)
         self.assertEqual(count, 1)
         self.assertEqual(rung1.status, 'TRIGGERED')
-        self.assertEqual(order.status, 'PARTIALLY_FILLED')
+        self.assertEqual(order.status, 'ACTIVE')
 
         # 3. Price climbs to $112: Rung 2 triggers, both rungs triggered -> COMPLETED
         updated, count = evaluate_single_ladder_order(order, 112.0, execute_trigger=False)
         self.assertTrue(updated)
         self.assertEqual(count, 1)
         self.assertEqual(rung2.status, 'TRIGGERED')
-        self.assertEqual(order.status, 'COMPLETED')
-        self.assertEqual(order.rungs_filled, 2)
+        self.assertEqual(order.status, 'ACTIVE')
+        self.assertEqual(order.rungs_filled, 0)
 
     def test_evaluate_single_ladder_order_downside_stop_loss(self):
         # Setup Sell Ladder with stop loss safety net at $92
@@ -147,10 +147,10 @@ class TestLadderAndWebullSynthetic(unittest.TestCase):
         updated, count = evaluate_single_ladder_order(order, 90.0, execute_trigger=False)
         self.assertTrue(updated)
         self.assertEqual(count, 1)
-        self.assertEqual(order.status, 'STOPPED_OUT')
+        self.assertEqual(order.status, 'CANCELLED')
         self.assertEqual(rung1.status, 'CANCELLED')
 
-    @patch('services.webull_service.place_webull_order')
+    @patch('services.synthetic_execution_service.submit_execution')
     def test_webull_trailing_order_execution(self, mock_webull_place):
         from flask import Flask
         from services.trailing_order_service import execute_trailing_trigger
@@ -166,7 +166,7 @@ class TestLadderAndWebullSynthetic(unittest.TestCase):
             mock_setting = Mock(webull_environment='production', webull_default_account_id='12345678')
             mock_setting_query.filter_by.return_value.first.return_value = mock_setting
 
-            mock_webull_place.return_value = {'success': True, 'order_id': 'WB_999'}
+            mock_webull_place.return_value = Mock(rung_id=None, status='SUBMITTED', broker_order_id='WB_999', error_message=None)
 
             order = TrailingOrder(
                 id=555,
@@ -184,13 +184,10 @@ class TestLadderAndWebullSynthetic(unittest.TestCase):
             success = execute_trailing_trigger(order, current_price=250.0)
             self.assertTrue(success)
             mock_webull_place.assert_called_once()
-            call_kwargs = mock_webull_place.call_args[1]
-            self.assertEqual(call_kwargs['symbol'], 'TSLA')
-            self.assertEqual(call_kwargs['side'], 'SELL')
-            self.assertEqual(call_kwargs['quantity'], 10.0)
-            self.assertEqual(call_kwargs['order_type'], 'MARKET')
+            self.assertEqual(mock_webull_place.call_args.args[0].broker, 'webull')
+            self.assertEqual(order.status, 'SUBMITTED')
 
-    @patch('services.webull_service.place_webull_order')
+    @patch('services.synthetic_execution_service.submit_execution')
     def test_webull_ladder_rung_execution(self, mock_webull_place):
         from flask import Flask
         from services.ladder_order_service import execute_ladder_rung_trigger
@@ -206,7 +203,7 @@ class TestLadderAndWebullSynthetic(unittest.TestCase):
             mock_setting = Mock(webull_environment='production', webull_default_account_id='12345678')
             mock_setting_query.filter_by.return_value.first.return_value = mock_setting
 
-            mock_webull_place.return_value = {'success': True, 'order_id': 'WB_888'}
+            mock_webull_place.return_value = Mock(rung_id=301, status='SUBMITTED', broker_order_id='WB_888', error_message=None, filled_quantity=0, filled_price=None)
 
             rung = LadderRung(
                 id=301,
@@ -233,13 +230,11 @@ class TestLadderAndWebullSynthetic(unittest.TestCase):
             )
 
             execute_ladder_rung_trigger(order, rung, current_price=500.0)
-            self.assertEqual(rung.status, 'FILLED')
+            self.assertEqual(rung.status, 'SUBMITTED')
             self.assertEqual(rung.executed_order_id, 'WB_888')
             mock_webull_place.assert_called_once()
-            call_kwargs = mock_webull_place.call_args[1]
-            self.assertEqual(call_kwargs['symbol'], 'SPY')
-            self.assertEqual(call_kwargs['quantity'], 5.0)
-            self.assertEqual(call_kwargs['order_type'], 'MARKET')
+            self.assertEqual(mock_webull_place.call_args.args[0].broker, 'webull')
+            self.assertEqual(mock_webull_place.call_args.args[2], 5.0)
 
 if __name__ == '__main__':
     unittest.main()

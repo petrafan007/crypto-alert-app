@@ -172,7 +172,7 @@ def _current_short_margin(user_id: int) -> float:
     return round(reserved, 2)
 
 
-def get_or_create_webull_test_account(user_id: int) -> WebullTestAccount:
+def get_or_create_webull_test_account(user_id: int, *, commit=True) -> WebullTestAccount:
     """Retrieve or create the simulated paper trading account for a user."""
     account = WebullTestAccount.query.filter_by(user_id=user_id).first()
     if not account:
@@ -182,13 +182,16 @@ def get_or_create_webull_test_account(user_id: int) -> WebullTestAccount:
             currency='USD',
         )
         db.session.add(account)
-        db.session.commit()
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
     return account
 
 
-def _lock_webull_test_account(user_id: int, *, wait=True) -> WebullTestAccount:
+def _lock_webull_test_account(user_id: int, *, wait=True, commit=True) -> WebullTestAccount:
     """Serialize paper-ledger mutations for one user to prevent reservation races."""
-    get_or_create_webull_test_account(user_id)
+    get_or_create_webull_test_account(user_id, commit=commit)
     return WebullTestAccount.query.filter_by(user_id=user_id).populate_existing().with_for_update(skip_locked=not wait).first()
 
 
@@ -869,9 +872,12 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
     return rows
 
 
-def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+def execute_webull_test_order(user_id: int, data: Dict[str, Any], *, commit=True, execution_price=None, execution_id=None) -> Dict[str, Any]:
     """Simulate execution of an order across all Webull asset classes against real live market pricing."""
-    account = _lock_webull_test_account(user_id)
+    if not commit and (data.get('combo_orders') or str(data.get('order_type')).upper() != 'MARKET'
+                       or str(data.get('instrument_type')).upper() not in {'CRYPTO', 'EQUITY', 'ETF'}):
+        raise ValueError('Atomic synthetic paper execution requires a simple crypto, stock or ETF market order.')
+    account = _lock_webull_test_account(user_id, commit=commit)
     cash = float(account.cash_balance or 0.0)
     reserved_cash = _reserved_cash_amount(user_id)
     cover_cash = max(0.0, cash - reserved_cash)
@@ -1102,7 +1108,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     stop_price = float(data.get('stop_price')) if data.get('stop_price') is not None else None
     # A limit can reserve cash without a quote; it cannot manufacture a fill.
     try:
-        live_price = fetch_live_price(
+        live_price = execution_price if execution_price is not None else fetch_live_price(
             user_id, underlying_sym or symbol, instrument_type,
             option_type=option_type, option_strike=option_strike, option_expiration=option_expiration,
             event_outcome=event_outcome, execution_side=side if instrument_type in ('OPTION', 'EVENT') else None,
@@ -1423,7 +1429,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
         })
 
     # Record test order
-    simulated_order_id = f"SIM_{uuid.uuid4().hex[:12].upper()}"
+    simulated_order_id = execution_id or f"SIM_{uuid.uuid4().hex[:12].upper()}"
     test_order = WebullTestOrder(
         order_id=simulated_order_id,
         user_id=user_id,
@@ -1503,7 +1509,10 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             db.session.add(sl_order)
 
     account.updated_at = utc_now()
-    db.session.commit()
+    if commit:
+        db.session.commit()
+    else:
+        db.session.flush()
 
     return {
         'success': True,

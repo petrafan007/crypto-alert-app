@@ -232,8 +232,15 @@ class TrailingOrder(db.Model):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    environment = Column(String(20), nullable=True)
+    engine_version = Column(Integer, default=2)
+    last_price = Column(Float, nullable=True)
+    last_checked_at = Column(DateTime, nullable=True)
+    monitoring_error = Column(Text, nullable=True)
+    cancel_requested = Column(Boolean, default=False)
 
     def to_dict(self):
+        from services.synthetic_execution_service import execution_summary
         return {
             'id': self.id,
             'user_id': self.user_id,
@@ -258,7 +265,8 @@ class TrailingOrder(db.Model):
             'executed_order_id': self.executed_order_id,
             'error_message': self.error_message,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            **execution_summary(self, 'TRAILING')
         }
 
 
@@ -306,10 +314,17 @@ class LadderOrder(db.Model):
     trading_session = Column(String(20), default='CORE')             # 'CORE', 'ALL', 'NIGHT'
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    environment = Column(String(20), nullable=True)
+    engine_version = Column(Integer, default=2)
+    last_price = Column(Float, nullable=True)
+    last_checked_at = Column(DateTime, nullable=True)
+    monitoring_error = Column(Text, nullable=True)
+    cancel_requested = Column(Boolean, default=False)
 
     rungs = db.relationship('LadderRung', backref='ladder_order', cascade='all, delete-orphan', lazy=True, order_by='LadderRung.rung_number')
 
     def to_dict(self):
+        from services.synthetic_execution_service import execution_summary
         return {
             'id': self.id,
             'user_id': self.user_id,
@@ -347,7 +362,8 @@ class LadderOrder(db.Model):
             'trading_session': self.trading_session or 'CORE',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'rungs': [r.to_dict() for r in self.rungs] if hasattr(self, 'rungs') and self.rungs else []
+            'rungs': [r.to_dict() for r in self.rungs] if hasattr(self, 'rungs') and self.rungs else [],
+            **execution_summary(self, 'LADDER')
         }
 
 
@@ -389,6 +405,34 @@ class LadderRung(db.Model):
             'executed_at': self.executed_at.isoformat() if self.executed_at else None,
             'error_message': self.error_message
         }
+
+
+class SyntheticExecution(db.Model):
+    """Durable broker intent. Ambiguous submissions are reconciled, never re-sent."""
+    __tablename__ = 'synthetic_executions'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    parent_kind = Column(String(12), nullable=False)
+    parent_id = Column(Integer, nullable=False)
+    rung_id = Column(Integer, nullable=True)
+    leg = Column(String(20), nullable=False)
+    client_order_id = Column(String(32), nullable=False, unique=True)
+    broker_order_id = Column(String(80), nullable=True)
+    quantity = Column(Float, nullable=False)
+    filled_quantity = Column(Float, default=0.0, nullable=False)
+    filled_price = Column(Float, nullable=True)
+    status = Column(String(24), nullable=False, default='SUBMITTING')
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    __table_args__ = (Index('ix_synthetic_execution_parent', 'parent_kind', 'parent_id'),)
+
+    def to_dict(self):
+        return {key: (value.isoformat() if isinstance(value, datetime) else value)
+                for key in ('id', 'rung_id', 'leg', 'client_order_id', 'broker_order_id',
+                            'quantity', 'filled_quantity', 'filled_price', 'status',
+                            'error_message', 'created_at', 'updated_at')
+                for value in (getattr(self, key),)}
 
 
 class AllActivity(db.Model):

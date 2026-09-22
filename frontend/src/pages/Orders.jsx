@@ -824,7 +824,7 @@ export default function Orders() {
         {['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) && (
           <section className="order-history-container" style={{ padding: '16px' }}>
             <div style={{ marginBottom: '16px' }}>
-              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>⚡ Synthetic Orders (Trailing & Ladder)</h2>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: 'var(--text-primary)' }}>⚡ Synthetic Orders (Trailing & Ladder)</h2>
               <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
                 Unified server-side synthetic orders (Trailing Stops, Scale-Out Ladders, and Smart Brackets) across Binance.US and Webull (Equities, ETFs, and Crypto).
               </p>

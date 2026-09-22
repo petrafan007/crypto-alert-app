@@ -3863,6 +3863,20 @@ def place_webull_order(
     }
 
 
+def get_webull_order_detail(app_key, app_secret, environment='production', access_token=None, *, account_id, client_order_id):
+    """Read current execution state by the durable client ID (not cached lists)."""
+    response = _rate_limited_order_request(
+        app_key, app_secret, environment, 'GET', '/trading/orders/get',
+        query_params={'account_id': str(account_id), 'client_order_id': client_order_id},
+        access_token=access_token,
+    )
+    payload = _response_payload(response, 'order detail request')
+    data = payload.get('data', payload) if isinstance(payload, dict) else payload
+    if not isinstance(data, dict):
+        raise WebullConnectionError('Webull returned no order detail.')
+    return data
+
+
 def cancel_webull_order(
     app_key, app_secret, environment='production', access_token=None, *,
     account_id, client_order_id=None, order_id=None,

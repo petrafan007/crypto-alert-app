@@ -20,7 +20,7 @@ def init_db(app=None):
         PortfolioStrategyPosition, PortfolioStrategyOrder, PortfolioEngineState,
         PortfolioStrategyLot, PortfolioEquitySnapshot, PortfolioAudit, PortfolioMarketObservation)
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
-    from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder, LadderOrder, LadderRung
+    from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder, LadderOrder, LadderRung, SyntheticExecution
     
     target_app = app if app is not None else current_app
     ctx = target_app.app_context() if target_app else None
@@ -41,6 +41,11 @@ def init_db(app=None):
         
         # Ensure recently added columns exist in PostgreSQL
         columns_to_ensure = [
+            *[(table, column, declaration) for table in ('trailing_orders', 'ladder_orders')
+              for column, declaration in (
+                  ('environment', 'VARCHAR(20)'), ('engine_version', 'INTEGER'),
+                  ('last_price', 'FLOAT'), ('last_checked_at', 'TIMESTAMP'),
+                  ('monitoring_error', 'TEXT'), ('cancel_requested', 'BOOLEAN DEFAULT FALSE'))],
             ("trailing_orders", "broker", "VARCHAR(20) DEFAULT 'binance'"),
             ("trailing_orders", "account_id", "VARCHAR(64)"),
             ("trailing_orders", "instrument_type", "VARCHAR(20) DEFAULT 'CRYPTO'"),

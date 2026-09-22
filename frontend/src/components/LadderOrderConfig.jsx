@@ -1,5 +1,7 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import '../pages/Trading.css';
+import './SyntheticOrders.css';
+import { money, number, trailLabel } from '../utils/syntheticOrders.mjs';
 
 export const UPSIDE_PRESETS = {
   CONSERVATIVE: {
@@ -141,13 +143,14 @@ const LadderOrderConfig = ({
   onChange
 }) => {
   const isSell = side === 'SELL';
+  const previousSide = useRef(side);
   const price = parseFloat(currentPrice) || 0;
   const totalQty = parseFloat(totalQuantity) || 0;
 
   // Active configurations with safe fallbacks
   const upsideMode = ladderConfig.upsideMode || 'LADDER';
   const downsideMode = ladderConfig.downsideMode || (ladderConfig.hasStopLoss ? 'SINGLE' : 'LADDER');
-  const hasDownside = ladderConfig.hasDownsideProtection !== undefined ? ladderConfig.hasDownsideProtection : (ladderConfig.hasStopLoss || true);
+  const hasDownside = ladderConfig.hasDownsideProtection !== undefined ? ladderConfig.hasDownsideProtection : (ladderConfig.hasStopLoss ?? false);
 
   const upsideRungs = ladderConfig.upsideRungs || ladderConfig.rungs || defaultLadderState.upsideRungs;
   const downsideRungs = ladderConfig.downsideRungs || defaultLadderState.downsideRungs;
@@ -165,10 +168,12 @@ const LadderOrderConfig = ({
     onChange(next);
   };
 
-  // Recompute target prices when price changes
+  // Presets follow quotes; single targets stay fixed until the side changes.
   useEffect(() => {
     if (price <= 0) return;
 
+    const sideChanged = previousSide.current !== side;
+    previousSide.current = side;
     let modified = false;
     let newUpsideRungs = upsideRungs;
     let newDownsideRungs = downsideRungs;
@@ -178,7 +183,7 @@ const LadderOrderConfig = ({
       const tpl = isSell ? p.rungsSell : p.rungsBuy;
       newUpsideRungs = upsideRungs.map((r, i) => {
         const off = tpl[i]?.price_offset_pct ?? r.price_offset_pct;
-        const tgt = (price * (1 + off / 100)).toFixed(price >= 1 ? 2 : 6);
+        const tgt = (price * (1 + off / 100)).toFixed(12);
         return { ...r, price_offset_pct: off, target_price: tgt };
       });
       modified = true;
@@ -189,23 +194,23 @@ const LadderOrderConfig = ({
       const tpl = isSell ? p.rungsSell : p.rungsBuy;
       newDownsideRungs = downsideRungs.map((r, i) => {
         const off = tpl[i]?.price_offset_pct ?? r.price_offset_pct;
-        const tgt = (price * (1 + off / 100)).toFixed(price >= 1 ? 2 : 6);
+        const tgt = (price * (1 + off / 100)).toFixed(12);
         return { ...r, price_offset_pct: off, target_price: tgt };
       });
       modified = true;
     }
 
     let upTarget = ladderConfig.upsideTargetPrice;
-    if (!upTarget || ladderConfig.upsideMode === 'SINGLE') {
+    if (!upTarget || sideChanged) {
       const off = parseFloat(ladderConfig.upsideOffsetPct || 5.0);
-      upTarget = (isSell ? price * (1 + off / 100) : price * (1 - off / 100)).toFixed(price >= 1 ? 2 : 6);
+      upTarget = (isSell ? price * (1 + off / 100) : price * (1 - off / 100)).toFixed(12);
       modified = true;
     }
 
     let downTarget = ladderConfig.downsideTargetPrice;
-    if (!downTarget || ladderConfig.downsideMode === 'SINGLE') {
+    if (!downTarget || sideChanged) {
       const off = parseFloat(ladderConfig.downsideOffsetPct || 5.0);
-      downTarget = (isSell ? price * (1 - off / 100) : price * (1 + off / 100)).toFixed(price >= 1 ? 2 : 6);
+      downTarget = (isSell ? price * (1 - off / 100) : price * (1 + off / 100)).toFixed(12);
       modified = true;
     }
 
@@ -231,7 +236,7 @@ const LadderOrderConfig = ({
     const updated = tpl.map(r => ({
       price_offset_pct: r.price_offset_pct,
       percentage_of_total: r.percentage_of_total,
-      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(price >= 1 ? 2 : 6) : ''
+      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(12) : ''
     }));
     updateConfig({
       upsidePreset: key,
@@ -251,7 +256,7 @@ const LadderOrderConfig = ({
     const updated = tpl.map(r => ({
       price_offset_pct: r.price_offset_pct,
       percentage_of_total: r.percentage_of_total,
-      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(price >= 1 ? 2 : 6) : ''
+      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(12) : ''
     }));
     updateConfig({
       downsidePreset: key,
@@ -265,7 +270,7 @@ const LadderOrderConfig = ({
     const rung = { ...updated[index], [field]: value };
     if (field === 'price_offset_pct' && price > 0) {
       const offset = parseFloat(value) || 0;
-      rung.target_price = (price * (1 + offset / 100)).toFixed(price >= 1 ? 2 : 6);
+      rung.target_price = (price * (1 + offset / 100)).toFixed(12);
     } else if (field === 'target_price' && price > 0) {
       const tgt = parseFloat(value) || 0;
       if (tgt > 0) {
@@ -279,8 +284,8 @@ const LadderOrderConfig = ({
   const handleAddUpsideRung = () => {
     if (upsideRungs.length >= 10) return;
     const last = upsideRungs[upsideRungs.length - 1];
-    const nextOffset = last ? (isSell ? last.price_offset_pct + 2.5 : last.price_offset_pct - 2.5) : (isSell ? 2.5 : -2.5);
-    const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(price >= 1 ? 2 : 6) : '';
+    const nextOffset = last ? (isSell ? Number(last.price_offset_pct) + 2.5 : Number(last.price_offset_pct) - 2.5) : (isSell ? 2.5 : -2.5);
+    const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(12) : '';
     const updated = [...upsideRungs, { price_offset_pct: nextOffset, percentage_of_total: 10, target_price: nextPrice }];
     updateConfig({ upsidePreset: 'CUSTOM', upsideRungs: updated });
   };
@@ -307,7 +312,7 @@ const LadderOrderConfig = ({
     const rung = { ...updated[index], [field]: value };
     if (field === 'price_offset_pct' && price > 0) {
       const offset = parseFloat(value) || 0;
-      rung.target_price = (price * (1 + offset / 100)).toFixed(price >= 1 ? 2 : 6);
+      rung.target_price = (price * (1 + offset / 100)).toFixed(12);
     } else if (field === 'target_price' && price > 0) {
       const tgt = parseFloat(value) || 0;
       if (tgt > 0) {
@@ -321,8 +326,8 @@ const LadderOrderConfig = ({
   const handleAddDownsideRung = () => {
     if (downsideRungs.length >= 10) return;
     const last = downsideRungs[downsideRungs.length - 1];
-    const nextOffset = last ? (isSell ? last.price_offset_pct - 2.5 : last.price_offset_pct + 2.5) : (isSell ? -2.5 : 2.5);
-    const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(price >= 1 ? 2 : 6) : '';
+    const nextOffset = last ? (isSell ? Number(last.price_offset_pct) - 2.5 : Number(last.price_offset_pct) + 2.5) : (isSell ? -2.5 : 2.5);
+    const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(12) : '';
     const updated = [...downsideRungs, { price_offset_pct: nextOffset, percentage_of_total: 10, target_price: nextPrice }];
     updateConfig({ downsidePreset: 'CUSTOM', downsideRungs: updated });
   };
@@ -399,6 +404,7 @@ const LadderOrderConfig = ({
 
   return (
     <div className="ladder-order-config-container" style={{ width: '100%', marginTop: '6px' }}>
+      <p style={{ color: 'var(--syn-muted)', fontSize: '12px' }}>Both sides share one total quantity. Triggered steps execute market orders. Protection applies to the unfilled remainder; conditions persist until filled or cancelled.</p>
       <div className="ladder-strategy-split-container">
         {/* ============================================================== */}
         {/* 🟢 COLUMN 1: UPSIDE STRATEGY (TAKE PROFIT)                     */}
@@ -414,10 +420,10 @@ const LadderOrderConfig = ({
         }}>
           {/* Header & Tagline */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label className="order-field-label" style={{ margin: 0, color: '#34d399', fontWeight: '700', letterSpacing: '0.05em' }}>
+            <label className="order-field-label" style={{ margin: 0, color: 'var(--syn-positive)', fontWeight: '700', letterSpacing: '0.05em' }}>
               <span>🟢 UPSIDE STRATEGY (TAKE PROFIT)</span>
             </label>
-            <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+            <span style={{ fontSize: '11px', color: 'var(--syn-muted)' }}>
               {isSell ? 'Exit into strength' : 'Dip entry'}
             </span>
           </div>
@@ -441,24 +447,24 @@ const LadderOrderConfig = ({
                   flexDirection: 'column',
                   alignItems: 'center',
                   gap: '2px',
-                  borderColor: upsideMode === m.id ? '#34d399' : undefined
+                  borderColor: upsideMode === m.id ? 'var(--syn-positive)' : undefined
                 }}
                 title={m.title}
               >
-                <strong style={{ color: upsideMode === m.id ? '#34d399' : '#e2e8f0' }}>{m.label}</strong>
-                <span style={{ fontSize: '9.5px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{m.title.split(' ')[0]} {m.title.split(' ')[1]}</span>
+                <strong style={{ color: upsideMode === m.id ? 'var(--syn-positive)' : 'var(--syn-text)' }}>{m.label}</strong>
+                <span style={{ fontSize: '9.5px', color: 'var(--syn-muted)', whiteSpace: 'nowrap' }}>{m.title.split(' ')[0]} {m.title.split(' ')[1]}</span>
               </button>
             ))}
           </div>
 
           {/* Mode Title & Market Price */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            <span style={{ fontWeight: '600', fontSize: '12px', color: '#34d399', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px', borderTop: '1px solid var(--syn-input)' }}>
+            <span style={{ fontWeight: '600', fontSize: '12px', color: 'var(--syn-positive)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span>📈</span> {upsideMode === 'SINGLE' ? 'Mode A (Single Target 100%)' : upsideMode === 'TRAILING' ? 'Mode C (Trailing Take-Profit)' : 'Mode B (Multi-Rung Ladder)'}
             </span>
             {price > 0 && (
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                Market Price: <strong style={{ color: '#fff' }}>${price.toLocaleString()}</strong>
+              <span style={{ fontSize: '11px', color: 'var(--syn-muted)' }}>
+                Market Price: <strong style={{ color: 'var(--syn-text)' }}>{money(price, quoteAsset)}</strong>
               </span>
             )}
           </div>
@@ -467,7 +473,7 @@ const LadderOrderConfig = ({
           {upsideMode === 'SINGLE' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label className="order-field-label">Target Exit Price ({quoteAsset})</label>
+                <label className="order-field-label">Target {isSell ? 'Exit' : 'Entry'} Price ({quoteAsset})</label>
                 <input
                   type="number"
                   step="any"
@@ -477,51 +483,51 @@ const LadderOrderConfig = ({
                   onChange={(e) => {
                     const val = e.target.value;
                     const pFloat = parseFloat(val) || 0;
-                    const off = price > 0 && pFloat > 0 ? (((pFloat - price) / price) * 100).toFixed(2) : ladderConfig.upsideOffsetPct;
+                    const off = price > 0 && pFloat > 0 ? (Math.abs((pFloat - price) / price) * 100).toFixed(2) : ladderConfig.upsideOffsetPct;
                     updateConfig({ upsideTargetPrice: val, upsideOffsetPct: off });
                   }}
                 />
                 <div style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Quick +%:</span>
+                  <span style={{ fontSize: '11px', color: 'var(--syn-muted)' }}>Quick {isSell ? '+' : '−'}%:</span>
                   {[2, 5, 10, 15, 20].map(pct => (
                     <button
                       key={pct}
                       type="button"
                       onClick={() => {
-                        const tgt = price > 0 ? (price * (1 + pct / 100)).toFixed(price >= 1 ? 2 : 6) : '';
+                        const tgt = price > 0 ? (price * (1 + (isSell ? pct : -pct) / 100)).toFixed(12) : '';
                         updateConfig({ upsideOffsetPct: String(pct), upsideTargetPrice: tgt });
                       }}
                       style={{
                         padding: '2px 7px',
                         borderRadius: '4px',
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        color: '#34d399',
+                        background: 'var(--syn-input)',
+                        border: '1px solid var(--syn-border)',
+                        color: 'var(--syn-positive)',
                         fontSize: '11px',
                         cursor: 'pointer'
                       }}
                     >
-                      +{pct}%
+                      {isSell ? '+' : '−'}{pct}%
                     </button>
                   ))}
                 </div>
               </div>
 
               <div style={{
-                background: 'rgba(15, 23, 42, 0.6)',
+                background: 'var(--syn-input)',
                 borderRadius: '8px',
                 padding: '12px',
-                border: '1px solid rgba(255, 255, 255, 0.05)',
+                border: '1px solid var(--syn-border)',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'center'
               }}>
-                <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>Single Exit Execution Summary</div>
-                <div style={{ fontSize: '13px', fontWeight: '700', color: '#34d399' }}>
-                  100% Position ({totalQty > 0 ? totalQty.toLocaleString() : '—'} {baseAsset})
+                <div style={{ fontSize: '11px', color: 'var(--syn-muted)', marginBottom: '4px' }}>Single {isSell ? 'Exit' : 'Entry'} Execution Summary</div>
+                <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--syn-positive)' }}>
+                  100% Position ({totalQty > 0 ? number(totalQty) : '—'} {baseAsset})
                 </div>
-                <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '4px' }}>
-                  Est. Proceeds: <strong style={{ color: '#fff' }}>${(totalQty * (parseFloat(ladderConfig.upsideTargetPrice) || price)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                <div style={{ fontSize: '11px', color: 'var(--syn-text)', marginTop: '4px' }}>
+                  Est. {isSell ? 'Proceeds' : 'Cost'}: <strong style={{ color: 'var(--syn-text)' }}>{money(totalQty * (parseFloat(ladderConfig.upsideTargetPrice) || price), quoteAsset)}</strong>
                 </div>
               </div>
             </div>
@@ -550,7 +556,7 @@ const LadderOrderConfig = ({
                         className="order-type-btn active"
                         style={{ padding: '0 8px', fontSize: '11px' }}
                       >
-                        {ladderConfig.upsideTrailType === 'AMOUNT' ? '$' : '%'}
+                        {ladderConfig.upsideTrailType === 'AMOUNT' ? quoteAsset : '%'}
                       </button>
                     </div>
                   </div>
@@ -569,7 +575,7 @@ const LadderOrderConfig = ({
                 </div>
 
                 <div style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Presets:</span>
+                  <span style={{ fontSize: '11px', color: 'var(--syn-muted)' }}>Presets:</span>
                   {[1.5, 2.0, 3.0, 5.0].map(p => (
                     <button
                       key={p}
@@ -578,9 +584,9 @@ const LadderOrderConfig = ({
                       style={{
                         padding: '2px 7px',
                         borderRadius: '4px',
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        color: '#34d399',
+                        background: 'var(--syn-input)',
+                        border: '1px solid var(--syn-border)',
+                        color: 'var(--syn-positive)',
                         fontSize: '11px',
                         cursor: 'pointer'
                       }}
@@ -592,17 +598,17 @@ const LadderOrderConfig = ({
               </div>
 
               <div style={{
-                background: 'rgba(15, 23, 42, 0.6)',
+                background: 'var(--syn-input)',
                 borderRadius: '8px',
                 padding: '12px',
-                border: '1px solid rgba(255, 255, 255, 0.05)',
+                border: '1px solid var(--syn-border)',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'center'
               }}>
-                <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>Trailing Take-Profit Engine</div>
-                <div style={{ fontSize: '12px', color: '#e2e8f0', lineHeight: 1.4 }}>
-                  Ratchets the peak high watermark upwards as price climbs. Once price pulls back by <strong style={{ color: '#34d399' }}>{ladderConfig.upsideTrailValue || '2.0'}{ladderConfig.upsideTrailType === 'AMOUNT' ? '$' : '%'}</strong> from its highest peak, an automated market sell triggers.
+                <div style={{ fontSize: '11px', color: 'var(--syn-muted)', marginBottom: '4px' }}>Trailing Take-Profit Engine</div>
+                <div style={{ fontSize: '12px', color: 'var(--syn-text)', lineHeight: 1.4 }}>
+                  Tracks the {isSell ? 'highest price' : 'lowest price'} after activation. A {isSell ? 'pullback' : 'rebound'} of <strong style={{ color: 'var(--syn-positive)' }}>{trailLabel(ladderConfig.upsideTrailValue || '2.0', ladderConfig.upsideTrailType, quoteAsset)}</strong> triggers a market {side.toLowerCase()} of the remaining quantity.
                 </div>
               </div>
             </div>
@@ -628,13 +634,13 @@ const LadderOrderConfig = ({
 
               {/* Rungs Table */}
               <div style={{
-                background: 'rgba(15, 23, 42, 0.6)',
+                background: 'var(--syn-input)',
                 borderRadius: '8px',
                 padding: '10px 12px',
-                border: '1px solid rgba(255, 255, 255, 0.05)'
+                border: '1px solid var(--syn-border)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#cbd5e1' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--syn-text)' }}>
                     📋 Profit Rungs ({upsideRungs.length})
                   </span>
                   <div style={{ display: 'flex', gap: '6px' }}>
@@ -644,9 +650,9 @@ const LadderOrderConfig = ({
                       style={{
                         padding: '2px 8px',
                         borderRadius: '4px',
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        color: '#cbd5e1',
+                        background: 'var(--syn-input)',
+                        border: '1px solid var(--syn-border)',
+                        color: 'var(--syn-text)',
                         fontSize: '11px',
                         cursor: 'pointer'
                       }}
@@ -662,7 +668,7 @@ const LadderOrderConfig = ({
                         borderRadius: '4px',
                         background: 'rgba(16, 185, 129, 0.2)',
                         border: '1px solid rgba(16, 185, 129, 0.4)',
-                        color: '#34d399',
+                        color: 'var(--syn-positive)',
                         fontSize: '11px',
                         cursor: 'pointer'
                       }}
@@ -680,8 +686,8 @@ const LadderOrderConfig = ({
                   padding: '4px 0',
                   fontSize: '10px',
                   fontWeight: '700',
-                  color: '#94a3b8',
-                  borderBottom: '1px solid rgba(255,255,255,0.08)'
+                  color: 'var(--syn-muted)',
+                  borderBottom: '1px solid var(--syn-border)'
                 }}>
                   <span>Tier</span>
                   <span>Target ({quoteAsset})</span>
@@ -702,7 +708,7 @@ const LadderOrderConfig = ({
                         alignItems: 'center'
                       }}
                     >
-                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', textAlign: 'center' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--syn-muted)', textAlign: 'center' }}>
                         #{index + 1}
                       </span>
                       <input
@@ -719,11 +725,11 @@ const LadderOrderConfig = ({
                           type="number"
                           step="any"
                           className="order-styled-input"
-                          style={{ padding: '4px 6px', fontSize: '11px', color: '#34d399', fontWeight: '600' }}
+                          style={{ padding: '4px 6px', fontSize: '11px', color: 'var(--syn-positive)', fontWeight: '600' }}
                           value={rung.price_offset_pct}
                           onChange={(e) => handleUpsideRungChange(index, 'price_offset_pct', e.target.value)}
                         />
-                        <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: '#94a3b8', pointerEvents: 'none' }}>%</span>
+                        <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: 'var(--syn-muted)', pointerEvents: 'none' }}>%</span>
                       </div>
                       <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                         <input
@@ -736,7 +742,7 @@ const LadderOrderConfig = ({
                           value={rung.percentage_of_total}
                           onChange={(e) => handleUpsideRungChange(index, 'percentage_of_total', e.target.value)}
                         />
-                        <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: '#94a3b8', pointerEvents: 'none' }}>%</span>
+                        <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: 'var(--syn-muted)', pointerEvents: 'none' }}>%</span>
                       </div>
                       <button
                         type="button"
@@ -745,7 +751,7 @@ const LadderOrderConfig = ({
                         style={{
                           background: 'transparent',
                           border: 'none',
-                          color: upsideRungs.length <= 1 ? '#475569' : '#f87171',
+                          color: upsideRungs.length <= 1 ? 'var(--syn-border)' : 'var(--syn-negative)',
                           cursor: upsideRungs.length <= 1 ? 'not-allowed' : 'pointer',
                           fontSize: '12px'
                         }}
@@ -760,17 +766,17 @@ const LadderOrderConfig = ({
 
               {/* Stepped Execution Preview Bar */}
               <div style={{
-                background: 'rgba(15, 23, 42, 0.6)',
+                background: 'var(--syn-input)',
                 borderRadius: '8px',
                 padding: '10px 12px',
                 border: '1px solid rgba(56, 189, 248, 0.25)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--syn-accent)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span>📊</span> Stepped Execution Preview
                   </span>
-                  <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>
-                    Alloc: <strong style={{ color: Math.abs(upsideRungs.reduce((a, b) => a + (parseFloat(b.percentage_of_total) || 0), 0) - 100) < 0.5 ? '#34d399' : '#f87171' }}>
+                  <span style={{ fontSize: '10.5px', color: 'var(--syn-muted)' }}>
+                    Alloc: <strong style={{ color: Math.abs(upsideRungs.reduce((a, b) => a + (parseFloat(b.percentage_of_total) || 0), 0) - 100) < 0.5 ? 'var(--syn-positive)' : 'var(--syn-negative)' }}>
                       {upsideRungs.reduce((a, b) => a + (parseFloat(b.percentage_of_total) || 0), 0).toFixed(1)}% / 100%
                     </strong>
                   </span>
@@ -783,10 +789,10 @@ const LadderOrderConfig = ({
                       <div
                         key={tier.rungNumber}
                         style={{
-                          background: 'rgba(30, 41, 59, 0.6)',
+                          background: 'var(--syn-input)',
                           borderRadius: '6px',
                           padding: '6px 8px',
-                          border: '1px solid rgba(255, 255, 255, 0.05)',
+                          border: '1px solid var(--syn-border)',
                           position: 'relative',
                           overflow: 'hidden'
                         }}
@@ -799,28 +805,28 @@ const LadderOrderConfig = ({
                             bottom: 0,
                             width: `${prog}%`,
                             background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.3) 100%)',
-                            borderRight: '2px solid #34d399',
+                            borderRight: '2px solid var(--syn-positive)',
                             pointerEvents: 'none'
                           }}
                         />
                         <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
-                            <span style={{ fontSize: '11px', fontWeight: '700', color: '#38bdf8', marginRight: '6px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--syn-accent)', marginRight: '6px' }}>
                               #{tier.rungNumber}
                             </span>
-                            <span style={{ fontSize: '11.5px', fontWeight: '700', color: '#fff' }}>
-                              ${tier.targetPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <span style={{ fontSize: '11.5px', fontWeight: '700', color: 'var(--syn-text)' }}>
+                              {money(tier.targetPrice, quoteAsset)}
                             </span>
-                            <span style={{ fontSize: '10.5px', color: '#34d399', marginLeft: '6px', fontWeight: '600' }}>
+                            <span style={{ fontSize: '10.5px', color: 'var(--syn-positive)', marginLeft: '6px', fontWeight: '600' }}>
                               (+{tier.offsetPct}%)
                             </span>
                           </div>
                           <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: '11px', fontWeight: '600', color: '#e2e8f0' }}>
+                            <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--syn-text)' }}>
                               {tier.quantity > 0 ? tier.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'} {baseAsset} ({tier.percentageOfTotal}%)
                             </div>
-                            <div style={{ fontSize: '9.5px', color: '#94a3b8' }}>
-                              Val: ${tier.estimatedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Cum: ${tier.cumulativeUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <div style={{ fontSize: '9.5px', color: 'var(--syn-muted)' }}>
+                              Val: {money(tier.estimatedUsd, quoteAsset)} | Cum: {money(tier.cumulativeUsd, quoteAsset)}
                             </div>
                           </div>
                         </div>
@@ -855,7 +861,7 @@ const LadderOrderConfig = ({
                 gap: '8px',
                 cursor: 'pointer',
                 margin: 0,
-                color: hasDownside ? '#f87171' : '#cbd5e1',
+                color: hasDownside ? 'var(--syn-negative)' : 'var(--syn-text)',
                 fontWeight: '700',
                 letterSpacing: '0.05em'
               }}
@@ -864,11 +870,11 @@ const LadderOrderConfig = ({
                 type="checkbox"
                 checked={hasDownside}
                 onChange={(e) => updateConfig({ hasDownsideProtection: e.target.checked })}
-                style={{ width: '15px', height: '15px', accentColor: '#f87171', cursor: 'pointer' }}
+                style={{ width: '15px', height: '15px', accentColor: 'var(--syn-negative)', cursor: 'pointer' }}
               />
               <span>🔴 DOWNSIDE STRATEGY (STOP LOSS)</span>
             </label>
-            <span style={{ fontSize: '11px', fontWeight: '600', color: hasDownside ? '#f87171' : '#64748b' }}>
+            <span style={{ fontSize: '11px', fontWeight: '600', color: hasDownside ? 'var(--syn-negative)' : 'var(--syn-muted)' }}>
               {hasDownside ? 'Active' : 'Disabled (Off)'}
             </span>
           </div>
@@ -898,12 +904,12 @@ const LadderOrderConfig = ({
                   flexDirection: 'column',
                   alignItems: 'center',
                   gap: '2px',
-                  borderColor: downsideMode === m.id ? '#f87171' : undefined
+                  borderColor: downsideMode === m.id ? 'var(--syn-negative)' : undefined
                 }}
                 title={m.title}
               >
-                <strong style={{ color: downsideMode === m.id ? '#f87171' : '#e2e8f0' }}>{m.label}</strong>
-                <span style={{ fontSize: '9.5px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{m.title.split(' ')[0]} {m.title.split(' ')[1]}</span>
+                <strong style={{ color: downsideMode === m.id ? 'var(--syn-negative)' : 'var(--syn-text)' }}>{m.label}</strong>
+                <span style={{ fontSize: '9.5px', color: 'var(--syn-muted)', whiteSpace: 'nowrap' }}>{m.title.split(' ')[0]} {m.title.split(' ')[1]}</span>
               </button>
             ))}
           </div>
@@ -911,11 +917,11 @@ const LadderOrderConfig = ({
           {/* Downside Mode Content */}
           {hasDownside ? (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <span style={{ fontWeight: '600', fontSize: '12px', color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px', borderTop: '1px solid var(--syn-input)' }}>
+                <span style={{ fontWeight: '600', fontSize: '12px', color: 'var(--syn-negative)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span>🛡️</span> {downsideMode === 'SINGLE' ? 'Mode A (Single Stop Floor)' : downsideMode === 'TRAILING' ? 'Mode C (Trailing Stop Loss)' : 'Mode B (Staged Stop Ladder)'}
                 </span>
-                <span style={{ fontSize: '11px', color: '#fca5a5' }}>
+                <span style={{ fontSize: '11px', color: 'var(--syn-negative)' }}>
                   Protects position on drop
                 </span>
               </div>
@@ -929,52 +935,52 @@ const LadderOrderConfig = ({
                       type="number"
                       step="any"
                       className="order-styled-input"
-                      style={{ color: '#f87171', fontWeight: '700' }}
+                      style={{ color: 'var(--syn-negative)', fontWeight: '700' }}
                       value={ladderConfig.downsideTargetPrice || ''}
                       placeholder="Stop Price"
                       onChange={(e) => {
                         const val = e.target.value;
                         const pFloat = parseFloat(val) || 0;
-                        const off = price > 0 && pFloat > 0 ? (((price - pFloat) / price) * 100).toFixed(2) : ladderConfig.downsideOffsetPct;
+                        const off = price > 0 && pFloat > 0 ? (Math.abs((price - pFloat) / price) * 100).toFixed(2) : ladderConfig.downsideOffsetPct;
                         updateConfig({ downsideTargetPrice: val, downsideOffsetPct: off });
                       }}
                     />
                     <div style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>Quick -%:</span>
+                      <span style={{ fontSize: '11px', color: 'var(--syn-muted)' }}>Quick {isSell ? '−' : '+'}%:</span>
                       {[2, 3, 5, 8, 10].map(pct => (
                         <button
                           key={pct}
                           type="button"
                           onClick={() => {
-                            const tgt = price > 0 ? (price * (1 - pct / 100)).toFixed(price >= 1 ? 2 : 6) : '';
+                            const tgt = price > 0 ? (price * (1 + (isSell ? -pct : pct) / 100)).toFixed(12) : '';
                             updateConfig({ downsideOffsetPct: String(pct), downsideTargetPrice: tgt });
                           }}
                           style={{
                             padding: '2px 7px',
                             borderRadius: '4px',
-                            background: 'rgba(255,255,255,0.06)',
-                            border: '1px solid rgba(255,255,255,0.15)',
-                            color: '#f87171',
+                            background: 'var(--syn-input)',
+                            border: '1px solid var(--syn-border)',
+                            color: 'var(--syn-negative)',
                             fontSize: '11px',
                             cursor: 'pointer'
                           }}
                         >
-                          -{pct}%
+                          {isSell ? '−' : '+'}{pct}%
                         </button>
                       ))}
                     </div>
                   </div>
 
                   <div style={{
-                    background: 'rgba(15, 23, 42, 0.6)',
+                    background: 'var(--syn-input)',
                     borderRadius: '8px',
                     padding: '12px',
-                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                    border: '1px solid var(--syn-border)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'center'
                   }}>
-                    <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>Stop-Loss Action When Triggered</div>
+                    <div style={{ fontSize: '11px', color: 'var(--syn-muted)', marginBottom: '4px' }}>Stop-Loss Action When Triggered</div>
                     <div style={{ display: 'flex', gap: '6px' }}>
                       <button
                         type="button"
@@ -982,7 +988,7 @@ const LadderOrderConfig = ({
                         style={{ flex: 1, padding: '6px 8px', fontSize: '11px' }}
                         onClick={() => updateConfig({ downsideStopAction: 'MARKET_SELL_ALL' })}
                       >
-                        🚨 Market Liquidate
+                        🚨 Market {isSell ? 'Sell' : 'Buy'} Remainder
                       </button>
                       <button
                         type="button"
@@ -1020,7 +1026,7 @@ const LadderOrderConfig = ({
                             className="order-type-btn active"
                             style={{ padding: '0 8px', fontSize: '11px' }}
                           >
-                            {ladderConfig.downsideTrailType === 'AMOUNT' ? '$' : '%'}
+                            {ladderConfig.downsideTrailType === 'AMOUNT' ? quoteAsset : '%'}
                           </button>
                         </div>
                       </div>
@@ -1039,7 +1045,7 @@ const LadderOrderConfig = ({
                     </div>
 
                     <div style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>Presets:</span>
+                      <span style={{ fontSize: '11px', color: 'var(--syn-muted)' }}>Presets:</span>
                       {[2.0, 3.0, 5.0, 8.0].map(p => (
                         <button
                           key={p}
@@ -1048,9 +1054,9 @@ const LadderOrderConfig = ({
                           style={{
                             padding: '2px 7px',
                             borderRadius: '4px',
-                            background: 'rgba(255,255,255,0.06)',
-                            border: '1px solid rgba(255,255,255,0.15)',
-                            color: '#f87171',
+                            background: 'var(--syn-input)',
+                            border: '1px solid var(--syn-border)',
+                            color: 'var(--syn-negative)',
                             fontSize: '11px',
                             cursor: 'pointer'
                           }}
@@ -1062,17 +1068,17 @@ const LadderOrderConfig = ({
                   </div>
 
                   <div style={{
-                    background: 'rgba(15, 23, 42, 0.6)',
+                    background: 'var(--syn-input)',
                     borderRadius: '8px',
                     padding: '12px',
-                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                    border: '1px solid var(--syn-border)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'center'
                   }}>
-                    <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>Trailing Stop Loss Engine</div>
-                    <div style={{ fontSize: '12px', color: '#e2e8f0', lineHeight: 1.4 }}>
-                      As the asset gains value, the stop-loss price ratchets upward dynamically, staying <strong style={{ color: '#f87171' }}>{ladderConfig.downsideTrailValue || '3.0'}{ladderConfig.downsideTrailType === 'AMOUNT' ? '$' : '%'}</strong> behind market highs to protect accrued profits.
+                    <div style={{ fontSize: '11px', color: 'var(--syn-muted)', marginBottom: '4px' }}>Trailing Stop Loss Engine</div>
+                    <div style={{ fontSize: '12px', color: 'var(--syn-text)', lineHeight: 1.4 }}>
+                      Tracks the {isSell ? 'highest price' : 'lowest price'} after activation. A {isSell ? 'pullback' : 'rebound'} of <strong style={{ color: 'var(--syn-negative)' }}>{trailLabel(ladderConfig.downsideTrailValue || '3.0', ladderConfig.downsideTrailType, quoteAsset)}</strong> triggers a market {side.toLowerCase()} of the remaining quantity.
                     </div>
                   </div>
                 </div>
@@ -1088,7 +1094,7 @@ const LadderOrderConfig = ({
                         key={key}
                         type="button"
                         className={`order-type-btn ${ladderConfig.downsidePreset === key ? 'active' : ''}`}
-                        style={{ padding: '6px 12px', fontSize: '11px', borderColor: ladderConfig.downsidePreset === key ? '#f87171' : undefined }}
+                        style={{ padding: '6px 12px', fontSize: '11px', borderColor: ladderConfig.downsidePreset === key ? 'var(--syn-negative)' : undefined }}
                         onClick={() => applyDownsidePreset(key)}
                       >
                         {DOWNSIDE_PRESETS[key].label}
@@ -1098,13 +1104,13 @@ const LadderOrderConfig = ({
 
                   {/* Stop Rungs Table */}
                   <div style={{
-                    background: 'rgba(15, 23, 42, 0.6)',
+                    background: 'var(--syn-input)',
                     borderRadius: '8px',
                     padding: '10px 12px',
-                    border: '1px solid rgba(255, 255, 255, 0.05)'
+                    border: '1px solid var(--syn-border)'
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: '700', color: '#cbd5e1' }}>
+                      <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--syn-text)' }}>
                         📋 Stop Rungs ({downsideRungs.length})
                       </span>
                       <div style={{ display: 'flex', gap: '6px' }}>
@@ -1114,9 +1120,9 @@ const LadderOrderConfig = ({
                           style={{
                             padding: '2px 8px',
                             borderRadius: '4px',
-                            background: 'rgba(255,255,255,0.06)',
-                            border: '1px solid rgba(255,255,255,0.15)',
-                            color: '#cbd5e1',
+                            background: 'var(--syn-input)',
+                            border: '1px solid var(--syn-border)',
+                            color: 'var(--syn-text)',
                             fontSize: '11px',
                             cursor: 'pointer'
                           }}
@@ -1132,7 +1138,7 @@ const LadderOrderConfig = ({
                             borderRadius: '4px',
                             background: 'rgba(239, 68, 68, 0.2)',
                             border: '1px solid rgba(239, 68, 68, 0.4)',
-                            color: '#f87171',
+                            color: 'var(--syn-negative)',
                             fontSize: '11px',
                             cursor: 'pointer'
                           }}
@@ -1150,8 +1156,8 @@ const LadderOrderConfig = ({
                       padding: '4px 0',
                       fontSize: '10px',
                       fontWeight: '700',
-                      color: '#94a3b8',
-                      borderBottom: '1px solid rgba(255,255,255,0.08)'
+                      color: 'var(--syn-muted)',
+                      borderBottom: '1px solid var(--syn-border)'
                     }}>
                       <span>Tier</span>
                       <span>Stop ({quoteAsset})</span>
@@ -1172,14 +1178,14 @@ const LadderOrderConfig = ({
                             alignItems: 'center'
                           }}
                         >
-                          <span style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', textAlign: 'center' }}>
+                          <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--syn-muted)', textAlign: 'center' }}>
                             #{index + 1}
                           </span>
                           <input
                             type="number"
                             step="any"
                             className="order-styled-input"
-                            style={{ padding: '4px 6px', fontSize: '11px', color: '#f87171', fontWeight: '600' }}
+                            style={{ padding: '4px 6px', fontSize: '11px', color: 'var(--syn-negative)', fontWeight: '600' }}
                             value={rung.target_price || ''}
                             placeholder="Stop Px"
                             onChange={(e) => handleDownsideRungChange(index, 'target_price', e.target.value)}
@@ -1189,11 +1195,11 @@ const LadderOrderConfig = ({
                               type="number"
                               step="any"
                               className="order-styled-input"
-                              style={{ padding: '4px 6px', fontSize: '11px', color: '#f87171', fontWeight: '600' }}
+                              style={{ padding: '4px 6px', fontSize: '11px', color: 'var(--syn-negative)', fontWeight: '600' }}
                               value={rung.price_offset_pct}
                               onChange={(e) => handleDownsideRungChange(index, 'price_offset_pct', e.target.value)}
                             />
-                            <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: '#94a3b8', pointerEvents: 'none' }}>%</span>
+                            <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: 'var(--syn-muted)', pointerEvents: 'none' }}>%</span>
                           </div>
                           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                             <input
@@ -1206,7 +1212,7 @@ const LadderOrderConfig = ({
                               value={rung.percentage_of_total}
                               onChange={(e) => handleDownsideRungChange(index, 'percentage_of_total', e.target.value)}
                             />
-                            <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: '#94a3b8', pointerEvents: 'none' }}>%</span>
+                            <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: 'var(--syn-muted)', pointerEvents: 'none' }}>%</span>
                           </div>
                           <button
                             type="button"
@@ -1215,7 +1221,7 @@ const LadderOrderConfig = ({
                             style={{
                               background: 'transparent',
                               border: 'none',
-                              color: downsideRungs.length <= 1 ? '#475569' : '#f87171',
+                              color: downsideRungs.length <= 1 ? 'var(--syn-border)' : 'var(--syn-negative)',
                               cursor: downsideRungs.length <= 1 ? 'not-allowed' : 'pointer',
                               fontSize: '12px'
                             }}
@@ -1230,17 +1236,17 @@ const LadderOrderConfig = ({
 
                   {/* Downside Stop Preview */}
                   <div style={{
-                    background: 'rgba(15, 23, 42, 0.6)',
+                    background: 'var(--syn-input)',
                     borderRadius: '8px',
                     padding: '10px 12px',
                     border: '1px solid rgba(239, 68, 68, 0.3)'
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: '700', color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--syn-negative)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span>📉</span> Downside Stop Preview
                       </span>
-                      <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>
-                        Alloc: <strong style={{ color: Math.abs(downsideRungs.reduce((a, b) => a + (parseFloat(b.percentage_of_total) || 0), 0) - 100) < 0.5 ? '#34d399' : '#f87171' }}>
+                      <span style={{ fontSize: '10.5px', color: 'var(--syn-muted)' }}>
+                        Alloc: <strong style={{ color: Math.abs(downsideRungs.reduce((a, b) => a + (parseFloat(b.percentage_of_total) || 0), 0) - 100) < 0.5 ? 'var(--syn-positive)' : 'var(--syn-negative)' }}>
                           {downsideRungs.reduce((a, b) => a + (parseFloat(b.percentage_of_total) || 0), 0).toFixed(1)}% / 100%
                         </strong>
                       </span>
@@ -1253,10 +1259,10 @@ const LadderOrderConfig = ({
                           <div
                             key={tier.rungNumber}
                             style={{
-                              background: 'rgba(30, 41, 59, 0.6)',
+                              background: 'var(--syn-input)',
                               borderRadius: '6px',
                               padding: '6px 8px',
-                              border: '1px solid rgba(255, 255, 255, 0.05)',
+                              border: '1px solid var(--syn-border)',
                               position: 'relative',
                               overflow: 'hidden'
                             }}
@@ -1269,28 +1275,28 @@ const LadderOrderConfig = ({
                                 bottom: 0,
                                 width: `${prog}%`,
                                 background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.3) 100%)',
-                                borderRight: '2px solid #f87171',
+                                borderRight: '2px solid var(--syn-negative)',
                                 pointerEvents: 'none'
                               }}
                             />
                             <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <div>
-                                <span style={{ fontSize: '11px', fontWeight: '700', color: '#f87171', marginRight: '6px' }}>
+                                <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--syn-negative)', marginRight: '6px' }}>
                                   #{tier.rungNumber}
                                 </span>
-                                <span style={{ fontSize: '11.5px', fontWeight: '700', color: '#fff' }}>
-                                  ${tier.targetPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                <span style={{ fontSize: '11.5px', fontWeight: '700', color: 'var(--syn-text)' }}>
+                                  {money(tier.targetPrice, quoteAsset)}
                                 </span>
-                                <span style={{ fontSize: '10.5px', color: '#f87171', marginLeft: '6px', fontWeight: '600' }}>
+                                <span style={{ fontSize: '10.5px', color: 'var(--syn-negative)', marginLeft: '6px', fontWeight: '600' }}>
                                   ({tier.offsetPct}%)
                                 </span>
                               </div>
                               <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#e2e8f0' }}>
+                                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--syn-text)' }}>
                                   {tier.quantity > 0 ? tier.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'} {baseAsset} ({tier.percentageOfTotal}%)
                                 </div>
-                                <div style={{ fontSize: '9.5px', color: '#94a3b8' }}>
-                                  Cut: ${tier.estimatedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Cum: ${tier.cumulativeUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                <div style={{ fontSize: '9.5px', color: 'var(--syn-muted)' }}>
+                                  Cut: {money(tier.estimatedUsd, quoteAsset)} | Cum: {money(tier.cumulativeUsd, quoteAsset)}
                                 </div>
                               </div>
                             </div>
@@ -1304,7 +1310,7 @@ const LadderOrderConfig = ({
             </>
           ) : (
             <div style={{
-              background: 'rgba(15, 23, 42, 0.45)',
+              background: 'var(--syn-input)',
               border: '1px dashed rgba(239, 68, 68, 0.25)',
               borderRadius: '8px',
               padding: '24px 16px',
@@ -1314,11 +1320,11 @@ const LadderOrderConfig = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
-              color: '#94a3b8',
+              color: 'var(--syn-muted)',
               minHeight: '200px'
             }}>
               <span style={{ fontSize: '24px' }}>🛡️</span>
-              <strong style={{ color: '#cbd5e1', fontSize: '13px' }}>Capital Protection Inactive</strong>
+              <strong style={{ color: 'var(--syn-text)', fontSize: '13px' }}>Capital Protection Inactive</strong>
               <span style={{ fontSize: '11.5px', maxWidth: '300px', lineHeight: 1.4 }}>
                 Enable Stop-Loss to guard your position with a single stop floor, multi-staged stop ladder, or dynamic trailing stop.
               </span>
@@ -1331,7 +1337,7 @@ const LadderOrderConfig = ({
                   borderRadius: '6px',
                   background: 'rgba(239, 68, 68, 0.15)',
                   border: '1px solid rgba(239, 68, 68, 0.4)',
-                  color: '#f87171',
+                  color: 'var(--syn-negative)',
                   fontSize: '11.5px',
                   fontWeight: '600',
                   cursor: 'pointer'

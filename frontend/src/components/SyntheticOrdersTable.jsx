@@ -1,552 +1,153 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import CryptoIcon, { BinanceLogo, WebullLogo } from './CryptoIcon';
-import '../pages/Trading.css';
+import { orderKey, strategyKind, number, money, timestamp, trailLabel, matchesStatus, quoteCurrency } from '../utils/syntheticOrders.mjs';
+import './SyntheticOrders.css';
 
-const formatNumber = (num, minDigits = 2, maxDigits = 4) => {
-  if (num === null || num === undefined || isNaN(num)) return '—';
-  const val = Number(num);
-  return val.toLocaleString(undefined, {
-    minimumFractionDigits: minDigits,
-    maximumFractionDigits: val >= 1 ? minDigits : maxDigits
-  });
-};
+const labels = { BRACKET: 'Smart bracket', LADDER: 'Ladder', TRAILING: 'Trailing stop', SINGLE: 'Single target' };
+const canCancel = status => ['ACTIVE', 'PARTIALLY_FILLED', 'SUBMITTED', 'TRIGGERED', 'FAILED', 'NEEDS_REVIEW'].includes(status);
+function Strategy({ order }) {
+  const currency = quoteCurrency(order);
+  if (order.parentKind === 'TRAILING') return <div>
+    <strong>Trail {trailLabel(order.trail_value, order.trail_type, currency)}</strong>
+    <small>{order.is_activated ? 'Activated' : 'Waiting for activation'}{order.activation_price ? ` · ${money(order.activation_price, currency)}` : ''}</small>
+    <small>Stop: {money(order.current_stop_price, currency)}</small>
+    <small>{order.side === 'BUY' ? 'Trough' : 'Peak'}: {money(order.side === 'BUY' ? order.lowest_price : order.highest_price, currency)}</small>
+  </div>;
+  return <div className="synthetic-strategy">
+    {['upside', 'downside'].map(prefix => {
+      const mode = order[`${prefix}_mode`] || (prefix === 'upside' ? 'LADDER' : 'NONE');
+      const kind = prefix === 'upside' ? 'TAKE_PROFIT' : 'STOP_LOSS';
+      const rungs = (order.rungs || []).filter(r => (r.rung_type || 'TAKE_PROFIT') === kind);
+      const watermark = prefix === 'upside' ? order.upside_highest_price : order.downside_lowest_price;
+      const activation = order[`${prefix}_activation_price`];
+      const active = !activation || (order.side === 'SELL' ? watermark >= activation : watermark <= activation);
+      return <div key={prefix}>
+        <strong>{prefix === 'upside' ? (order.side === 'BUY' ? 'Dip entry' : 'Profit target') : (order.side === 'BUY' ? 'Rebound protection' : 'Downside protection')}: </strong>
+        {mode === 'NONE' ? 'Off' : mode === 'SINGLE' ? money(order[`${prefix}_target_price`], currency) : mode === 'LADDER' ? `${rungs.length} steps` : `Trail ${trailLabel(order[`${prefix}_trail_value`], order[`${prefix}_trail_type`], currency)}`}
+        {mode === 'TRAILING' && <><small>{active ? 'Activated' : 'Waiting for activation'}{activation ? ` · ${money(activation, currency)}` : ''}</small>
+          <small>Stop: {money(order[`${prefix}_current_stop_price`], currency)} · {order.side === 'BUY' ? 'Trough' : 'Peak'}: {money(watermark, currency)}</small></>}
+        {prefix === 'downside' && mode === 'SINGLE' && <small>{order.stop_loss_action === 'CANCEL_REMAINING' ? 'Cancel remaining strategy only' : `Market ${order.side.toLowerCase()} remaining quantity`}</small>}
+      </div>;
+    })}
+  </div>;
+}
 
-const SyntheticOrdersTable = ({
-  defaultBroker = 'all',
-  showBrokerFilter = true,
-  onOrderCancelled
-}) => {
+export default function SyntheticOrdersTable({ defaultBroker = 'all', showBrokerFilter = true, accountId, testMode, onOrderCancelled }) {
   const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [brokerFilter, setBrokerFilter] = useState(defaultBroker);
-  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED'
-  const [typeFilter, setTypeFilter] = useState('ALL'); // 'ALL' | 'BRACKET' | 'LADDER' | 'TRAILING'
-  const [expandedOrders, setExpandedOrders] = useState(new Set());
-  const [cancellingId, setCancellingId] = useState(null);
-  const [actionError, setActionError] = useState('');
-  const [actionSuccess, setActionSuccess] = useState('');
-
-  const loadOrders = async () => {
-    try {
-      setLoading(true);
-      setActionError('');
-      const params = {};
-      if (brokerFilter && brokerFilter !== 'all') {
-        params.broker = brokerFilter;
-      }
-
-      // Fetch both ladder/smart orders and standalone trailing orders
-      const [ladderRes, trailingRes] = await Promise.allSettled([
-        axios.get('/api/trading/ladder-orders', { params, withCredentials: true }),
-        axios.get('/api/trading/trailing-orders', { params, withCredentials: true })
-      ]);
-
-      const unified = [];
-
-      if (ladderRes.status === 'fulfilled' && ladderRes.value.data?.success) {
-        (ladderRes.value.data.ladder_orders || []).forEach(lo => {
-          unified.push({
-            ...lo,
-            orderKind: lo.strategy_type === 'SYNTHETIC' || lo.upside_mode || lo.downside_mode ? 'BRACKET' : 'LADDER',
-            cancelEndpoint: `/api/trading/ladder-orders/${lo.id}/cancel`
-          });
-        });
-      }
-
-      if (trailingRes.status === 'fulfilled' && trailingRes.value.data?.success) {
-        (trailingRes.value.data.trailing_orders || []).forEach(to => {
-          unified.push({
-            ...to,
-            orderKind: 'TRAILING',
-            total_quantity: to.quantity,
-            total_budget_usd: to.quantity * (to.current_stop_price || 0),
-            cancelEndpoint: `/api/trading/trailing-orders/${to.id}/cancel`
-          });
-        });
-      }
-
-      // Sort by creation date desc
-      unified.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-      setOrders(unified);
-    } catch (err) {
-      console.error('Failed to load synthetic orders:', err);
-      setActionError(err.response?.data?.error || err.message || 'Failed to load synthetic orders');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  const [broker, setBroker] = useState(defaultBroker);
+  const [status, setStatus] = useState('ALL');
+  const [kind, setKind] = useState('ALL');
+  const [mode, setMode] = useState('all');
+  const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState(new Set());
+  const [busy, setBusy] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [errors, setErrors] = useState([]);
+  const [notice, setNotice] = useState('');
+  const [refresh, setRefresh] = useState(0);
+  const [updated, setUpdated] = useState(null);
+  useEffect(() => setBroker(defaultBroker), [defaultBroker]);
   useEffect(() => {
-    loadOrders();
-  }, [brokerFilter]);
-
-  const toggleExpand = (id) => {
-    setExpandedOrders(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const handleCancelOrder = async (order) => {
-    const isBracket = order.orderKind === 'BRACKET' || order.orderKind === 'LADDER';
-    const msg = isBracket
-      ? `Are you sure you want to cancel synthetic order #${order.id}? Any remaining unfilled rungs will be cancelled.`
-      : `Are you sure you want to cancel trailing order #${order.id}?`;
-
-    if (!window.confirm(msg)) return;
-
+    let stopped = false, running = false;
+    const controller = new AbortController();
+    setOrders([]); setUpdated(null); setLoading(true); setErrors([]);
+    const load = async () => {
+      if (running || stopped) return;
+      running = true;
+      const params = {};
+      if (broker !== 'all') params.broker = broker;
+      if (accountId) params.account_id = accountId;
+      if (typeof testMode === 'boolean') params.test_mode = testMode;
+      const resources = ['ladder', 'trailing'];
+      const results = await Promise.allSettled(resources.map(name => axios.get(`/api/trading/${name}-orders`, { params, withCredentials: true, signal: controller.signal })));
+      if (stopped) return;
+      const failures = [], successful = [];
+      results.forEach((result, index) => {
+        const resource = resources[index], parentKind = resource.toUpperCase();
+        if (result.status !== 'fulfilled' || !result.value.data?.success) {
+          failures.push(`${resource === 'ladder' ? 'Bracket/ladder' : 'Trailing'} orders could not be refreshed. Previously loaded rows may be stale.`);
+          return;
+        }
+        successful.push(parentKind);
+      });
+      setOrders(previous => {
+        const merged = previous.filter(o => !successful.includes(o.parentKind));
+        results.forEach((result, index) => {
+          const parentKind = resources[index].toUpperCase();
+          if (!successful.includes(parentKind)) return;
+          (result.value.data[`${resources[index]}_orders`] || []).forEach(o => merged.push({ ...o, parentKind, total_quantity: o.total_quantity ?? o.quantity }));
+        });
+        return merged.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      });
+      setErrors(failures); setLoading(false); running = false;
+      if (!failures.length) setUpdated(new Date().toLocaleTimeString());
+    };
+    load();
+    const timer = setInterval(load, 5000);
+    return () => { stopped = true; controller.abort(); clearInterval(timer); };
+  }, [broker, accountId, testMode, refresh]);
+  const filtered = useMemo(() => orders.filter(o => matchesStatus(o, status)
+    && (kind === 'ALL' || strategyKind(o) === kind)
+    && (mode === 'all' || Boolean(o.test_mode) === (mode === 'paper'))
+    && `${o.symbol} ${o.account_id || ''} ${o.instrument_type}`.toLowerCase().includes(search.toLowerCase())), [orders, status, kind, mode, search]);
+  const cancel = async order => {
+    if (!window.confirm(`Cancel remaining strategy #${order.id}? Any submitted execution will be reconciled with the broker. Already filled quantities cannot be cancelled.`)) return;
+    setBusy(orderKey(order)); setNotice('');
     try {
-      setCancellingId(order.id);
-      setActionError('');
-      setActionSuccess('');
-      const res = await axios.post(order.cancelEndpoint, {}, { withCredentials: true });
-      if (res.data?.success) {
-        setActionSuccess(`Order #${order.id} cancelled successfully.`);
-        if (onOrderCancelled) onOrderCancelled(order.id);
-        loadOrders();
-      } else {
-        setActionError(res.data?.error || 'Cancellation failed.');
-      }
-    } catch (err) {
-      console.error('Cancellation error:', err);
-      setActionError(err.response?.data?.error || err.message || 'Failed to cancel order');
-    } finally {
-      setCancellingId(null);
-    }
+      const result = await axios.post(`/api/trading/${order.parentKind === 'LADDER' ? 'ladder' : 'trailing'}-orders/${order.id}/cancel`, {}, { withCredentials: true });
+      if (!result.data?.success) throw new Error(result.data?.error || 'Cancellation failed.');
+      const saved = result.data.ladder_order || result.data.trailing_order;
+      setNotice(saved?.status === 'CANCEL_PENDING' ? 'Cancellation requested; awaiting the broker’s final execution state.' : 'Remaining strategy cancelled.');
+      setOrders(prev => prev.map(o => orderKey(o) === orderKey(order) ? { ...o, ...saved } : o));
+      onOrderCancelled?.(order.id);
+    } catch (error) { setNotice(error.response?.data?.error || error.message || 'Cancellation failed.'); }
+    finally { setBusy(null); }
   };
-
-  // Filtered orders
-  const filteredOrders = orders.filter(o => {
-    if (statusFilter === 'ACTIVE' && !['ACTIVE', 'PARTIALLY_FILLED'].includes(o.status)) return false;
-    if (statusFilter === 'COMPLETED' && o.status !== 'COMPLETED') return false;
-    if (statusFilter === 'CANCELLED' && !['CANCELLED', 'STOPPED_OUT', 'FAILED'].includes(o.status)) return false;
-    if (typeFilter !== 'ALL' && o.orderKind !== typeFilter) return false;
-    return true;
-  });
-
-  return (
-    <div className="synthetic-orders-table-container">
-      {/* Notifications */}
-      {actionSuccess && (
-        <div style={{
-          padding: '8px 12px',
-          borderRadius: '6px',
-          background: 'rgba(16, 185, 129, 0.15)',
-          border: '1px solid rgba(16, 185, 129, 0.3)',
-          color: '#34d399',
-          fontSize: '12px',
-          marginBottom: '12px'
-        }}>
-          ✅ {actionSuccess}
-        </div>
-      )}
-      {actionError && (
-        <div style={{
-          padding: '8px 12px',
-          borderRadius: '6px',
-          background: 'rgba(239, 68, 68, 0.15)',
-          border: '1px solid rgba(239, 68, 68, 0.3)',
-          color: '#f87171',
-          fontSize: '12px',
-          marginBottom: '12px'
-        }}>
-          ⚠️ {actionError}
-        </div>
-      )}
-
-      {/* Filters Bar */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '14px',
-        flexWrap: 'wrap',
-        gap: '10px'
-      }}>
-        {/* Left: Broker & Type Filters */}
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {showBrokerFilter && (
-            <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.25)', padding: '2px', borderRadius: '6px' }}>
-              {[
-                { id: 'all', label: 'All Brokers' },
-                { id: 'binance', label: 'Binance.US' },
-                { id: 'webull', label: 'Webull' }
-              ].map(b => (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => setBrokerFilter(b.id)}
-                  className={`order-type-btn ${brokerFilter === b.id ? 'active' : ''}`}
-                  style={{ padding: '3px 8px', fontSize: '11px' }}
-                >
-                  {b.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.25)', padding: '2px', borderRadius: '6px' }}>
-            {[
-              { id: 'ALL', label: 'All Strategies' },
-              { id: 'BRACKET', label: '⚡ Smart Bracket' },
-              { id: 'LADDER', label: '🪜 Ladder' },
-              { id: 'TRAILING', label: '🎯 Trailing' }
-            ].map(tf => (
-              <button
-                key={tf.id}
-                type="button"
-                onClick={() => setTypeFilter(tf.id)}
-                className={`order-type-btn ${typeFilter === tf.id ? 'active' : ''}`}
-                style={{ padding: '3px 8px', fontSize: '11px' }}
-              >
-                {tf.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Right: Status Filters & Refresh */}
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          {['ALL', 'ACTIVE', 'COMPLETED', 'CANCELLED'].map(s => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setStatusFilter(s)}
-              className={`order-type-btn ${statusFilter === s ? 'active' : ''}`}
-              style={{ padding: '3px 8px', fontSize: '11px' }}
-            >
-              {s}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={loadOrders}
-            disabled={loading}
-            className="order-type-btn"
-            style={{ padding: '3px 8px', fontSize: '11px' }}
-            title="Refresh Orders"
-          >
-            {loading ? '⏳' : '🔄'}
-          </button>
-        </div>
-      </div>
-
-      {/* Main Table */}
-      {filteredOrders.length === 0 ? (
-        <div style={{
-          padding: '36px',
-          textAlign: 'center',
-          background: 'rgba(30, 41, 59, 0.4)',
-          borderRadius: '8px',
-          border: '1px solid rgba(255, 255, 255, 0.05)',
-          color: '#94a3b8'
-        }}>
-          {loading ? 'Loading synthetic orders…' : 'No synthetic or smart orders found.'}
-        </div>
-      ) : (
-        <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <table className="order-history-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-            <thead>
-              <tr style={{ background: 'rgba(15, 23, 42, 0.8)', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                <th style={{ padding: '10px 12px', textAlign: 'left' }}>Order / Broker</th>
-                <th style={{ padding: '10px 12px', textAlign: 'left' }}>Asset / Side</th>
-                <th style={{ padding: '10px 12px', textAlign: 'left' }}>Strategy Configuration</th>
-                <th style={{ padding: '10px 12px', textAlign: 'left' }}>Execution Progress</th>
-                <th style={{ padding: '10px 12px', textAlign: 'center' }}>Status</th>
-                <th style={{ padding: '10px 12px', textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredOrders.map(order => {
-                const isExpanded = expandedOrders.has(order.id);
-                const isSell = order.side === 'SELL';
-                const isWebull = (order.broker || '').toLowerCase() === 'webull';
-                const rungs = order.rungs || [];
-                const tpRungs = rungs.filter(r => r.rung_type !== 'STOP_LOSS');
-                const slRungs = rungs.filter(r => r.rung_type === 'STOP_LOSS');
-
-                return (
-                  <React.Fragment key={`${order.orderKind}_${order.id}`}>
-                    <tr style={{
-                      borderBottom: '1px solid rgba(255,255,255,0.05)',
-                      background: isExpanded ? 'rgba(30, 41, 59, 0.5)' : 'transparent',
-                      transition: 'background 0.2s'
-                    }}>
-                      {/* 1. Broker & Kind */}
-                      <td style={{ padding: '10px 12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '15px' }}>
-                            {order.orderKind === 'BRACKET' ? '⚡' : order.orderKind === 'TRAILING' ? '🎯' : '🪜'}
-                          </span>
-                          <div>
-                            <div style={{ fontWeight: '700', color: '#fff', fontSize: '12px' }}>
-                              #{order.id} {order.orderKind === 'BRACKET' ? 'Smart Bracket' : order.orderKind === 'TRAILING' ? 'Trailing Stop' : 'Ladder'}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                              <span style={{
-                                fontSize: '9.5px',
-                                fontWeight: '700',
-                                padding: '1px 5px',
-                                borderRadius: '4px',
-                                background: isWebull ? 'rgba(56, 189, 248, 0.2)' : 'rgba(234, 179, 8, 0.2)',
-                                color: isWebull ? '#38bdf8' : '#eab308'
-                              }}>
-                                {isWebull ? 'Webull' : 'Binance.US'}
-                              </span>
-                              {order.instrument_type && order.instrument_type !== 'CRYPTO' && (
-                                <span style={{ fontSize: '9.5px', color: '#94a3b8' }}>
-                                  ({order.instrument_type})
-                                </span>
-                              )}
-                              {order.test_mode && (
-                                <span style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '3px', background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc' }}>
-                                  TEST
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* 2. Asset & Side */}
-                      <td style={{ padding: '10px 12px' }}>
-                        <div style={{ fontWeight: '700', fontSize: '13px', color: '#e2e8f0' }}>
-                          {order.symbol}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                          <span style={{
-                            fontSize: '10px',
-                            fontWeight: '700',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            background: isSell ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                            color: isSell ? '#f87171' : '#34d399'
-                          }}>
-                            {order.side}
-                          </span>
-                          <span style={{ fontSize: '11px', color: '#cbd5e1' }}>
-                            {formatNumber(order.total_quantity, 2, 6)}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* 3. Strategy Configuration */}
-                      <td style={{ padding: '10px 12px' }}>
-                        {order.orderKind === 'TRAILING' ? (
-                          <div>
-                            <div style={{ color: '#38bdf8', fontWeight: '600' }}>
-                              Trailing {order.trail_value}{order.trail_type === 'AMOUNT' ? '$' : '%'}
-                            </div>
-                            {order.activation_price && (
-                              <div style={{ fontSize: '10px', color: '#94a3b8' }}>
-                                Act: ${formatNumber(order.activation_price)}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <span style={{ fontSize: '10px', color: '#34d399', fontWeight: '700' }}>🟢 UP:</span>
-                              <span style={{ color: '#e2e8f0', fontSize: '11px' }}>
-                                {order.upside_mode === 'TRAILING'
-                                  ? `Trailing (+${order.upside_trail_value || 2}%)`
-                                  : order.upside_mode === 'SINGLE'
-                                  ? `Target $${formatNumber(order.upside_target_price)}`
-                                  : `Ladder (${tpRungs.length} rungs)`}
-                              </span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                              <span style={{ fontSize: '10px', color: '#f87171', fontWeight: '700' }}>🔴 DOWN:</span>
-                              <span style={{ color: '#94a3b8', fontSize: '11px' }}>
-                                {order.downside_mode === 'TRAILING'
-                                  ? `Trailing Stop (-${order.downside_trail_value || 3}%)`
-                                  : order.downside_mode === 'LADDER'
-                                  ? `Stop Ladder (${slRungs.length} rungs)`
-                                  : order.downside_mode === 'SINGLE' || order.has_stop_loss
-                                  ? `Floor Stop $${formatNumber(order.downside_target_price || order.stop_loss_trigger_price)}`
-                                  : 'None'}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </td>
-
-                      {/* 4. Execution Progress */}
-                      <td style={{ padding: '10px 12px', minWidth: '160px' }}>
-                        {order.orderKind === 'TRAILING' ? (
-                          <div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
-                              <span style={{ color: '#94a3b8' }}>Dynamic Stop:</span>
-                              <strong style={{ color: '#f87171' }}>${formatNumber(order.current_stop_price)}</strong>
-                            </div>
-                            {order.highest_price && (
-                              <div style={{ fontSize: '10px', color: '#94a3b8' }}>
-                                Peak Watermark: ${formatNumber(order.highest_price)}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
-                              <span style={{ color: '#94a3b8' }}>Rungs:</span>
-                              <strong style={{ color: order.rungs_filled >= order.rungs_total && order.rungs_total > 0 ? '#34d399' : '#38bdf8' }}>
-                                {order.rungs_filled || 0} / {order.rungs_total || rungs.length} filled
-                              </strong>
-                            </div>
-                            <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                              <div style={{
-                                width: `${order.rungs_total > 0 ? Math.min(100, ((order.rungs_filled || 0) / order.rungs_total) * 100) : 0}%`,
-                                height: '100%',
-                                background: 'linear-gradient(90deg, #38bdf8 0%, #34d399 100%)',
-                                borderRadius: '3px',
-                                transition: 'width 0.3s'
-                              }} />
-                            </div>
-                          </div>
-                        )}
-                      </td>
-
-                      {/* 5. Status Badge */}
-                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <span style={{
-                          padding: '3px 8px',
-                          borderRadius: '12px',
-                          fontSize: '10.5px',
-                          fontWeight: '700',
-                          textTransform: 'uppercase',
-                          background: order.status === 'COMPLETED'
-                            ? 'rgba(16, 185, 129, 0.2)'
-                            : order.status === 'ACTIVE'
-                            ? 'rgba(56, 189, 248, 0.2)'
-                            : order.status === 'PARTIALLY_FILLED'
-                            ? 'rgba(234, 179, 8, 0.2)'
-                            : order.status === 'STOPPED_OUT'
-                            ? 'rgba(239, 68, 68, 0.25)'
-                            : 'rgba(148, 163, 184, 0.2)',
-                          color: order.status === 'COMPLETED'
-                            ? '#34d399'
-                            : order.status === 'ACTIVE'
-                            ? '#38bdf8'
-                            : order.status === 'PARTIALLY_FILLED'
-                            ? '#eab308'
-                            : order.status === 'STOPPED_OUT'
-                            ? '#f87171'
-                            : '#94a3b8'
-                        }}>
-                          {order.status}
-                        </span>
-                      </td>
-
-                      {/* 6. Actions */}
-                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
-                          {rungs.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => toggleExpand(order.id)}
-                              style={{
-                                padding: '3px 8px',
-                                borderRadius: '4px',
-                                background: 'rgba(255,255,255,0.06)',
-                                border: '1px solid rgba(255,255,255,0.15)',
-                                color: '#cbd5e1',
-                                fontSize: '11px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              {isExpanded ? 'Hide ▲' : 'Rungs ▼'}
-                            </button>
-                          )}
-                          {['ACTIVE', 'PARTIALLY_FILLED'].includes(order.status) && (
-                            <button
-                              type="button"
-                              onClick={() => handleCancelOrder(order)}
-                              disabled={cancellingId === order.id}
-                              style={{
-                                padding: '3px 8px',
-                                borderRadius: '4px',
-                                background: 'rgba(239, 68, 68, 0.2)',
-                                border: '1px solid rgba(239, 68, 68, 0.4)',
-                                color: '#f87171',
-                                fontSize: '11px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              {cancellingId === order.id ? 'Cancelling…' : 'Cancel'}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-
-                    {/* Collapsible Drawer for Rungs Details */}
-                    {isExpanded && rungs.length > 0 && (
-                      <tr>
-                        <td colSpan={6} style={{ padding: '12px 16px', background: 'rgba(15, 23, 42, 0.6)' }}>
-                          <div style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', marginBottom: '8px' }}>
-                            Child Execution Rungs ({rungs.length})
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '8px' }}>
-                            {rungs.map(rung => {
-                              const isStop = rung.rung_type === 'STOP_LOSS';
-                              return (
-                                <div
-                                  key={rung.id || rung.rung_number}
-                                  style={{
-                                    padding: '8px 10px',
-                                    borderRadius: '6px',
-                                    background: isStop ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)',
-                                    border: `1px solid ${isStop ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}`,
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                  }}
-                                >
-                                  <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                      <span style={{ fontSize: '10px', fontWeight: '700', color: isStop ? '#f87171' : '#34d399' }}>
-                                        {isStop ? '🛑 STOP' : '🟢 PROFIT'} #{rung.rung_number}
-                                      </span>
-                                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#fff' }}>
-                                        ${formatNumber(rung.target_price)}
-                                      </span>
-                                      <span style={{ fontSize: '10px', color: isStop ? '#f87171' : '#34d399' }}>
-                                        ({rung.price_offset_pct > 0 ? `+${rung.price_offset_pct}` : rung.price_offset_pct}%)
-                                      </span>
-                                    </div>
-                                    <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
-                                      {formatNumber(rung.quantity, 2, 6)} ({rung.percentage_of_total}%) | Val: ${formatNumber(rung.estimated_usd)}
-                                    </div>
-                                  </div>
-                                  <span style={{
-                                    fontSize: '9.5px',
-                                    fontWeight: '700',
-                                    padding: '1px 5px',
-                                    borderRadius: '4px',
-                                    background: rung.status === 'FILLED' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(148, 163, 184, 0.15)',
-                                    color: rung.status === 'FILLED' ? '#34d399' : '#94a3b8'
-                                  }}>
-                                    {rung.status}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+  return <div className="synthetic-orders">
+    <div className="synthetic-filters">
+      {showBrokerFilter && <label>Broker<select aria-label="Broker" value={broker} onChange={e => setBroker(e.target.value)}><option value="all">All brokers</option><option value="binance">Binance.US</option><option value="webull">Webull</option></select></label>}
+      <label>Strategy<select aria-label="Strategy" value={kind} onChange={e => setKind(e.target.value)}><option value="ALL">All strategies</option>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+      <label>Status<select aria-label="Status" value={status} onChange={e => setStatus(e.target.value)}>{['ALL', 'ACTIVE', 'COMPLETED', 'CANCELLED', 'FAILED', 'NEEDS_REVIEW'].map(s => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}</select></label>
+      {typeof testMode !== 'boolean' && <label>Mode<select aria-label="Mode" value={mode} onChange={e => setMode(e.target.value)}><option value="all">Live and paper</option><option value="live">Live</option><option value="paper">Paper</option></select></label>}
+      <label>Search<input aria-label="Search synthetic orders" type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Symbol, asset class or account" /></label>
+      <button type="button" onClick={() => setRefresh(v => v + 1)} disabled={loading}>Refresh</button>
     </div>
-  );
-};
-
-export default SyntheticOrdersTable;
+    <p className="synthetic-muted">Refreshes every 5 seconds{updated ? ` · Last complete refresh ${updated}` : ''}. Triggers are monitored by the server; fills require broker confirmation.</p>
+    {errors.map(error => <p key={error} role="alert" className="synthetic-warning">{error}</p>)}
+    {notice && <p role="status" className="synthetic-notice">{notice}</p>}
+    {loading && !orders.length ? <p role="status">Loading synthetic orders…</p> : !filtered.length ? <p className="synthetic-empty">{errors.length ? 'Order data is unavailable. Retry refresh.' : 'No synthetic orders match these filters.'}</p> :
+      <div className="synthetic-scroll"><table><caption className="synthetic-sr-only">Synthetic order strategies and confirmed executions</caption><thead><tr>
+        {['Order / account', 'Asset / quantity', 'Strategy and trigger', 'Execution progress', 'Status / monitoring', 'Actions'].map(label => <th key={label} scope="col">{label}</th>)}
+      </tr></thead><tbody>{filtered.map(order => {
+        const key = orderKey(order), open = expanded.has(key), currency = quoteCurrency(order), verified = order.execution_history_verified !== false;
+        const progress = order.total_quantity > 0 ? Math.min(100, 100 * (order.filled_quantity || 0) / order.total_quantity) : 0;
+        return <React.Fragment key={key}><tr>
+          <td><strong>#{order.id} · {labels[strategyKind(order)]}</strong><small>{order.broker === 'webull' ? 'Webull' : 'Binance.US'} · {order.test_mode ? 'Paper' : 'Live'}{order.environment && order.environment !== 'production' ? ` · ${order.environment}` : ''}</small>
+            <small>Account: {order.account_id || 'Binance.US spot'}</small><small>Created: {timestamp(order.created_at)}</small></td>
+          <td><strong>{order.symbol}</strong><small>{order.instrument_type} · <span className={`synthetic-side-${order.side.toLowerCase()}`}>{order.side}</span></small><small>Total: {number(order.total_quantity)}</small><small>{order.instrument_type === 'CRYPTO' ? '24/7 monitoring' : 'Regular hours (CORE)'}</small></td>
+          <td><Strategy order={order} /></td>
+          <td>{verified ? <><strong>{number(order.filled_quantity || 0)} / {number(order.total_quantity)} filled</strong><progress max="100" value={progress} aria-label={`Order ${order.id} quantity filled`} />
+            <small>Remaining: {number(order.remaining_quantity ?? order.total_quantity)}</small><small>Awaiting broker: {number(order.pending_quantity || 0)}</small>
+            {order.rungs?.length > 0 && <small>{order.rungs_filled || 0} of {order.rungs.length} steps filled</small>}</> : <small className="synthetic-warning">Legacy execution totals are unverified. Review broker history before replacing this strategy.</small>}</td>
+          <td><span className={`synthetic-status state-${order.status.toLowerCase()}`}>{order.status.replaceAll('_', ' ')}</span><small>Last price: {money(order.last_price, currency)}</small><small>Checked: {timestamp(order.last_checked_at)}</small>
+            {(order.monitoring_error || order.error_message) && <small className="synthetic-warning">{order.monitoring_error || order.error_message}</small>}</td>
+          <td><div className="synthetic-actions"><button type="button" aria-expanded={open} onClick={() => setExpanded(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; })}>{open ? 'Hide details' : 'Details'}</button>
+            {canCancel(order.status) && <button type="button" className="synthetic-cancel" disabled={busy === key} onClick={() => cancel(order)}>{busy === key ? 'Cancelling…' : 'Cancel'}</button>}</div></td>
+        </tr>{open && <tr><td colSpan="6" className="synthetic-detail">
+          <p>Updated: {timestamp(order.updated_at)} · Both sides share the total quantity. Failed strategies and strategies needing review are paused.</p>
+          {!!order.rungs?.length && <div className="synthetic-step-grid">{order.rungs.map(rung => <div key={rung.id || rung.rung_number} className="synthetic-step">
+            <strong>{rung.rung_type === 'STOP_LOSS' ? 'Protection' : 'Target'} #{rung.rung_number} · {rung.status.replaceAll('_', ' ')}</strong>
+            <small>Trigger: {money(rung.target_price, currency)} ({number(rung.price_offset_pct)}%)</small>
+            <small>Allocation: {number(rung.quantity)} ({number(rung.percentage_of_total)}%) · Estimated value: {money(rung.estimated_usd, currency)}</small>
+            {rung.error_message && <small className="synthetic-warning">{rung.error_message}</small>}
+          </div>)}</div>}
+          <strong>{order.test_mode ? 'Paper executions' : 'Broker executions'}</strong>{!order.executions?.length ? <p>No executions recorded{!verified ? ' by the new engine. Review older fills in broker order history.' : '.'}</p> :
+            <div className="synthetic-step-grid">{order.executions.map(fill => <div className="synthetic-step" key={fill.id}>
+              <strong>{fill.leg.replaceAll('_', ' ')} · {fill.status.replaceAll('_', ' ')}</strong><small>Requested: {number(fill.quantity)} · Filled: {number(fill.filled_quantity)} · Average fill: {money(fill.filled_price, currency)}</small>
+              <small>Broker ID: {fill.broker_order_id || 'Awaiting acknowledgement'}</small><small>Client ID: {fill.client_order_id}</small><small>Updated: {timestamp(fill.updated_at)}</small>
+              {fill.error_message && <small className="synthetic-warning">{fill.error_message}</small>}
+            </div>)}</div>}
+        </td></tr>}</React.Fragment>;
+      })}</tbody></table></div>}
+  </div>;
+}

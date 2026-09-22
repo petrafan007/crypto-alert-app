@@ -60,6 +60,9 @@ def main():
             connection.execute(text('SELECT sha256, payload_gzip FROM research_captures LIMIT 0'))
             connection.execute(text('SELECT sha256, payload_gzip FROM research_datasets LIMIT 0'))
             connection.execute(text('SELECT status, result_gzip FROM research_jobs LIMIT 0'))
+            connection.execute(text('SELECT engine_version, environment, last_price, last_checked_at, monitoring_error, cancel_requested FROM ladder_orders LIMIT 0'))
+            connection.execute(text('SELECT engine_version, environment, last_price, last_checked_at, monitoring_error, cancel_requested FROM trailing_orders LIMIT 0'))
+            connection.execute(text('SELECT parent_kind, parent_id, client_order_id, filled_quantity, status FROM synthetic_executions LIMIT 0'))
     else:
         stop = threading.Event()
         for signum in (signal.SIGINT, signal.SIGTERM):

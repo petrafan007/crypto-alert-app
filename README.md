@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.8.7
+**Version:** 3.9.0
 
 ## Recent Updates
+
+### v3.9.0
+- **Synthetic order execution rebuilt:** Binance.US crypto and Webull crypto, stocks and ETFs now share durable execution tracking, broker-confirmed fill quantities/prices, reconciliation after uncertain submissions, and cancellation that waits for broker confirmation. Concurrent workers and cancellation cannot submit the same strategy twice.
+- **Correct ladder and trailing behavior:** Fixed custom rung/preset submission, downside enablement, BUY trailing logic, cancel-only protection, shared quantity limits across both sides, full-remainder trailing execution, and small-price/quantity rounding.
+- **Account and paper trading safeguards:** Paper executions update the correct simulated ledger atomically. Live orders enforce configured 2FA and maximum order size, selected account/environment, market quantity rules, and current available funds or holdings. Webull fractional stocks/ETFs execute during regular market hours, including holiday and early-close handling.
+- **Consistent order management:** Consolidated Orders, Binance.US Trading, Webull Trading and the dashboard widget now show relevant strategy, account, mode, monitoring, remaining quantity and execution information. Added reliable polling/error states, corrected filters and currency units, accurate precision, responsive tables and light/dark theme styling.
+- **Upgrade handling:** Existing active synthetic strategies are paused as **NEEDS REVIEW** because earlier versions could save incorrect settings or report unconfirmed fills. Review broker history, cancel the old strategy and recreate the intended remaining quantity. Historical fill totals from the old engine are explicitly marked unverified. [Behavior, verification and upgrade details](docs/synthetic_orders_v3.9.0.md).
 
 ### v3.8.7
 - **Sentiment Stuck State Root Cause Fix:** Resolved the actual cause of Bitcoin and other assets getting permanently stuck on `⌛ Checking now...`. Three bugs fixed: (1) Backend `run_sentiment_analysis_for_user` and `run_watchlist_sentiment_analysis_for_user` were setting `sentiment = "Checking now..."` on init without updating `sentiment_last_updated`, causing the frontend polling timestamp comparison to fail; (2) If the coin list was unexpectedly empty after the init mark (hidden state race), the coin was left permanently stuck — now it resets to `Hold`/`Watch`; (3) The `force-sentiment-analysis` background thread had no top-level exception safety net — a thread crash left the DB record stuck forever. Now wraps the full analysis in `try/except/finally` that guarantees cleanup. Frontend fix: `isChecking` is now only true when an active refresh poll is running (`refreshingSentiment[itemKey]`); a DB-orphaned `"Checking now..."` with no active polling is rendered as `⚠️ Stale` (amber) instead of an infinite spinner, with a tooltip instructing the user to click refresh.

@@ -6,6 +6,7 @@ and lifecycle management for both Binance.US (Crypto) and Webull (Equities, ETFs
 """
 
 import time
+from decimal import Decimal
 import math
 from datetime import datetime
 from flask import current_app
@@ -16,6 +17,7 @@ from models import Coin
 from credentials import Credential, UserSetting
 from log import logger
 from services.trailing_order_service import _get_reference_price
+from services import synthetic_execution_service as execution
 
 
 PRESET_TEMPLATES = {
@@ -89,13 +91,18 @@ def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Con
     else:
         if rung_type == 'STOP_LOSS':
             templates = DOWNSIDE_PRESET_TEMPLATES.get(clean_side, {})
-            preset = preset_name if preset_name in templates else 'Moderate'
+            preset = str(preset_name).title() if str(preset_name).title() in templates else 'Moderate'
             specs = templates.get(preset, templates.get('Moderate', []))
         else:
             templates = PRESET_TEMPLATES.get(clean_side, {})
-            preset = preset_name if preset_name in templates else 'Conservative'
+            preset = str(preset_name).title() if str(preset_name).title() in templates else 'Conservative'
             specs = templates.get(preset, templates.get('Conservative', []))
 
+    if not specs or len(specs) > 10:
+        raise ValueError('Use between 1 and 10 rungs per ladder.')
+    allocations = [execution.positive(r.get('pct_of_total', r.get('percentage_of_total')), 'Rung allocation') for r in specs]
+    if abs(sum(allocations) - 100) > 0.01:
+        raise ValueError('Each ladder must allocate exactly 100% of the shared quantity.')
     calculated_rungs = []
     remaining_qty = total_qty
 
@@ -108,7 +115,7 @@ def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Con
             offset_pct = round(((target_px - ref_price) / ref_price) * 100.0, 2)
         else:
             offset_pct = float(spec.get('offset_pct', spec.get('price_offset_pct', 0.0)))
-            target_px = round(ref_price * (1.0 + (offset_pct / 100.0)), 6)
+            target_px = float(Decimal(str(ref_price)) * (1 + Decimal(str(offset_pct)) / 100))
 
         # Determine quantity
         if i == len(specs) - 1:
@@ -119,6 +126,11 @@ def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Con
             qty = round(total_qty * (pct_total / 100.0), 8)
             remaining_qty -= qty
 
+        execution.positive(target_px, 'Rung target')
+        execution.positive(qty, 'Rung quantity')
+        favorable = target_px > ref_price if clean_side == 'SELL' else target_px < ref_price
+        if favorable != (rung_type == 'TAKE_PROFIT') or target_px == ref_price:
+            raise ValueError('Rung targets must be on the correct side of the current price.')
         estimated_usd = round(qty * target_px, 2)
 
         calculated_rungs.append({
@@ -148,6 +160,9 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     Validate, calculate, and persist a parent LadderOrder with child LadderRungs.
     Supports Mode A (Single), Mode B (Ladder), Mode C (Trailing) for both Upside and Downside.
     """
+    clean_symbol, clean_side, clean_broker, clean_instrument, clean_session, clean_account_id = execution.validate_identity(
+        symbol, side, broker, instrument_type, trading_session, account_id, test_mode)
+    symbol, side, broker, instrument_type, trading_session, account_id = (clean_symbol, clean_side, clean_broker, clean_instrument, clean_session, clean_account_id)
     clean_symbol = str(symbol or '').strip().upper()
     clean_side = str(side or '').strip().upper()
     clean_broker = str(broker or 'binance').strip().lower()
@@ -158,11 +173,14 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     clean_upside_mode = str(upside_mode or 'LADDER').strip().upper()
     clean_downside_mode = str(downside_mode or 'NONE').strip().upper()
 
+    if clean_upside_mode not in {'SINGLE', 'LADDER', 'TRAILING'} or clean_downside_mode not in {'NONE', 'SINGLE', 'LADDER', 'TRAILING'}:
+        raise ValueError('Choose a supported upside and downside mode.')
+
     if clean_side not in ('BUY', 'SELL'):
         raise ValueError("Order side must be BUY or SELL.")
 
     try:
-        qty = float(total_quantity)
+        qty = execution.positive(total_quantity, 'Total quantity')
         if qty <= 0:
             raise ValueError()
     except (TypeError, ValueError):
@@ -171,6 +189,9 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     current_price = _get_reference_price(clean_symbol, client=client, broker=clean_broker, instrument_type=clean_instrument, user_id=user_id)
     if not current_price or current_price <= 0:
         raise ValueError(f"Unable to determine current market price for {clean_symbol}.")
+
+    if has_stop_loss and clean_downside_mode == 'NONE':
+        clean_downside_mode = 'SINGLE'
 
     # Resolve legacy stop-loss arguments
     sl_price = None
@@ -185,6 +206,13 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     if sl_price and clean_downside_mode == 'NONE':
         clean_downside_mode = 'SINGLE'
 
+    if clean_downside_mode == 'SINGLE':
+        sl_price = execution.positive(downside_target_price or stop_loss_trigger_price, 'Stop price')
+        if (sl_price >= current_price if clean_side == 'SELL' else sl_price <= current_price):
+            raise ValueError('The protection stop must be on the adverse side of the current price.')
+    if stop_loss_action not in {'SELL_ALL', 'SELL_REMAINDER', 'MARKET_SELL_ALL', 'CANCEL_REMAINING'}:
+        raise ValueError('Choose market execution or cancel remaining orders for the stop action.')
+
     # Build rungs list
     all_rungs_data = []
 
@@ -193,7 +221,9 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         upside_rungs_data = calculate_ladder_rungs(clean_side, current_price, qty, preset_name=preset_name, custom_rungs=custom_rungs, rung_type='TAKE_PROFIT')
         all_rungs_data.extend(upside_rungs_data)
     elif clean_upside_mode == 'SINGLE':
-        tgt_px = float(upside_target_price) if upside_target_price else (current_price * 1.05 if clean_side == 'SELL' else current_price * 0.95)
+        tgt_px = execution.positive(upside_target_price, 'Target price')
+        if (tgt_px <= current_price if clean_side == 'SELL' else tgt_px >= current_price):
+            raise ValueError('The target must be on the favorable side of the current price.')
         offset_pct = round(((tgt_px - current_price) / current_price) * 100.0, 2)
         all_rungs_data.append({
             'rung_number': 1,
@@ -207,9 +237,8 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         })
         upside_target_price = tgt_px
     elif clean_upside_mode == 'TRAILING':
-        upside_trail_value = float(upside_trail_value or 2.0)
-        upside_trail_type = str(upside_trail_type or 'PERCENT').upper()
-        upside_activation_price = float(upside_activation_price) if upside_activation_price else None
+        upside_trail_value, upside_trail_type = execution.trailing_parameters(upside_trail_value, upside_trail_type)
+        upside_activation_price = execution.positive(upside_activation_price, 'Activation price', optional=True)
 
     # 2. Downside rungs (Stop Loss)
     if clean_downside_mode == 'LADDER':
@@ -220,9 +249,15 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
             r['rung_number'] = start_num + idx
             all_rungs_data.append(r)
     elif clean_downside_mode == 'TRAILING':
-        downside_trail_value = float(downside_trail_value or 3.0)
-        downside_trail_type = str(downside_trail_type or 'PERCENT').upper()
-        downside_activation_price = float(downside_activation_price) if downside_activation_price else None
+        downside_trail_value, downside_trail_type = execution.trailing_parameters(downside_trail_value, downside_trail_type)
+        downside_activation_price = execution.positive(downside_activation_price, 'Activation price', optional=True)
+
+    for mode, kind, value, activation in (
+        (clean_upside_mode, upside_trail_type, upside_trail_value, upside_activation_price),
+        (clean_downside_mode, downside_trail_type, downside_trail_value, downside_activation_price),
+    ):
+        if mode == 'TRAILING' and clean_side == 'SELL' and kind == 'AMOUNT' and value >= max(current_price, activation or 0):
+            raise ValueError('The sell trail amount must be below the price at activation.')
 
     total_budget = sum(r['estimated_usd'] for r in all_rungs_data if r['rung_type'] == 'TAKE_PROFIT')
     if total_budget <= 0:
@@ -280,6 +315,23 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         updated_at=utc_now(aware=False)
     )
 
+    ladder.engine_version = 2
+    ladder.environment = execution.environment_for(user_id, clean_broker)
+    rules = execution.quantity_rules(ladder)
+    normalized = execution.normalize_quantity(qty, rules)
+    if abs(normalized - qty) > max(1e-14, qty * 1e-12):
+        raise ValueError(f'Total quantity must be a multiple of {rules["step"]}.')
+    execution.check_quantity(ladder, qty, current_price, rules)
+    execution.check_order_limit(ladder, qty, current_price, rules)
+    for kind in ('TAKE_PROFIT', 'STOP_LOSS'):
+        group = [r for r in all_rungs_data if r['rung_type'] == kind]
+        allocated = 0
+        for idx, r in enumerate(group):
+            r['quantity'] = execution.normalize_quantity(round(qty - allocated, 8) if idx == len(group) - 1 else r['quantity'], rules)
+            execution.check_quantity(ladder, r['quantity'], r['target_price'], rules)
+            allocated = round(allocated + r['quantity'], 8)
+            r['estimated_usd'] = r['quantity'] * r['target_price']
+            r['percentage_of_total'] = 100 * r['quantity'] / qty
     db.session.add(ladder)
     db.session.flush()
 
@@ -303,378 +355,191 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
 
 
 def cancel_ladder_order(ladder_id, user_id):
-    """
-    Cancels an active ladder order and all its pending rungs.
-    """
-    ladder = LadderOrder.query.filter_by(id=ladder_id, user_id=user_id).first()
-    if not ladder:
-        raise ValueError(f"Ladder order #{ladder_id} not found.")
-
-    if ladder.status in ('COMPLETED', 'CANCELLED', 'STOPPED_OUT'):
-        raise ValueError(f"Ladder order #{ladder_id} is already in state {ladder.status}.")
-
-    for rung in ladder.rungs:
-        if rung.status == 'PENDING':
-            rung.status = 'CANCELLED'
-
-    ladder.status = 'CANCELLED'
-    ladder.updated_at = utc_now(aware=False)
-    db.session.commit()
-    logger.info(f"Cancelled LadderOrder #{ladder_id} for user {user_id}")
-    return ladder.to_dict()
+    return execution.cancel_parent(LadderOrder, 'LADDER', ladder_id, user_id)
 
 
-def get_user_ladder_orders(user_id, symbol=None, status=None, broker=None):
-    """
-    Fetch all ladder orders for a user with child rungs.
-    """
+def get_user_ladder_orders(user_id, symbol=None, status=None, broker=None, account_id=None, test_mode=None):
     query = LadderOrder.query.filter_by(user_id=user_id)
-    if broker:
+    if broker and broker.lower() != 'all':
         query = query.filter_by(broker=broker.lower())
     if symbol:
         query = query.filter_by(symbol=symbol.strip().upper())
     if status:
         query = query.filter_by(status=status.strip().upper())
+    if account_id:
+        query = query.filter_by(account_id=account_id)
+    if test_mode is not None:
+        query = query.filter_by(test_mode=test_mode)
+    return [order.to_dict() for order in query.order_by(LadderOrder.created_at.desc()).all()]
 
-    ladders = query.order_by(LadderOrder.created_at.desc()).all()
-    return [l.to_dict() for l in ladders]
+
+def _sync_parent(ladder, rows):
+    by_rung = {r.rung_id: r for r in rows if r.rung_id}
+    for rung in ladder.rungs:
+        row = by_rung.get(rung.id)
+        if row:
+            rung.status = row.status
+            rung.executed_order_id = row.broker_order_id
+            rung.executed_price = row.filled_price
+            rung.executed_at = row.updated_at if row.status == 'FILLED' else None
+            rung.error_message = row.error_message
+    ladder.rungs_filled = sum(r.status == 'FILLED' for r in ladder.rungs)
+    filled = sum(float(r.filled_quantity or 0) for r in rows)
+    pending = any(r.status in execution.OPEN_EXECUTIONS for r in rows)
+    if pending:
+        ladder.status = 'CANCEL_PENDING' if ladder.cancel_requested else 'SUBMITTED'
+    elif filled >= ladder.total_quantity - 1e-10:
+        ladder.status = 'STOPPED_OUT' if rows and rows[-1].leg == 'STOP_LOSS' else 'COMPLETED'
+    elif ladder.cancel_requested:
+        ladder.status = 'CANCELLED'
+    elif any(r.status in {'FAILED', 'CANCELLED'} for r in rows):
+        ladder.status = 'FAILED'
+        ladder.monitoring_error = 'An execution was rejected or cancelled before the strategy finished. Review fills before creating a replacement.'
+    elif filled > 0:
+        ladder.status = 'PARTIALLY_FILLED'
+    if ladder.status in {'COMPLETED', 'STOPPED_OUT', 'CANCELLED', 'FAILED'}:
+        for rung in ladder.rungs:
+            if rung.status == 'PENDING':
+                rung.status = 'CANCELLED'
+    return filled, pending
+
+
+def _trailing_hit(ladder, prefix, price):
+    value, kind = execution.trailing_parameters(getattr(ladder, f'{prefix}_trail_value'), getattr(ladder, f'{prefix}_trail_type'))
+    watermark_field = 'upside_highest_price' if prefix == 'upside' else 'downside_lowest_price'
+    previous = getattr(ladder, watermark_field)
+    watermark = price if previous is None else (max(previous, price) if ladder.side == 'SELL' else min(previous, price))
+    setattr(ladder, watermark_field, watermark)
+    from services.trailing_order_service import calculate_trailing_stop_price
+    stop = calculate_trailing_stop_price(ladder.side, watermark, kind, value)
+    setattr(ladder, f'{prefix}_current_stop_price', stop)
+    hurdle = getattr(ladder, f'{prefix}_activation_price')
+    activated = not hurdle or (watermark >= hurdle if ladder.side == 'SELL' else watermark <= hurdle)
+    return activated and (price <= stop if ladder.side == 'SELL' else price >= stop)
 
 
 def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
-    """
-    Evaluates ladder order and its rungs against market price.
-    Supports Mode A (Single), Mode B (Ladder), and Mode C (Trailing) for both Upside and Downside.
-    Returns (updated, triggered_count).
-    """
-    if ladder.status not in ('ACTIVE', 'PARTIALLY_FILLED'):
+    if ladder.status not in execution.WORKING_PARENTS:
         return False, 0
-
-    price = float(current_price)
-    updated = False
-    triggered_count = 0
-    downside_mode = (ladder.downside_mode or ('SINGLE' if ladder.has_stop_loss else 'NONE')).upper()
-    upside_mode = (ladder.upside_mode or 'LADDER').upper()
-
-    # -------------------------------------------------------------
-    # 1. DOWNSIDE EVALUATION (Stop-Loss / Protection)
-    # -------------------------------------------------------------
-    if downside_mode == 'SINGLE':
-        sl_price = ladder.downside_target_price or ladder.stop_loss_trigger_price
-        if sl_price:
-            triggered = (price <= sl_price) if ladder.side == 'SELL' else (price >= sl_price)
-            if triggered:
-                logger.info(f"LadderOrder #{ladder.id} DOWNSIDE SINGLE STOP TRIGGERED at price ${price:.4f} <= stop ${sl_price:.4f}")
-                pending_rungs = [r for r in ladder.rungs if r.status == 'PENDING']
-                remaining_qty = sum(r.quantity for r in pending_rungs) if pending_rungs else ladder.total_quantity
-
-                if remaining_qty > 0 and execute_trigger:
-                    _execute_stop_loss_market_sell(ladder, remaining_qty, price)
-
-                for r in pending_rungs:
-                    r.status = 'CANCELLED'
-                    r.error_message = f"Cancelled due to Stop-Loss trigger at ${price:.4f}"
-
-                ladder.status = 'STOPPED_OUT'
-                ladder.updated_at = utc_now(aware=False)
-                return True, 1
-
-    elif downside_mode == 'TRAILING':
-        trail_val = float(ladder.downside_trail_value or 3.0)
-        trail_type = ladder.downside_trail_type or 'PERCENT'
-        act_px = ladder.downside_activation_price
-
-        if ladder.side == 'SELL':
-            # Ratchet peak watermark
-            if ladder.downside_lowest_price is None or price > ladder.downside_lowest_price:
-                ladder.downside_lowest_price = price
-                new_stop = price * (1.0 - (trail_val / 100.0)) if trail_type == 'PERCENT' else max(0.0, price - trail_val)
-                if ladder.downside_current_stop_price is None or new_stop > ladder.downside_current_stop_price:
-                    ladder.downside_current_stop_price = new_stop
-                    updated = True
-
-            is_active = True
-            if act_px and ladder.downside_lowest_price and ladder.downside_lowest_price < act_px:
-                is_active = False
-
-            if is_active and ladder.downside_current_stop_price and price <= ladder.downside_current_stop_price:
-                logger.info(f"LadderOrder #{ladder.id} DOWNSIDE TRAILING STOP TRIGGERED at ${price:.4f} <= dynamic stop ${ladder.downside_current_stop_price:.4f}")
-                pending_rungs = [r for r in ladder.rungs if r.status == 'PENDING']
-                remaining_qty = sum(r.quantity for r in pending_rungs) if pending_rungs else ladder.total_quantity
-
-                if remaining_qty > 0 and execute_trigger:
-                    _execute_stop_loss_market_sell(ladder, remaining_qty, price)
-
-                for r in pending_rungs:
-                    r.status = 'CANCELLED'
-                    r.error_message = f"Cancelled due to Trailing Stop trigger at ${price:.4f}"
-
-                ladder.status = 'STOPPED_OUT'
-                ladder.updated_at = utc_now(aware=False)
-                return True, 1
-
-    elif downside_mode == 'LADDER':
-        # Check staged downside stop rungs
-        stop_rungs = [r for r in ladder.rungs if getattr(r, 'rung_type', None) == 'STOP_LOSS' and r.status == 'PENDING']
-        for rung in stop_rungs:
-            triggered = (price <= rung.target_price) if ladder.side == 'SELL' else (price >= rung.target_price)
-            if triggered:
-                rung.status = 'TRIGGERED'
-                updated = True
-                triggered_count += 1
-                logger.info(f"LadderOrder #{ladder.id} STOP Rung #{rung.rung_number} TRIGGERED at price ${price:.4f} (target: ${rung.target_price:.4f})")
-                if execute_trigger:
-                    execute_ladder_rung_trigger(ladder, rung, price)
-
-    # -------------------------------------------------------------
-    # 2. UPSIDE EVALUATION (Take-Profit / Scale-Out)
-    # -------------------------------------------------------------
-    if upside_mode == 'SINGLE':
-        tgt_px = ladder.upside_target_price
-        if tgt_px:
-            hit = (price >= tgt_px) if ladder.side == 'SELL' else (price <= tgt_px)
+    price = execution.positive(current_price, 'Current price')
+    rows = execution.executions(ladder, 'LADDER')
+    filled, pending = _sync_parent(ladder, rows)
+    if pending or ladder.cancel_requested or ladder.status not in {'ACTIVE', 'PARTIALLY_FILLED'}:
+        return True, 0
+    remaining = max(0, ladder.total_quantity - filled)
+    downside = ladder.downside_mode or ('SINGLE' if ladder.has_stop_loss else 'NONE')
+    # Preserve legacy safety stops whose migration supplied a default NONE mode.
+    if downside == 'NONE' and ladder.has_stop_loss and ladder.stop_loss_trigger_price:
+        downside = 'SINGLE'
+    upside = ladder.upside_mode or 'LADDER'
+    updated, count = False, 0
+    for prefix, mode, leg in (('downside', downside, 'STOP_LOSS'), ('upside', upside, 'TAKE_PROFIT')):
+        candidates = []
+        if mode == 'TRAILING':
+            hit = _trailing_hit(ladder, prefix, price)
+            updated = True
             if hit:
-                logger.info(f"LadderOrder #{ladder.id} UPSIDE SINGLE TARGET TRIGGERED at price ${price:.4f} >= target ${tgt_px:.4f}")
-                pending_rungs = [r for r in ladder.rungs if r.status == 'PENDING']
-                remaining_qty = sum(r.quantity for r in pending_rungs) if pending_rungs else ladder.total_quantity
-                if remaining_qty > 0 and execute_trigger:
-                    single_rung = pending_rungs[0] if pending_rungs else LadderRung(quantity=remaining_qty, rung_number=1)
-                    execute_ladder_rung_trigger(ladder, single_rung, price)
-                for r in pending_rungs:
-                    r.status = 'FILLED'
-                ladder.status = 'COMPLETED'
-                ladder.rungs_filled = max(ladder.rungs_total, 1)
-                ladder.updated_at = utc_now(aware=False)
+                candidates = [None]
+        elif mode == 'SINGLE':
+            target = getattr(ladder, f'{prefix}_target_price') or (ladder.stop_loss_trigger_price if prefix == 'downside' else None)
+            favorable = (price >= target if ladder.side == 'SELL' else price <= target) if target else False
+            hit = bool(target) and (favorable if prefix == 'upside' else (price <= target if ladder.side == 'SELL' else price >= target))
+            if hit:
+                candidates = [next((r for r in ladder.rungs if (r.rung_type or 'TAKE_PROFIT') == leg and r.status == 'PENDING'), None)]
+        elif mode == 'LADDER':
+            for rung in ladder.rungs:
+                if rung.status != 'PENDING' or (rung.rung_type or 'TAKE_PROFIT') != leg:
+                    continue
+                hit = (price >= rung.target_price if ladder.side == 'SELL' else price <= rung.target_price) if prefix == 'upside' else (price <= rung.target_price if ladder.side == 'SELL' else price >= rung.target_price)
+                if hit:
+                    candidates.append(rung)
+        for rung in candidates:
+            if prefix == 'downside' and mode == 'SINGLE' and ladder.stop_loss_action == 'CANCEL_REMAINING':
+                ladder.cancel_requested = True
+                _sync_parent(ladder, rows)
                 return True, 1
-
-    elif upside_mode == 'TRAILING':
-        trail_val = float(ladder.upside_trail_value or 2.0)
-        trail_type = ladder.upside_trail_type or 'PERCENT'
-        act_px = ladder.upside_activation_price
-
-        if ladder.side == 'SELL':
-            # Ratchet peak watermark
-            if ladder.upside_highest_price is None or price > ladder.upside_highest_price:
-                ladder.upside_highest_price = price
-                updated = True
-
-            is_active = True
-            if act_px and ladder.upside_highest_price < act_px:
-                is_active = False
-
-            if is_active and ladder.upside_highest_price:
-                stop_px = ladder.upside_highest_price * (1.0 - (trail_val / 100.0)) if trail_type == 'PERCENT' else max(0.0, ladder.upside_highest_price - trail_val)
-                ladder.upside_current_stop_price = stop_px
-
-                if price <= stop_px:
-                    logger.info(f"LadderOrder #{ladder.id} UPSIDE TRAILING TAKE-PROFIT TRIGGERED at price ${price:.4f} <= peak pullback ${stop_px:.4f}")
-                    pending_rungs = [r for r in ladder.rungs if r.status == 'PENDING']
-                    remaining_qty = sum(r.quantity for r in pending_rungs) if pending_rungs else ladder.total_quantity
-                    if remaining_qty > 0 and execute_trigger:
-                        single_rung = pending_rungs[0] if pending_rungs else LadderRung(quantity=remaining_qty, rung_number=1)
-                        execute_ladder_rung_trigger(ladder, single_rung, price)
-                    for r in pending_rungs:
-                        r.status = 'FILLED'
-                    ladder.status = 'COMPLETED'
-                    ladder.rungs_filled = max(ladder.rungs_total, 1)
-                    ladder.updated_at = utc_now(aware=False)
-                    return True, 1
-
-    elif upside_mode == 'LADDER':
-        # Check staged upside take-profit rungs
-        tp_rungs = [r for r in ladder.rungs if getattr(r, 'rung_type', None) in ('TAKE_PROFIT', None) and r.status == 'PENDING']
-        for rung in tp_rungs:
-            triggered = (price >= rung.target_price) if ladder.side == 'SELL' else (price <= rung.target_price)
-            if triggered:
-                rung.status = 'TRIGGERED'
-                updated = True
-                triggered_count += 1
-                logger.info(f"LadderOrder #{ladder.id} TAKE-PROFIT Rung #{rung.rung_number} TRIGGERED at price ${price:.4f} (target: ${rung.target_price:.4f})")
-                if execute_trigger:
-                    execute_ladder_rung_trigger(ladder, rung, price)
-
+            qty = min(remaining, rung.quantity) if rung is not None and mode == 'LADDER' else remaining
+            if qty <= 1e-10:
+                break
+            updated, count = True, count + 1
+            if not execute_trigger:
+                if rung is not None:
+                    rung.status = 'TRIGGERED'
+                continue
+            try:
+                row = execution.submit_execution(ladder, 'LADDER', qty, price, leg, rung=rung)
+                rows.append(row)
+            except Exception as exc:
+                ladder.status = 'FAILED'
+                ladder.monitoring_error = str(exc)
+                if rung is not None:
+                    rung.status, rung.error_message = 'FAILED', str(exc)
+                return True, count
+            filled, pending = _sync_parent(ladder, rows)
+            remaining = max(0, ladder.total_quantity - filled)
+            if pending or ladder.status not in {'ACTIVE', 'PARTIALLY_FILLED'}:
+                return True, count
+            # A single/trailing branch owns the whole remaining quantity.
+            if mode != 'LADDER':
+                return True, count
     if updated:
-        filled_count = sum(1 for r in ladder.rungs if r.status in ('FILLED', 'TRIGGERED'))
-        ladder.rungs_filled = filled_count
-        if filled_count >= ladder.rungs_total and ladder.rungs_total > 0:
-            ladder.status = 'COMPLETED'
-        elif filled_count > 0:
-            ladder.status = 'PARTIALLY_FILLED'
         ladder.updated_at = utc_now(aware=False)
-
-    return updated, triggered_count
+    return updated, count
 
 
 def execute_ladder_rung_trigger(ladder, rung, current_price):
-    """
-    Submits a market execution for a triggered ladder rung on Binance.US or Webull.
-    Supports Equities, ETFs, and Webull Crypto, as well as Binance.US Crypto spot.
-    """
-    try:
-        if ladder.test_mode:
-            test_order = TestOrder(
-                user_id=ladder.user_id,
-                symbol=ladder.symbol,
-                side=ladder.side,
-                type='MARKET',
-                quantity=rung.quantity,
-                price=current_price,
-                status='FILLED',
-                created_at=utc_now(aware=False),
-                executed_at=utc_now(aware=False)
-            )
-            db.session.add(test_order)
-            rung.status = 'FILLED'
-            rung.executed_price = current_price
-            rung.executed_at = utc_now(aware=False)
-            rung.executed_order_id = f"test_ladder_{ladder.id}_{rung.rung_number}_{int(time.time())}"
-            ladder.rungs_filled = sum(1 for r in ladder.rungs if r.status == 'FILLED')
-            if ladder.rungs_filled >= ladder.rungs_total:
-                ladder.status = 'COMPLETED'
-            elif ladder.rungs_filled > 0:
-                ladder.status = 'PARTIALLY_FILLED'
-            logger.info(f"LadderOrder #{ladder.id} Rung #{rung.rung_number} filled in TEST mode.")
-            return
-
-        clean_broker = (ladder.broker or 'binance').lower()
-
-        # Webull execution (Equities, ETFs, Crypto)
-        if clean_broker == 'webull':
-            from services.webull_service import place_webull_order
-            cred = Credential.query.filter_by(user_id=ladder.user_id).first()
-            if not cred or not cred.webull_app_key or not cred.webull_app_secret:
-                rung.status = 'FAILED'
-                rung.error_message = "Missing Webull trading credentials."
-                return
-
-            setting = UserSetting.query.filter_by(user_id=ladder.user_id).first()
-            environment = getattr(setting, 'webull_environment', 'production') if setting else 'production'
-
-            account_id = ladder.account_id
-            if not account_id and setting and setting.webull_default_account_id:
-                account_id = setting.webull_default_account_id
-
-            webull_params = {
-                'app_key': cred.webull_app_key,
-                'app_secret': cred.webull_app_secret,
-                'environment': environment,
-                'access_token': cred.webull_access_token,
-                'account_id': account_id,
-                'symbol': ladder.symbol,
-                'instrument_type': ladder.instrument_type or 'EQUITY',
-                'side': ladder.side,
-                'order_type': 'MARKET',
-                'quantity': rung.quantity,
-                'support_trading_session': ladder.trading_session or 'CORE'
-            }
-            logger.info(f"Submitting Webull rung order for LadderOrder #{ladder.id}: {webull_params}")
-            resp = place_webull_order(**webull_params)
-            rung.executed_order_id = str(resp.get('order_id') or resp.get('client_order_id') or '')
-            rung.executed_price = current_price
-            rung.executed_at = utc_now(aware=False)
-            rung.status = 'FILLED'
-            ladder.rungs_filled = sum(1 for r in ladder.rungs if r.status == 'FILLED')
-            if ladder.rungs_filled >= ladder.rungs_total:
-                ladder.status = 'COMPLETED'
-            elif ladder.rungs_filled > 0:
-                ladder.status = 'PARTIALLY_FILLED'
-            logger.info(f"LadderOrder #{ladder.id} Rung #{rung.rung_number} successfully executed on Webull.")
-            return
-
-        # Binance.US execution
-        from binance.client import Client
-        cred = Credential.query.filter_by(user_id=ladder.user_id).first()
-        if not cred or not cred.trading_api_key or not cred.trading_api_secret:
-            rung.status = 'FAILED'
-            rung.error_message = "Missing Binance.US trading credentials."
-            return
-
-        client = Client(api_key=cred.trading_api_key, api_secret=cred.trading_api_secret, testnet=False, tld='us')
-        order_params = {
-            'symbol': ladder.symbol,
-            'side': ladder.side,
-            'type': 'MARKET',
-            'quantity': rung.quantity
-        }
-        logger.info(f"Submitting Binance.US rung order for LadderOrder #{ladder.id}: {order_params}")
-        resp = client.create_order(**order_params)
-        rung.executed_order_id = str(resp.get('orderId') or resp.get('clientOrderId') or '')
-        rung.executed_price = current_price
-        rung.executed_at = utc_now(aware=False)
-        rung.status = 'FILLED' if resp.get('status') in ('FILLED', 'PARTIALLY_FILLED', 'NEW') else resp.get('status', 'FILLED')
-        ladder.rungs_filled = sum(1 for r in ladder.rungs if r.status == 'FILLED')
-        if ladder.rungs_filled >= ladder.rungs_total:
-            ladder.status = 'COMPLETED'
-        elif ladder.rungs_filled > 0:
-            ladder.status = 'PARTIALLY_FILLED'
-        logger.info(f"LadderOrder #{ladder.id} Rung #{rung.rung_number} successfully executed on Binance.US.")
-
-    except Exception as e:
-        logger.error(f"Error executing LadderOrder #{ladder.id} Rung #{rung.rung_number}: {e}")
-        rung.status = 'FAILED'
-        rung.error_message = str(e)
-
-
-def _execute_stop_loss_market_sell(ladder, quantity, current_price):
-    """
-    Submits an emergency market sell for remaining ladder quantity when stop-loss is breached.
-    """
-    try:
-        clean_broker = (ladder.broker or 'binance').lower()
-        if clean_broker == 'webull':
-            from services.webull_service import place_webull_order
-            cred = Credential.query.filter_by(user_id=ladder.user_id).first()
-            if cred and cred.webull_app_key and cred.webull_app_secret:
-                setting = UserSetting.query.filter_by(user_id=ladder.user_id).first()
-                environment = getattr(setting, 'webull_environment', 'production') if setting else 'production'
-                account_id = ladder.account_id or (getattr(setting, 'webull_default_account_id', None) if setting else None)
-                place_webull_order(
-                    cred.webull_app_key, cred.webull_app_secret, environment, cred.webull_access_token,
-                    account_id=account_id, symbol=ladder.symbol, instrument_type=ladder.instrument_type or 'EQUITY',
-                    side='SELL', order_type='MARKET', quantity=quantity, support_trading_session=ladder.trading_session or 'CORE'
-                )
-        else:
-            from binance.client import Client
-            cred = Credential.query.filter_by(user_id=ladder.user_id).first()
-            if cred and cred.trading_api_key and cred.trading_api_secret:
-                client = Client(api_key=cred.trading_api_key, api_secret=cred.trading_api_secret, testnet=False, tld='us')
-                client.create_order(symbol=ladder.symbol, side='SELL', type='MARKET', quantity=quantity)
-    except Exception as e:
-        logger.error(f"Error executing ladder stop loss for #{ladder.id}: {e}")
+    """Compatibility entry point; worker evaluation owns the parent lock."""
+    rows = execution.executions(ladder, 'LADDER')
+    filled, pending = _sync_parent(ladder, rows)
+    if pending or any(r.rung_id == rung.id for r in rows if rung.id):
+        return
+    row = execution.submit_execution(ladder, 'LADDER', min(rung.quantity, max(0, ladder.total_quantity - filled)), current_price,
+                                     rung.rung_type or 'TAKE_PROFIT', rung=rung)
+    _sync_parent(ladder, rows + [row])
 
 
 def evaluate_active_ladder_orders():
-    """
-    Cycle through all ACTIVE or PARTIALLY_FILLED ladder orders and evaluate against market prices.
-    Called by background scheduler thread.
-    """
-    try:
-        active_ladders = LadderOrder.query.filter(LadderOrder.status.in_(['ACTIVE', 'PARTIALLY_FILLED'])).all()
-        if not active_ladders:
-            return
-
-        modified = False
-        for ladder in active_ladders:
-            price = _get_reference_price(ladder.symbol, broker=ladder.broker, instrument_type=ladder.instrument_type, user_id=ladder.user_id)
-            if price and price > 0:
-                updated, _ = evaluate_single_ladder_order(ladder, price, execute_trigger=True)
-                if updated:
-                    modified = True
-
-        if modified:
-            db.session.commit()
-    except Exception as e:
-        logger.error(f"Error during evaluate_active_ladder_orders cycle: {e}")
+    ids = [row.id for row in LadderOrder.query.filter(LadderOrder.status.in_(execution.WORKING_PARENTS)).all()]
+    db.session.rollback()
+    for identifier in ids:
+        try:
+            with execution.parent_lock('LADDER', identifier) as locked:
+                if not locked:
+                    continue
+                ladder = db.session.get(LadderOrder, identifier, populate_existing=True)
+                if ladder.status not in execution.WORKING_PARENTS:
+                    continue
+                if ladder.engine_version != 2:
+                    ladder.status = 'NEEDS_REVIEW'
+                    ladder.monitoring_error = 'Created before v3.9.0: cancel and recreate after reviewing broker fills and the saved strategy. Earlier tickets could save different settings.'
+                    db.session.commit()
+                    continue
+                rows = execution.reconcile_executions(ladder, 'LADDER')
+                _sync_parent(ladder, rows)
+                if ladder.status in {'ACTIVE', 'PARTIALLY_FILLED'} and not ladder.cancel_requested:
+                    if execution.market_is_open(ladder):
+                        try:
+                            price = _get_reference_price(ladder.symbol, broker=ladder.broker, instrument_type=ladder.instrument_type,
+                                                         user_id=ladder.user_id, environment=ladder.environment)
+                            ladder.last_price, ladder.last_checked_at, ladder.monitoring_error = price, utc_now(aware=False), None
+                            evaluate_single_ladder_order(ladder, price)
+                        except Exception:
+                            ladder.monitoring_error = 'Current venue quote unavailable or stale. Waiting for a fresh quote.'
+                    else:
+                        ladder.monitoring_error = 'Waiting for regular market hours; stock/ETF market orders execute only during CORE.'
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+            logger.exception('Synthetic ladder evaluation failed for order %s', identifier)
+        finally:
+            db.session.remove()
 
 
 def ladder_order_worker_loop(app):
-    """
-    Background worker daemon evaluating active ladder orders every 2 seconds.
-    """
-    logger.info("Starting ladder_order_worker_loop background thread...")
     while True:
         try:
             with app.app_context():
                 evaluate_active_ladder_orders()
-        except Exception as e:
-            logger.error(f"Unhandled exception in ladder_order_worker_loop: {e}")
+        except Exception:
+            logger.exception('Synthetic ladder worker cycle failed')
         time.sleep(2.0)

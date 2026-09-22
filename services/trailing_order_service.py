@@ -1,4 +1,5 @@
 import time
+from decimal import Decimal
 import math
 from datetime import datetime
 from flask import current_app
@@ -9,74 +10,11 @@ from models import Coin
 from credentials import Credential
 from log import logger
 
-def _get_reference_price(symbol, client=None, broker='binance', instrument_type='CRYPTO', user_id=None):
-    """
-    Get current market price for a symbol using Coin table, Binance client, Webull quote, or public ticker.
-    """
-    clean_sym = symbol.strip().upper()
-    clean_broker = (broker or 'binance').lower()
-    clean_type = (instrument_type or 'CRYPTO').upper()
+from services import synthetic_execution_service as execution
 
-    if clean_broker == 'webull':
-        try:
-            from services.webull_service import get_webull_quote
-            from credentials import Credential
-            # Fetch user's credentials if user_id provided
-            cred = Credential.query.filter_by(user_id=user_id).first() if user_id else None
-            if not cred:
-                cred = Credential.query.filter(Credential._webull_app_key.isnot(None)).first()
-            if cred and cred.webull_app_key and cred.webull_app_secret:
-                quote = get_webull_quote(
-                    cred.webull_app_key,
-                    cred.webull_app_secret,
-                    environment='production',
-                    access_token=cred.webull_access_token,
-                    symbol=clean_sym,
-                    instrument_type=clean_type
-                )
-                p = quote.get('price') or quote.get('regular_price') or quote.get('last_price')
-                if p and float(p) > 0:
-                    return float(p)
-        except Exception as e:
-            logger.warning(f"Webull price lookup failed for {clean_sym} ({clean_type}): {e}")
 
-    # 1. Try Coin table first (fastest, cached by background sync)
-    coin = Coin.query.filter_by(symbol=clean_sym).first()
-    if coin and coin.current and coin.current > 0:
-        return float(coin.current)
-    
-    # Strip quote to find base coin
-    for quote in ['USDT', 'USD', 'BTC', 'ETH', 'BNB']:
-        if clean_sym.endswith(quote):
-            base = clean_sym[:-len(quote)]
-            coin = Coin.query.filter_by(symbol=base).first()
-            if coin and coin.current and coin.current > 0:
-                return float(coin.current)
-            break
-
-    # 2. Try client if provided
-    if client:
-        try:
-            ticker = client.get_symbol_ticker(symbol=clean_sym)
-            if ticker and 'price' in ticker:
-                return float(ticker['price'])
-        except Exception as e:
-            logger.warning(f"Failed to fetch ticker from client for {clean_sym}: {e}")
-
-    # 3. Fallback to public Binance.US ticker API
-    try:
-        import urllib.request
-        import json
-        url = f"https://api.binance.us/api/v3/ticker/price?symbol={clean_sym}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            data = json.loads(resp.read().decode())
-            if 'price' in data:
-                return float(data['price'])
-    except Exception as e:
-        logger.warning(f"Public ticker fetch failed for {clean_sym}: {e}")
-
-    return None
+def _get_reference_price(symbol, client=None, broker='binance', instrument_type='CRYPTO', user_id=None, environment=None):
+    return execution.reference_price(symbol, client, broker, instrument_type, user_id, environment)
 
 
 def calculate_trailing_stop_price(side, reference_price, trail_type, trail_value):
@@ -84,21 +22,21 @@ def calculate_trailing_stop_price(side, reference_price, trail_type, trail_value
     Calculate the dynamic trigger price based on side, reference price (peak/trough),
     and trail type (PERCENT or AMOUNT).
     """
-    ref = float(reference_price)
-    val = float(trail_value)
+    ref = Decimal(str(reference_price))
+    val = Decimal(str(trail_value))
     
     if side.upper() == 'SELL':
         # Stop price trails BELOW reference price
         if trail_type.upper() == 'PERCENT':
-            return round(ref * (1.0 - (val / 100.0)), 8)
+            return float(ref * (1 - val / 100))
         else:
-            return round(max(0.0, ref - val), 8)
+            return float(max(0, ref - val))
     else: # BUY
         # Stop price trails ABOVE reference price
         if trail_type.upper() == 'PERCENT':
-            return round(ref * (1.0 + (val / 100.0)), 8)
+            return float(ref * (1 + val / 100))
         else:
-            return round(ref + val, 8)
+            return float(ref + val)
 
 
 def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT', trail_value=2.0,
@@ -108,6 +46,11 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
     Validate and persist a new synthetic TrailingOrder.
     Supports both Binance.US and Webull.
     """
+    clean_symbol, clean_side, clean_broker, clean_instrument, clean_session, clean_account_id = execution.validate_identity(
+        symbol, side, broker, instrument_type, trading_session, account_id, test_mode)
+    symbol, side, broker, instrument_type, trading_session, account_id = (clean_symbol, clean_side, clean_broker, clean_instrument, clean_session, clean_account_id)
+    if str(execution_type).upper() != 'MARKET':
+        raise ValueError('Synthetic trailing orders execute market orders.')
     clean_symbol = str(symbol or '').strip().upper()
     clean_side = str(side or '').strip().upper()
     clean_trail_type = str(trail_type or 'PERCENT').strip().upper()
@@ -124,14 +67,14 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
         raise ValueError("Trail type must be PERCENT or AMOUNT.")
 
     try:
-        qty = float(quantity)
+        qty = execution.positive(quantity, 'Quantity')
         if qty <= 0:
             raise ValueError()
     except (TypeError, ValueError):
         raise ValueError("Quantity must be a positive number.")
 
     try:
-        t_val = float(trail_value)
+        t_val, clean_trail_type = execution.trailing_parameters(trail_value, clean_trail_type)
         if t_val <= 0:
             raise ValueError()
         if clean_trail_type == 'PERCENT' and t_val >= 100.0:
@@ -143,14 +86,9 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
     if not current_price or current_price <= 0:
         raise ValueError(f"Unable to determine current market price for {clean_symbol}.")
 
-    act_price = None
-    if activation_price is not None and str(activation_price).strip() != '':
-        try:
-            act_price = float(activation_price)
-            if act_price <= 0:
-                act_price = None
-        except (TypeError, ValueError):
-            act_price = None
+    act_price = execution.positive(activation_price, 'Activation price', optional=True)
+    if clean_side == 'SELL' and clean_trail_type == 'AMOUNT' and t_val >= max(current_price, act_price or 0):
+        raise ValueError('The sell trail amount must be below the price at activation.')
 
     # Determine activation state
     is_activated = True
@@ -191,6 +129,13 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
         updated_at=utc_now(aware=False)
     )
 
+    order.engine_version = 2
+    order.environment = execution.environment_for(user_id, clean_broker)
+    rules = execution.quantity_rules(order)
+    if abs(execution.normalize_quantity(qty, rules) - qty) > max(1e-14, qty * 1e-12):
+        raise ValueError(f'Quantity must be a multiple of {rules["step"]}.')
+    execution.check_quantity(order, qty, current_price, rules)
+    execution.check_order_limit(order, qty, current_price, rules)
     db.session.add(order)
     db.session.commit()
     logger.info(f"Created TrailingOrder #{order.id} [{clean_broker.upper()}]: {clean_side} {qty} {clean_symbol} (trail={t_val} {clean_trail_type}, stop={initial_stop})")
@@ -198,37 +143,22 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
 
 
 def cancel_trailing_order(order_id, user_id):
-    """
-    Cancel an active trailing order.
-    """
-    order = TrailingOrder.query.filter_by(id=order_id, user_id=user_id).first()
-    if not order:
-        raise ValueError(f"Trailing order #{order_id} not found.")
-
-    if order.status != 'ACTIVE':
-        raise ValueError(f"Order #{order_id} is already in state {order.status} and cannot be cancelled.")
-
-    order.status = 'CANCELLED'
-    order.updated_at = utc_now(aware=False)
-    db.session.commit()
-    logger.info(f"Cancelled TrailingOrder #{order_id} for user {user_id}")
-    return order.to_dict()
+    return execution.cancel_parent(TrailingOrder, 'TRAILING', order_id, user_id)
 
 
-def get_user_trailing_orders(user_id, symbol=None, status=None, broker=None):
-    """
-    Fetch trailing orders for a user with optional filters.
-    """
+def get_user_trailing_orders(user_id, symbol=None, status=None, broker=None, account_id=None, test_mode=None):
     query = TrailingOrder.query.filter_by(user_id=user_id)
-    if broker:
+    if broker and broker.lower() != 'all':
         query = query.filter_by(broker=broker.lower())
     if symbol:
         query = query.filter_by(symbol=symbol.strip().upper())
     if status:
         query = query.filter_by(status=status.strip().upper())
-
-    orders = query.order_by(TrailingOrder.created_at.desc()).all()
-    return [o.to_dict() for o in orders]
+    if account_id:
+        query = query.filter_by(account_id=account_id)
+    if test_mode is not None:
+        query = query.filter_by(test_mode=test_mode)
+    return [o.to_dict() for o in query.order_by(TrailingOrder.created_at.desc()).all()]
 
 
 def evaluate_single_trailing_order(order, current_price, execute_trigger=True):
@@ -241,7 +171,7 @@ def evaluate_single_trailing_order(order, current_price, execute_trigger=True):
     if order.status != 'ACTIVE':
         return False, False
 
-    price = float(current_price)
+    price = execution.positive(current_price, 'Current price')
     updated = False
     triggered = False
 
@@ -312,142 +242,77 @@ def evaluate_single_trailing_order(order, current_price, execute_trigger=True):
     return updated, triggered
 
 
-def execute_trailing_trigger(order, current_price):
-    """
-    Submits market order when trailing stop is triggered.
-    Dispatches to Binance.US or Webull based on order.broker.
-    """
-    try:
-        if order.test_mode:
-            # Create TestOrder record
-            test_order = TestOrder(
-                user_id=order.user_id,
-                symbol=order.symbol,
-                side=order.side,
-                type=order.execution_type,
-                quantity=order.quantity,
-                price=current_price,
-                status='FILLED',
-                created_at=utc_now(aware=False),
-                executed_at=utc_now(aware=False)
-            )
-            db.session.add(test_order)
-            order.status = 'FILLED'
-            order.executed_order_id = f"test_trail_{int(time.time())}"
-            logger.info(f"TrailingOrder #{order.id} filled in TEST mode.")
-            return
-
-        clean_broker = (order.broker or 'binance').lower()
-
-        # Webull execution (Equities, ETFs, Crypto)
-        if clean_broker == 'webull':
-            from services.webull_service import place_webull_order
-            from credentials import Credential, UserSetting
-            cred = Credential.query.filter_by(user_id=order.user_id).first()
-            if not cred or not cred.webull_app_key or not cred.webull_app_secret:
-                order.status = 'FAILED'
-                order.error_message = "Missing Webull trading credentials."
-                logger.error(f"TrailingOrder #{order.id} failed: No Webull credentials.")
-                return
-
-            setting = UserSetting.query.filter_by(user_id=order.user_id).first()
-            environment = getattr(setting, 'webull_environment', 'production') if setting else 'production'
-
-            account_id = order.account_id
-            if not account_id and setting and setting.webull_default_account_id:
-                account_id = setting.webull_default_account_id
-
-            webull_params = {
-                'app_key': cred.webull_app_key,
-                'app_secret': cred.webull_app_secret,
-                'environment': environment,
-                'access_token': cred.webull_access_token,
-                'account_id': account_id,
-                'symbol': order.symbol,
-                'instrument_type': order.instrument_type or 'EQUITY',
-                'side': order.side,
-                'order_type': 'MARKET',
-                'quantity': order.quantity,
-                'support_trading_session': order.trading_session or 'CORE'
-            }
-            logger.info(f"Submitting Webull order for TrailingOrder #{order.id}: {webull_params}")
-            resp = place_webull_order(**webull_params)
-            order.executed_order_id = str(resp.get('order_id') or resp.get('client_order_id') or '')
-            order.status = 'FILLED'
-            logger.info(f"TrailingOrder #{order.id} successfully submitted to Webull (orderId={order.executed_order_id})")
-            return True
-
-        # Real trading execution on Binance.US
-        from credential_security import decrypt_secret
-        from binance.client import Client
-
-        cred = Credential.query.filter_by(user_id=order.user_id).first()
-        if not cred or not cred.trading_api_key or not cred.trading_api_secret:
-            order.status = 'FAILED'
-            order.error_message = "Missing Binance.US trading credentials."
-            logger.error(f"TrailingOrder #{order.id} failed: No Binance credentials.")
-            return
-
-        api_key = cred.trading_api_key
-        api_secret = cred.trading_api_secret
-
-        client = Client(api_key=api_key, api_secret=api_secret, testnet=False, tld='us')
-
-        order_params = {
-            'symbol': order.symbol,
-            'side': order.side,
-            'type': order.execution_type,
-            'quantity': order.quantity
-        }
-
-        logger.info(f"Submitting real order for TrailingOrder #{order.id}: {order_params}")
-        resp = client.create_order(**order_params)
-
-        order.executed_order_id = str(resp.get('orderId') or resp.get('clientOrderId') or '')
-        order.status = 'FILLED' if resp.get('status') in ('FILLED', 'PARTIALLY_FILLED', 'NEW') else resp.get('status', 'FILLED')
-        logger.info(f"TrailingOrder #{order.id} successfully submitted to Binance.US (orderId={order.executed_order_id})")
-
-    except Exception as e:
-        logger.error(f"Error executing triggered TrailingOrder #{order.id}: {e}")
+def _sync_trailing(order, rows):
+    if not rows:
+        return
+    row = rows[-1]
+    order.executed_order_id = row.broker_order_id
+    order.error_message = row.error_message
+    if row.status in execution.OPEN_EXECUTIONS:
+        order.status = 'CANCEL_PENDING' if order.cancel_requested else 'SUBMITTED'
+    elif row.status == 'FILLED':
+        order.status = 'FILLED'
+    elif order.cancel_requested:
+        order.status = 'CANCELLED'
+    else:
         order.status = 'FAILED'
-        order.error_message = str(e)
+        order.error_message = row.error_message or 'Execution ended before the full quantity filled. Review broker fills.'
+
+
+def execute_trailing_trigger(order, current_price):
+    try:
+        rows = execution.executions(order, 'TRAILING')
+        if not rows:
+            rows = [execution.submit_execution(order, 'TRAILING', order.quantity, current_price, 'TRAILING')]
+        _sync_trailing(order, rows)
+        return order.status in {'SUBMITTED', 'FILLED'}
+    except Exception as exc:
+        order.status = 'FAILED'
+        order.error_message = str(exc)
+        return False
 
 
 def evaluate_active_trailing_orders():
-    """
-    Cycle through all ACTIVE trailing orders across users and evaluate against latest prices.
-    Called by background scheduler thread.
-    """
-    try:
-        active_orders = TrailingOrder.query.filter_by(status='ACTIVE').all()
-        if not active_orders:
-            return
-
-        modified = False
-        for order in active_orders:
-            price = _get_reference_price(order.symbol, broker=order.broker, instrument_type=order.instrument_type, user_id=order.user_id)
-            if price and price > 0:
-                updated, _ = evaluate_single_trailing_order(order, price, execute_trigger=True)
-                if updated:
-                    modified = True
-
-        if modified:
-            db.session.commit()
-
-    except Exception as e:
-        logger.error(f"Error in evaluate_active_trailing_orders: {e}")
-        db.session.rollback()
+    ids = [o.id for o in TrailingOrder.query.filter(TrailingOrder.status.in_(execution.WORKING_PARENTS)).all()]
+    db.session.rollback()
+    for identifier in ids:
+        try:
+            with execution.parent_lock('TRAILING', identifier) as locked:
+                if not locked:
+                    continue
+                order = db.session.get(TrailingOrder, identifier, populate_existing=True)
+                if order.status not in execution.WORKING_PARENTS:
+                    continue
+                if order.engine_version != 2:
+                    order.status = 'NEEDS_REVIEW'
+                    order.monitoring_error = 'Created before v3.9.0: review broker fills, then cancel and recreate this order.'
+                    db.session.commit()
+                    continue
+                _sync_trailing(order, execution.reconcile_executions(order, 'TRAILING'))
+                if order.status == 'ACTIVE' and not order.cancel_requested:
+                    if execution.market_is_open(order):
+                        try:
+                            price = _get_reference_price(order.symbol, broker=order.broker, instrument_type=order.instrument_type,
+                                                         user_id=order.user_id, environment=order.environment)
+                            order.last_price, order.last_checked_at, order.monitoring_error = price, utc_now(aware=False), None
+                            evaluate_single_trailing_order(order, price)
+                        except Exception:
+                            order.monitoring_error = 'Current venue quote unavailable or stale. Waiting for a fresh quote.'
+                    else:
+                        order.monitoring_error = 'Waiting for regular market hours; stock/ETF market orders execute only during CORE.'
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+            logger.exception('Synthetic trailing evaluation failed for order %s', identifier)
+        finally:
+            db.session.remove()
 
 
 def trailing_order_worker_loop(app):
-    """
-    Background worker daemon evaluating active trailing orders every 2 seconds.
-    """
-    logger.info("Starting trailing_order_worker_loop background thread...")
     while True:
         try:
             with app.app_context():
                 evaluate_active_trailing_orders()
-        except Exception as e:
-            logger.error(f"Unhandled exception in trailing_order_worker_loop: {e}")
+        except Exception:
+            logger.exception('Synthetic trailing worker cycle failed')
         time.sleep(2.0)

@@ -1,3 +1,4 @@
+import { buildSyntheticPayload, strategySummary } from '../utils/syntheticOrders.mjs';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
@@ -1336,6 +1337,12 @@ export default function WebullTrading({ isLightMode = false }) {
       { id: '3', role: 'OTOCO', side: 'SELL', order_type: 'STOP_LOSS', price: '', stopPrice: '', quantity: '1', timeInForce: 'DAY', session: 'CORE' },
     ],
   });
+
+  useEffect(() => {
+    if (['LADDER', 'SYNTHETIC'].includes(orderForm.type)) {
+      setOrderForm(prev => ({ ...prev, tradingSession: 'CORE', entrustType: 'QTY', isAlgoEnabled: false, isBracketEnabled: false }));
+    }
+  }, [orderForm.type]);
 
   const availableOrderTypes = useMemo(() => {
     const commonLimit = { value: 'LIMIT', label: 'Limit', description: 'Execute at the specified limit price or better' };
@@ -3645,6 +3652,7 @@ export default function WebullTrading({ isLightMode = false }) {
     optionType: selectedInstrumentType === 'OPTION' ? orderForm.optionType : undefined,
     optionStrike: selectedInstrumentType === 'OPTION' ? orderForm.optionStrike : undefined,
     optionExpiration: selectedInstrumentType === 'OPTION' ? orderForm.optionExpiration : undefined,
+    syntheticSummary: ['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? strategySummary(ladderConfig) : undefined,
     trailingType: orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingType : undefined,
     trailingStopStep: orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingStopStep : undefined,
     bracketTakeProfitPrice: orderForm.isBracketEnabled ? orderForm.bracketTakeProfitPrice : undefined,
@@ -3818,7 +3826,7 @@ export default function WebullTrading({ isLightMode = false }) {
     if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
       if (ladderConfig.upsideMode === 'LADDER') {
         const totalPct = (ladderConfig.rungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-        if (Math.abs(totalPct - 100) > 0.5) {
+        if (Math.abs(totalPct - 100) > 0.01) {
           rejectOrder(`Upside ladder rungs allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`);
           return;
         }
@@ -3838,10 +3846,10 @@ export default function WebullTrading({ isLightMode = false }) {
         }
       }
 
-      if (ladderConfig.hasDownside) {
+      if (ladderConfig.hasDownsideProtection) {
         if (ladderConfig.downsideMode === 'LADDER') {
           const totalSlPct = (ladderConfig.downsideRungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-          if (Math.abs(totalSlPct - 100) > 0.5) {
+          if (Math.abs(totalSlPct - 100) > 0.01) {
             rejectOrder(`Downside ladder rungs allocation must sum to 100% (currently ${totalSlPct.toFixed(1)}%).`);
             return;
           }
@@ -3883,7 +3891,7 @@ export default function WebullTrading({ isLightMode = false }) {
         rejectOrder('Fractional stock and ETF orders are available only during Regular Hours. Select Only Regular Hours (CORE) or use a whole-share quantity.');
         return;
       }
-      if (orderForm.type !== 'MARKET') {
+      if (!['MARKET', 'LADDER', 'SYNTHETIC'].includes(orderForm.type)) {
         rejectOrder('Webull supports fractional stock and ETF orders as Market orders during Regular Hours. Select Market or use a whole-share quantity for this order type.');
         return;
       }
@@ -4028,7 +4036,7 @@ export default function WebullTrading({ isLightMode = false }) {
           broker: 'webull',
           account_id: effectiveAccountId,
           symbol: selectedSymbol.trim().toUpperCase(),
-          instrument_type: selectedInstrumentType,
+          instrument_type: selectedInstrumentType === 'EQUITY' ? selectedSecurityType : selectedInstrumentType,
           side: orderForm.side,
           quantity: Number(orderForm.quantity),
           trail_type: orderForm.trailType || 'PERCENT',
@@ -4054,7 +4062,7 @@ export default function WebullTrading({ isLightMode = false }) {
             price: '',
             stopPrice: '',
           }));
-          setActiveTab('trailing_orders');
+          setActiveTab('synthetic_orders');
           return;
         } else {
           setOrderFeedback({ type: 'error', message: response.data?.error || 'Failed to place synthetic trailing stop order.' });
@@ -4063,53 +4071,14 @@ export default function WebullTrading({ isLightMode = false }) {
       }
 
       if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
-        let slPrice = null;
-        if (ladderConfig.hasDownside) {
-          if (ladderConfig.downsideMode === 'SINGLE') {
-            if (ladderConfig.downsideTargetPrice) {
-              slPrice = parseFloat(ladderConfig.downsideTargetPrice) || null;
-            } else if (ladderConfig.downsideOffsetPct) {
-              const offset = parseFloat(ladderConfig.downsideOffsetPct) || 0;
-              const curP = parseFloat(livePrice) || 0;
-              if (curP > 0 && offset > 0) {
-                slPrice = orderForm.side === 'SELL' ? curP * (1 - offset / 100) : curP * (1 + offset / 100);
-              }
-            }
-          }
-        }
         const ladderPayload = {
           broker: 'webull',
           account_id: effectiveAccountId,
           symbol: selectedSymbol.trim().toUpperCase(),
-          instrument_type: selectedInstrumentType,
+          instrument_type: selectedInstrumentType === 'EQUITY' ? selectedSecurityType : selectedInstrumentType,
           side: orderForm.side,
           total_quantity: Number(orderForm.quantity),
-          strategy_type: 'BRACKET',
-          upside_mode: ladderConfig.upsideMode || 'LADDER',
-          upside_target_price: ladderConfig.upsideTargetPrice ? parseFloat(ladderConfig.upsideTargetPrice) : null,
-          upside_trail_value: ladderConfig.upsideTrailValue ? parseFloat(ladderConfig.upsideTrailValue) : null,
-          upside_trail_type: ladderConfig.upsideTrailType || 'PERCENT',
-          upside_activation_price: ladderConfig.upsideActivationPrice ? parseFloat(ladderConfig.upsideActivationPrice) : null,
-          mode: ladderConfig.mode || 'PERCENTAGE',
-          preset_name: ladderConfig.preset,
-          rungs: (ladderConfig.rungs || []).map(r => ({
-            price_offset_pct: parseFloat(r.price_offset_pct) || 0,
-            percentage_of_total: parseFloat(r.percentage_of_total) || 0,
-            target_price: parseFloat(r.target_price) || 0
-          })),
-          downside_mode: ladderConfig.hasDownside ? (ladderConfig.downsideMode || 'SINGLE') : 'NONE',
-          downside_target_price: slPrice,
-          downside_trail_value: ladderConfig.downsideTrailValue ? parseFloat(ladderConfig.downsideTrailValue) : null,
-          downside_trail_type: ladderConfig.downsideTrailType || 'PERCENT',
-          downside_activation_price: ladderConfig.downsideActivationPrice ? parseFloat(ladderConfig.downsideActivationPrice) : null,
-          downside_rungs: (ladderConfig.downsideRungs || []).map(r => ({
-            price_offset_pct: parseFloat(r.price_offset_pct) || 0,
-            percentage_of_total: parseFloat(r.percentage_of_total) || 0,
-            target_price: parseFloat(r.target_price) || 0
-          })),
-          has_stop_loss: Boolean(ladderConfig.hasDownside),
-          stop_loss_trigger_price: slPrice,
-          stop_loss_action: ladderConfig.stopLossAction || 'MARKET_SELL_ALL',
+          ...buildSyntheticPayload(ladderConfig),
           trading_session: orderForm.tradingSession || 'CORE',
           test_mode: isTestMode,
           ...(tokenOverride ? { twofa_token: tokenOverride } : {}),
@@ -6481,12 +6450,13 @@ export default function WebullTrading({ isLightMode = false }) {
                       <div className="order-input-group">
                         <label className="order-field-label">Time In Force</label>
                         <select
-                          value={orderForm.timeInForce}
+                          value={['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? 'SYNTHETIC_GTC' : orderForm.timeInForce}
                           onChange={(e) => setOrderForm((prev) => ({ ...prev, timeInForce: e.target.value }))}
                           className="order-styled-input"
                           style={{ cursor: 'pointer' }}
-                          disabled={ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT'}
+                          disabled={ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT' || ['LADDER', 'SYNTHETIC'].includes(orderForm.type)}
                         >
+                          {['LADDER', 'SYNTHETIC'].includes(orderForm.type) && <option value="SYNTHETIC_GTC">Until filled or cancelled</option>}
                           <option value="DAY">Day Order (DAY)</option>
                           {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && selectedInstrumentType !== 'EVENT' && orderForm.tradingSession !== 'NIGHT' && !isFractional && !['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
                           {selectedInstrumentType === 'CRYPTO' && <option value="IOC">Immediate or Cancel (IOC)</option>}
@@ -6497,6 +6467,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           <label className="order-field-label">Trading Session</label>
                           <select
                             value={orderForm.tradingSession}
+                            disabled={['LADDER', 'SYNTHETIC'].includes(orderForm.type)}
                             onChange={(e) => {
                               userChangedSessionRef.current = true;
                               const tradingSession = e.target.value;
@@ -7013,6 +6984,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             {orderForm.type === 'STOP_LOSS_LIMIT' && ` (Stop: $${number(orderForm.stopPrice)}, Limit: $${number(orderForm.price)})`}
                           </strong>
                         </div>
+                        {['LADDER', 'SYNTHETIC'].includes(orderForm.type) && strategySummary(ladderConfig).map(line => <p key={line}>{line}</p>)}
                         {orderForm.type === 'TRAILING_STOP_LOSS' && (
                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: '#94a3b8' }}>Trailing Stop:</span>
@@ -7068,7 +7040,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Time in Force / Session:</span>
-                          <span>{formatTimeInForce(orderForm.timeInForce)} · {selectedInstrumentType === 'OPTION' ? 'Regular Options Session' : orderForm.tradingSession === 'CORE' ? 'Regular Hours' : orderForm.tradingSession === 'NIGHT' ? 'Overnight Hours Only' : 'Including Extended Hours'}</span>
+                          <span>{['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? 'Until filled or cancelled' : formatTimeInForce(orderForm.timeInForce)} · {selectedInstrumentType === 'OPTION' ? 'Regular Options Session' : orderForm.tradingSession === 'CORE' ? 'Regular Hours' : orderForm.tradingSession === 'NIGHT' ? 'Overnight Hours Only' : 'Including Extended Hours'}</span>
                         </div>
                       </div>
 
@@ -7366,12 +7338,12 @@ export default function WebullTrading({ isLightMode = false }) {
             {['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) && (
               <section className="order-history-container" style={{ padding: '16px' }}>
                 <div style={{ marginBottom: '16px' }}>
-                  <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>⚡ Synthetic & Bracket Orders (Webull)</h2>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
+                  <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: 'var(--text-primary)' }}>⚡ Synthetic & Bracket Orders (Webull)</h2>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>
                     Server-side synthetic trailing stops, tiered ladder scale-outs, and smart bracket orders for Webull Equities, ETFs, and Crypto.
                   </p>
                 </div>
-                <SyntheticOrdersTable defaultBroker="webull" showBrokerFilter={false} />
+                <SyntheticOrdersTable accountId={isTestMode ? "TEST_PAPER_ACCOUNT" : effectiveAccountId} testMode={isTestMode} defaultBroker="webull" showBrokerFilter={false} />
               </section>
             )}
 

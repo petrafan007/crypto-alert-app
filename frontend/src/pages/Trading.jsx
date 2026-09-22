@@ -1,3 +1,4 @@
+import { buildSyntheticPayload, strategySummary } from '../utils/syntheticOrders.mjs';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import OrderFeedbackModal from '../components/OrderFeedbackModal';
@@ -713,6 +714,7 @@ const Trading = ({ isLightMode = false }) => {
       timeInForce: orderForm.timeInForce,
       stopLimitTimeInForce: orderForm.stopLimitTimeInForce,
       estimatedValue,
+      syntheticSummary: ['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? strategySummary(ladderConfig, quoteAsset) : undefined,
     };
   };
 
@@ -1649,7 +1651,7 @@ const Trading = ({ isLightMode = false }) => {
       if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
         if (ladderConfig.upsideMode === 'LADDER') {
           const totalPct = (ladderConfig.rungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-          if (Math.abs(totalPct - 100) > 0.5) {
+          if (Math.abs(totalPct - 100) > 0.01) {
             setFeedbackModal({
               isVisible: true,
               message: `Upside ladder rungs allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`,
@@ -1689,10 +1691,10 @@ const Trading = ({ isLightMode = false }) => {
           }
         }
 
-        if (ladderConfig.hasDownside) {
+        if (ladderConfig.hasDownsideProtection) {
           if (ladderConfig.downsideMode === 'LADDER') {
             const totalSlPct = (ladderConfig.downsideRungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-            if (Math.abs(totalSlPct - 100) > 0.5) {
+            if (Math.abs(totalSlPct - 100) > 0.01) {
               setFeedbackModal({
                 isVisible: true,
                 message: `Downside ladder rungs allocation must sum to 100% (currently ${totalSlPct.toFixed(1)}%).`,
@@ -1977,47 +1979,7 @@ const Trading = ({ isLightMode = false }) => {
         orderData.test_mode = settings.test_mode_enabled;
       } else if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
         orderData.total_quantity = parseFloat(orderForm.quantity);
-        orderData.strategy_type = 'BRACKET';
-        orderData.upside_mode = ladderConfig.upsideMode || 'LADDER';
-        orderData.upside_target_price = ladderConfig.upsideTargetPrice ? parseFloat(ladderConfig.upsideTargetPrice) : null;
-        orderData.upside_trail_value = ladderConfig.upsideTrailValue ? parseFloat(ladderConfig.upsideTrailValue) : null;
-        orderData.upside_trail_type = ladderConfig.upsideTrailType || 'PERCENT';
-        orderData.upside_activation_price = ladderConfig.upsideActivationPrice ? parseFloat(ladderConfig.upsideActivationPrice) : null;
-        orderData.mode = ladderConfig.mode || 'PERCENTAGE';
-        orderData.preset_name = ladderConfig.preset;
-        orderData.rungs = (ladderConfig.rungs || []).map(r => ({
-          price_offset_pct: parseFloat(r.price_offset_pct) || 0,
-          percentage_of_total: parseFloat(r.percentage_of_total) || 0,
-          target_price: parseFloat(r.target_price) || 0
-        }));
-
-        orderData.downside_mode = ladderConfig.hasDownside ? (ladderConfig.downsideMode || 'SINGLE') : 'NONE';
-        let slPrice = null;
-        if (ladderConfig.hasDownside) {
-          if (ladderConfig.downsideMode === 'SINGLE') {
-            if (ladderConfig.downsideTargetPrice) {
-              slPrice = parseFloat(ladderConfig.downsideTargetPrice) || null;
-            } else if (ladderConfig.downsideOffsetPct) {
-              const offset = parseFloat(ladderConfig.downsideOffsetPct) || 0;
-              const curP = parseFloat(currentPrices.base) || 0;
-              if (curP > 0 && offset > 0) {
-                slPrice = orderForm.side === 'SELL' ? curP * (1 - offset / 100) : curP * (1 + offset / 100);
-              }
-            }
-          }
-        }
-        orderData.downside_target_price = slPrice;
-        orderData.downside_trail_value = ladderConfig.downsideTrailValue ? parseFloat(ladderConfig.downsideTrailValue) : null;
-        orderData.downside_trail_type = ladderConfig.downsideTrailType || 'PERCENT';
-        orderData.downside_activation_price = ladderConfig.downsideActivationPrice ? parseFloat(ladderConfig.downsideActivationPrice) : null;
-        orderData.downside_rungs = (ladderConfig.downsideRungs || []).map(r => ({
-          price_offset_pct: parseFloat(r.price_offset_pct) || 0,
-          percentage_of_total: parseFloat(r.percentage_of_total) || 0,
-          target_price: parseFloat(r.target_price) || 0
-        }));
-        orderData.has_stop_loss = Boolean(ladderConfig.hasDownside);
-        orderData.stop_loss_trigger_price = slPrice;
-        orderData.stop_loss_action = ladderConfig.stopLossAction || 'MARKET_SELL_ALL';
+        Object.assign(orderData, buildSyntheticPayload(ladderConfig));
         orderData.test_mode = settings.test_mode_enabled;
         orderData.broker = 'binance';
       }
@@ -2041,10 +2003,10 @@ const Trading = ({ isLightMode = false }) => {
       if (response.data.success) {
         let successMessage;
         if (orderForm.type === 'TRAILING_STOP') {
-          successMessage = `Trailing Stop order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nTrail: ${orderForm.trailType === 'PERCENT' ? `${orderForm.trailValue}%` : `$${orderForm.trailValue}`}\n\nThe synthetic engine will track market highs and trigger automatically.`;
+          successMessage = `Trailing Stop order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nTrail: ${orderForm.trailType === 'PERCENT' ? `${orderForm.trailValue}%` : `$${orderForm.trailValue}`}\n\nThe synthetic engine will track ${orderForm.side === 'SELL' ? 'market highs' : 'market lows'} and trigger automatically.`;
           loadTrailingOrders();
         } else if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
-          successMessage = `⚡ Synthetic Smart Bracket Order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nUpside: ${ladderConfig.upsideMode}\nDownside: ${ladderConfig.hasDownside ? ladderConfig.downsideMode : 'NONE'}\n\nThe synthetic bracket engine is now actively monitoring execution.`;
+          successMessage = `⚡ Synthetic Smart Bracket Order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nUpside: ${ladderConfig.upsideMode}\nDownside: ${ladderConfig.hasDownsideProtection ? ladderConfig.downsideMode : 'NONE'}\n\nThe synthetic bracket engine is now actively monitoring execution.`;
           loadLadderOrders();
           setActiveTab('synthetic_orders');
         } else {
@@ -3098,12 +3060,12 @@ const Trading = ({ isLightMode = false }) => {
         {['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) && (
           <div className="trading-history-tab" style={{ padding: '16px' }}>
             <div style={{ marginBottom: '16px' }}>
-              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>⚡ Synthetic & Bracket Orders</h2>
-              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: 'var(--text-primary)' }}>⚡ Synthetic & Bracket Orders</h2>
+              <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>
                 Server-side synthetic trailing stops, tiered ladder scale-outs, and smart bracket orders for Binance.US spot trading.
               </p>
             </div>
-            <SyntheticOrdersTable defaultBroker="binance" showBrokerFilter={false} onOrderCancelled={() => { loadLadderOrders(); loadTrailingOrders(); }} />
+            <SyntheticOrdersTable testMode={settings.test_mode_enabled} defaultBroker="binance" showBrokerFilter={false} onOrderCancelled={() => { loadLadderOrders(); loadTrailingOrders(); }} />
           </div>
         )}
       </div>

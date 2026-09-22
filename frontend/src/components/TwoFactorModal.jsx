@@ -252,6 +252,7 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
                         <span className="value">${orderDetails.bracketStopLossLimitPrice}</span>
                       </div>
                     )}
+                    {orderDetails.syntheticSummary?.map(line => <p key={line} className="order-detail-row">{line}</p>)}
                     {orderDetails.estimatedValue && (
                       <div className="order-detail-row total">
                         <span className="label">Est. Value:</span>
