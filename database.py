@@ -361,10 +361,12 @@ def init_db(app=None):
                     UPDATE coins
                     SET avg_entry = 0.0
                     WHERE amount <= 0.00000001
-                      AND (is_staked IS NOT TRUE OR is_staked IS NULL)
-                      AND (staked_amount <= 0.00000001 OR staked_amount IS NULL)
                       AND symbol != 'USD'
                       AND avg_entry > 0
+                      AND symbol NOT IN (
+                          SELECT symbol FROM staked_coins
+                          WHERE amount > 0.00000001 AND (status IS NULL OR status != 'completed')
+                      )
                 """))
                 # Clear any lingering stuck 'Checking now...' sentiment
                 conn.execute(db.text("""
@@ -388,16 +390,15 @@ def init_db(app=None):
                     WHERE (asset = '' OR asset IS NULL)
                       AND (txid LIKE '%USDT%' OR details LIKE '%USDT%' OR description LIKE '%USDT%')
                 """))
-                # Restore GRAM avg_entry if 0 and user holds staked GRAM
+                # Restore GRAM avg_entry if 0 and user holds GRAM
                 conn.execute(db.text("""
                     UPDATE coins
                     SET avg_entry = 1.4474
                     WHERE symbol = 'GRAM'
                       AND (avg_entry <= 0.0 OR avg_entry IS NULL)
-                      AND (amount > 0 OR staked_amount > 0 OR is_staked IS TRUE)
                 """))
         except Exception as e:
-            logger.warning(f"Startup migration note: {e}")
+            print(f"Startup migration note: {e}")
 
         # Seed default prompts if empty
         default_market_pre = (
