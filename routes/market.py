@@ -186,7 +186,9 @@ def api_coin_data_live():
 
         for coin in coins:
             try:
-                symbol = (coin.symbol or '').upper()
+                symbol = (coin.symbol or '').upper().strip()
+                if not symbol:
+                    continue
                 amount = _to_float(coin.amount)
 
                 current_price = coin.current or 0.0
@@ -382,7 +384,9 @@ def api_coin_data():
 
         for coin in coins:
             try:
-                symbol = coin.symbol.upper()
+                symbol = (coin.symbol or '').upper().strip()
+                if not symbol:
+                    continue
                 # logger.error(f"[DEBUG] Processing coin: {symbol}")
                 amount = _to_float(coin.amount)
                 # logger.error(f"[DEBUG] {symbol} amount: {amount}")

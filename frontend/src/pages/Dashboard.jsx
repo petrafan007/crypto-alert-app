@@ -168,6 +168,7 @@ function Dashboard({ isLightMode }) {
       const portfolioRowKey = (item) => `${item?.source === 'webull' || item?.is_external ? 'webull' : 'binance'}:${item?.id || (item?.symbol || '').toUpperCase()}`;
       
       incoming.forEach(c => {
+        if (!c?.symbol || !String(c.symbol).trim()) return;
         incomingMap.set(portfolioRowKey(c), {
           ...c,
           hasPendingOrder: getPendingOrdersForCoin(c, pendingOrdersList || []).length > 0,
@@ -187,6 +188,7 @@ function Dashboard({ isLightMode }) {
       const updated = [];
       const seen = new Set();
       prev.forEach(p => {
+        if (!p?.symbol || !String(p.symbol).trim()) return;
         const key = portfolioRowKey(p);
         const item = prevMap.get(key);
         if (item) {
@@ -200,6 +202,7 @@ function Dashboard({ isLightMode }) {
 
       // Append any new symbols not in previous
       incoming.forEach(c => {
+        if (!c?.symbol || !String(c.symbol).trim()) return;
         const key = portfolioRowKey(c);
         if (!seen.has(key)) {
           const item = prevMap.get(key);
@@ -1824,11 +1827,13 @@ function Dashboard({ isLightMode }) {
             ? portfolioResponse.data.portfolio
             : [];
 
-          const withFlags = rawPortfolio.map((c) => ({
-            ...c,
-            hasPendingOrder: getPendingOrdersForCoin(c, pendingOrdersData).length > 0,
-            pendingPlaceholder: false
-          }));
+          const withFlags = rawPortfolio
+            .filter(c => c && c.symbol && String(c.symbol).trim() !== '')
+            .map((c) => ({
+              ...c,
+              hasPendingOrder: getPendingOrdersForCoin(c, pendingOrdersData).length > 0,
+              pendingPlaceholder: false
+            }));
 
           if (withFlags.length > 0 || isInitialLoad) {
             setPortfolio(withFlags);
