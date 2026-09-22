@@ -712,6 +712,9 @@ def update_coins_from_binance_balances(user_id, balances, client=None):
             ).all()
             for coin in stale_coins:
                 coin.amount = 0
+                if not getattr(coin, 'force_visible', False):
+                    coin.hidden = True
+                    coin.auto_hidden = True
                 coin.updated_at = datetime.utcnow()
             db.session.commit()
         except Exception as e:

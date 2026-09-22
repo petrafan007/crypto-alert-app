@@ -212,6 +212,13 @@ def api_coin_data_live():
                 if coin.hidden:
                     continue
 
+                if amount < 0.0001 and not getattr(coin, 'force_visible', False):
+                    if not coin.hidden:
+                        coin.hidden = True
+                        coin.auto_hidden = True
+                        visibility_changed = True
+                    continue
+
                 avg_entry_val = _to_float(coin.avg_entry) if amount > 0.00000001 else 0.0
                 cost_basis = get_cost_basis_for_asset(
                     current_user.id,
@@ -401,6 +408,13 @@ def api_coin_data():
 
                 if coin.hidden:
                     # logger.error(f"[DEBUG] {symbol} skipped: hidden flag")
+                    continue
+
+                if amount < 0.0001 and not getattr(coin, 'force_visible', False):
+                    if not coin.hidden:
+                        coin.hidden = True
+                        coin.auto_hidden = True
+                        visibility_changed = True
                     continue
 
                 cost_basis = get_cost_basis_for_asset(

@@ -530,6 +530,51 @@
   margin-top: 8px;
 }
 
+.stake-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.stake-input-wrapper .stake-input {
+  margin-top: 0;
+  padding-right: 65px;
+}
+
+.input-max-btn {
+  position: absolute;
+  right: 8px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  border-radius: 6px;
+  border: 1px solid #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1.4;
+  letter-spacing: 0.05em;
+}
+
+.input-max-btn:hover {
+  background: #38bdf8;
+  color: #0f172a;
+}
+
+.light .input-max-btn {
+  border: 1px solid #0284c7;
+  background: rgba(2, 132, 199, 0.1);
+  color: #0284c7;
+}
+
+.light .input-max-btn:hover {
+  background: #0284c7;
+  color: #ffffff;
+}
+
 .auto-restake-option {
   margin-bottom: 16px;
 }

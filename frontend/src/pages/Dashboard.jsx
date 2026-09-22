@@ -1828,7 +1828,12 @@ function Dashboard({ isLightMode }) {
             : [];
 
           const withFlags = rawPortfolio
-            .filter(c => c && c.symbol && String(c.symbol).trim() !== '')
+            .filter(c => {
+              if (!c || !c.symbol || !String(c.symbol).trim()) return false;
+              const hasHoldings = Number(c.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
+              const hasPending = getPendingOrdersForCoin(c, pendingOrdersData).length > 0;
+              return hasHoldings || hasPending || c.force_visible;
+            })
             .map((c) => ({
               ...c,
               hasPendingOrder: getPendingOrdersForCoin(c, pendingOrdersData).length > 0,

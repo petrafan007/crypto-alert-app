@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.8.0
+**Version:** 3.8.1
 
 ## Recent Updates
+
+### v3.8.1
+- **Pending Staking Position & Value Deduplication:** Fixed an issue where pending or processing staking transactions from the Binance.US exchange were displayed alongside local pending database records, erroneously doubling the Total Staked Value and reporting extra pending positions. Pending records are now de-duplicated by transaction ID and asset/amount, synchronizing the live processing status and accurately reporting 1 position and true staked value.
+- **Staking Modal Inline "MAX" Button:** Added an inline "MAX" button on the far right inside the "Amount to Stake" text box in the Staking modal (matching the styling and behavior of the trading area), enabling users to populate 100% of their available balance with a single click. The Unstake modal also features the same streamlined input wrapper.
+- **Portfolio Zero-Balance Auto-Hide & Table Flicker Fix:** Resolved a state-sync discrepancy where zero-balance assets (such as GRAM after being staked to 0 spot balance) appeared on initial portfolio load and disappeared on subsequent background refreshes. All coin data endpoints (`/api/coin-data`, `/api/coin-data-live`), Binance balance syncs, and the Dashboard initial-load filter now consistently auto-hide zero-balance assets that are not marked as force-visible.
 
 ### v3.8.0
 - **Unified Smart Bracket Orders (Trailing & Ladder):** Consolidated synthetic orders into a unified 3-Mode Smart Bracket architecture for both Upside (Take Profit) and Downside (Stop Loss / Protection) across Binance.US (Crypto) and Webull (Equities, ETFs, and Webull Crypto).

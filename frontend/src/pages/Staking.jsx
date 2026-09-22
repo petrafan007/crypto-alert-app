@@ -117,9 +117,20 @@ export default function Staking({ isLightMode }) {
     const balance = axios.get('/api/staking/balance').then(({ data }) => {
       if (data.error) throw new Error(data.error);
       const active = data.activePositions || data.balances || [];
-      setStakedCoins(active); setPendingPositions(data.pendingPositions || []);
+      setStakedCoins(active);
+      const rawPending = data.pendingPositions || [];
+      const seenKeys = new Set();
+      const uniquePending = [];
+      rawPending.forEach((p, idx) => {
+        const key = p.tranId || (p.id ? `db-${p.id}` : `${(p.asset || '').toUpperCase()}:${parseFloat(p.amount || p.stakingAmount || 0).toFixed(6)}`);
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          uniquePending.push(p);
+        }
+      });
+      setPendingPositions(uniquePending);
       setPendingTransactions(data.pendingTransactions || []);
-      setBalanceSummary(data.summary || {});
+      setBalanceSummary({ ...(data.summary || {}), pendingCount: uniquePending.length });
       setTotalStakedValue(data.summary?.totalUsd ?? data.totalStakedValue ?? 0);
     }).catch(reportError).finally(() => setPanelsLoading(false));
     const history = axios.get('/api/staking/history').then(({ data }) => setStakingHistory(data || [])).catch(reportError);
@@ -778,14 +789,29 @@ export default function Staking({ isLightMode }) {
                 <div className="info-row">
                   <span>Amount to Stake:</span>
                 </div>
-                <input
-                  type="number"
-                  className="stake-input"
-                  value={stakeAmount}
-                  onChange={(e) => setStakeAmount(e.target.value)}
-                  placeholder={`Min: ${selectedAsset.minStakingLimit}`}
-                  step="0.00000001"
-                />
+                <div className="stake-input-wrapper">
+                  <input
+                    type="number"
+                    className="stake-input"
+                    value={stakeAmount}
+                    onChange={(e) => setStakeAmount(e.target.value)}
+                    placeholder={`Min: ${selectedAsset.minStakingLimit}`}
+                    step="0.00000001"
+                  />
+                  <button
+                    type="button"
+                    className="input-max-btn"
+                    onClick={() => {
+                      const maxVal = (realtimeBalance && realtimeBalance.tradable !== undefined)
+                        ? realtimeBalance.tradable
+                        : (portfolioMap[selectedAsset?.stakingAsset] ? parseFloat(portfolioMap[selectedAsset.stakingAsset].balance || 0) : 0);
+                      setStakeAmount(maxVal > 0 ? maxVal.toString() : '0');
+                    }}
+                    title="Stake Max Available"
+                  >
+                    MAX
+                  </button>
+                </div>
               </div>
 
               <div className="auto-restake-option">
@@ -901,21 +927,25 @@ export default function Staking({ isLightMode }) {
                 <div className="info-row">
                   <span>Amount to Unstake:</span>
                 </div>
-                <input
-                  type="number"
-                  className="stake-input"
-                  value={unstakeAmount}
-                  onChange={(e) => setUnstakeAmount(e.target.value)}
-                  placeholder="0.00000000"
-                  step="0.00000001"
-                  max={selectedStakedCoin.stakingAmount}
-                />
-                <button
-                  className="btn-max"
-                  onClick={() => setUnstakeAmount(selectedStakedCoin.stakingAmount.toString())}
-                >
-                  Max
-                </button>
+                <div className="stake-input-wrapper">
+                  <input
+                    type="number"
+                    className="stake-input"
+                    value={unstakeAmount}
+                    onChange={(e) => setUnstakeAmount(e.target.value)}
+                    placeholder="0.00000000"
+                    step="0.00000001"
+                    max={selectedStakedCoin.stakingAmount}
+                  />
+                  <button
+                    type="button"
+                    className="input-max-btn"
+                    onClick={() => setUnstakeAmount(selectedStakedCoin.stakingAmount.toString())}
+                    title="Unstake Max Amount"
+                  >
+                    MAX
+                  </button>
+                </div>
               </div>
 
               <div className="warning-message">

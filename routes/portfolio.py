@@ -6252,6 +6252,9 @@ def api_stake_asset():
                 # Deduct from coins table
                 if coin:
                     coin.amount = max(0, (coin.amount or 0) - amount)
+                    if coin.amount < 0.0001 and not getattr(coin, 'force_visible', False):
+                        coin.hidden = True
+                        coin.auto_hidden = True
                 
                 # Add to staked_coins table
                 staked_coin = StakedCoin(

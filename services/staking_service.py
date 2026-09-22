@@ -366,24 +366,68 @@ def build_staking_balance_view(cred, asset_param=None):
             active_usd += current_value
             total_apy += apy
 
-        # Pending records are distinct from active exchange balances. History IDs
-        # prevent counting a locally recorded request and its exchange entry twice.
+        # Pending records are distinct from active exchange balances.
+        # Deduplicate exchange history entries and local database records so
+        # that a pending stake is never counted twice.
+        matched_record_ids = set()
         seen_transactions = set()
         for txn in pending_transactions:
             transaction_id = str(txn.get('tranId') or '')
             if transaction_id:
                 seen_transactions.add(transaction_id)
-            pending_positions.append({**txn, 'stakingAmount': txn['amount'], 'status': txn['status']})
+
+            # Match against local record by transaction ID or asset & approximate amount
+            matched_record = None
+            for record in staked_coin_records:
+                if record.id in matched_record_ids:
+                    continue
+                rec_txid = str(record.stake_transaction_id or '')
+                if transaction_id and rec_txid and rec_txid == transaction_id:
+                    matched_record = record
+                    break
+                if (record.symbol or '').upper() == (txn.get('asset') or '').upper():
+                    rec_amount = float(record.amount or 0.0)
+                    txn_amount = float(txn.get('amount') or 0.0)
+                    if abs(rec_amount - txn_amount) < 0.00001:
+                        matched_record = record
+                        break
+
+            pos = {**txn, 'stakingAmount': txn['amount'], 'status': txn['status']}
+            if matched_record:
+                matched_record_ids.add(matched_record.id)
+                pos['id'] = matched_record.id
+                if getattr(matched_record, 'apr', None) and not pos.get('apr'):
+                    pos['apr'] = matched_record.apr
+                if getattr(matched_record, 'apy', None) and not pos.get('apy'):
+                    pos['apy'] = matched_record.apy
+                # Sync status if local record was pending
+                if str(matched_record.status or '').lower() == 'pending' and txn.get('status'):
+                    try:
+                        matched_record.status = str(txn.get('status')).lower()
+                        db.session.commit()
+                    except Exception:
+                        pass
+
+            pending_positions.append(pos)
             pending_usd += txn.get('currentValue', 0)
+
         for record in staked_coin_records:
-            if str(record.status or '').lower() not in ('pending', 'bonding', 'unstaking'):
+            if record.id in matched_record_ids:
                 continue
-            if str(record.stake_transaction_id or '') in seen_transactions or record.symbol in found_symbols:
+            if str(record.status or '').lower() not in ('pending', 'bonding', 'unstaking', 'processing'):
+                continue
+            if str(record.stake_transaction_id or '') in seen_transactions or (record.symbol or '').upper() in found_symbols:
                 continue
             price = asset_price(record.symbol) or 0
             value = float(record.amount or 0) * price
-            pending_positions.append({'id': record.id, 'asset': record.symbol, 'stakingAmount': record.amount,
-                'currentValue': value, 'status': record.status})
+            pending_positions.append({
+                'id': record.id,
+                'asset': (record.symbol or '').upper(),
+                'stakingAmount': record.amount,
+                'amount': record.amount,
+                'currentValue': round(value, 2),
+                'status': record.status
+            })
             pending_usd += value
 
         summary = {
