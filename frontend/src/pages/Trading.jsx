@@ -1,6 +1,8 @@
-import { buildSyntheticPayload, strategySummary } from '../utils/syntheticOrders.mjs';
+import { buildSyntheticPayload, strategySummary, buildSyntheticReview, money } from '../utils/syntheticOrders.mjs';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
+import PaperDepositModal from '../components/PaperDepositModal';
+import SyntheticOrderReview from '../components/SyntheticOrderReview';
 import OrderFeedbackModal from '../components/OrderFeedbackModal';
 import TwoFactorModal from '../components/TwoFactorModal';
 import ConvertDustModal from '../components/ConvertDustModal';
@@ -170,7 +172,8 @@ const Trading = ({ isLightMode = false }) => {
     quote_total: 0
   });
   const [balancePercentage, setBalancePercentage] = useState(0);
-  const [estimatedFee, setEstimatedFee] = useState({ amount: 0, usd: 0, asset: '', rate: 0.001 });
+  const [feeSnapshot, setFeeQuote] = useState(null);
+  const [feeError, setFeeError] = useState('');
   const [openOrders, setOpenOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [cancelModal, setCancelModal] = useState({
@@ -189,6 +192,7 @@ const Trading = ({ isLightMode = false }) => {
 
   // Convert Dust modal state
   const [dustModal, setDustModal] = useState({ isVisible: false });
+  const [paperDeposit, setPaperDeposit] = useState({ visible: false, balances: {}, busy: false, error: '' });
 
   // Properly extract base and quote assets (matches backend logic)
   // For USDTUSD: base=USDT, quote=USD
@@ -234,6 +238,12 @@ const Trading = ({ isLightMode = false }) => {
         return marketPrice;
     }
   };
+
+  const feeQuote = feeSnapshot?.symbol === orderForm.symbol && feeSnapshot?.paper === settings.test_mode_enabled ? feeSnapshot : null;
+  const isSynthetic = ['LADDER', 'SYNTHETIC'].includes(orderForm.type);
+  const syntheticReview = buildSyntheticReview(ladderConfig, { side: orderForm.side, quantity: orderForm.quantity, currentPrice: currentPrices.base, baseAsset, quoteAsset, fees: feeQuote });
+  const currentFeeRate = feeQuote?.rates?.[orderForm.side]?.[orderForm.type === 'LIMIT_MAKER' ? 'maker' : 'taker'];
+  const estimatedFee = { rate: currentFeeRate ?? null, usd: currentFeeRate == null ? null : Number(orderForm.quantity || 0) * determinePriceForCalculations() * currentFeeRate };
 
   const formatNumberString = (num, decimals = 2) => {
     if (!Number.isFinite(num)) return '';
@@ -668,6 +678,7 @@ const Trading = ({ isLightMode = false }) => {
             quoteAsset={quoteAsset}
             ladderConfig={ladderConfig}
             onChange={setLadderConfig}
+            fees={feeQuote}
           />
         );
         break;
@@ -694,7 +705,7 @@ const Trading = ({ isLightMode = false }) => {
   };
 
   const buildOrderConfirmationDetails = () => {
-    const qty = parseFloat(orderForm.quantity || 0);
+    const qty = isSynthetic ? syntheticReview.total : parseFloat(orderForm.quantity || 0);
     const marketPrice = parseFloat(currentPrices.base || 0);
     const effectivePrice = orderForm.type === 'MARKET'
       ? marketPrice
@@ -707,13 +718,16 @@ const Trading = ({ isLightMode = false }) => {
       side: orderForm.side,
       symbol: orderForm.symbol,
       type: orderForm.type,
-      quantity: orderForm.quantity,
-      price: orderForm.price,
-      stopPrice: orderForm.stopPrice,
-      stopLimitPrice: orderForm.stopLimitPrice,
+      quantity: isSynthetic ? syntheticReview.total : orderForm.quantity,
+      price: isSynthetic ? undefined : orderForm.price,
+      stopPrice: isSynthetic ? undefined : orderForm.stopPrice,
+      stopLimitPrice: isSynthetic ? undefined : orderForm.stopLimitPrice,
       timeInForce: orderForm.timeInForce,
       stopLimitTimeInForce: orderForm.stopLimitTimeInForce,
       estimatedValue,
+      currency: quoteAsset,
+      syntheticReview: isSynthetic ? syntheticReview : undefined,
+      syntheticPayload: isSynthetic ? buildSyntheticPayload(ladderConfig) : undefined,
       syntheticSummary: ['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? strategySummary(ladderConfig, quoteAsset) : undefined,
     };
   };
@@ -1447,94 +1461,24 @@ const Trading = ({ isLightMode = false }) => {
     }
   };
 
-  // Load actual trading fees from Binance.US
-  const loadTradingFees = async (targetSymbol) => {
-    const symbolToFetch = targetSymbol || orderForm.symbol;
-    try {
-      const response = await axios.get(`/api/trading/fees/${symbolToFetch}`, { withCredentials: true });
-      if (response.data.success && response.data.fees) {
-        return response.data.fees;
+  // Scope fee snapshots to the symbol and mode; never reuse another pair's rate.
+  useEffect(() => {
+    let stopped = false;
+    const controller = new AbortController();
+    setFeeQuote(null); setFeeError('');
+    const loadFees = async () => {
+      try {
+        const { data } = await axios.get(`/api/trading/fees/${orderForm.symbol}`, { withCredentials: true, signal: controller.signal });
+        if (stopped) return;
+        if (!data.success) throw new Error(data.error);
+        setFeeQuote(data.fees); setFeeError('');
+      } catch (error) {
+        if (!stopped) { setFeeQuote(null); setFeeError(error.response?.data?.error || 'Verified fee rates are unavailable.'); }
       }
-      return { makerRate: 0.0, takerRate: 0.0002 };
-    } catch (error) {
-      console.error('Failed to load trading fees:', error);
-      return { makerRate: 0.0, takerRate: 0.0002 };
-    }
-  };
-
-  // Calculate estimated fee using actual Binance.US rates
-  const calculateFee = async () => {
-    const qty = parseFloat(orderForm.quantity) || 0;
-    const price = determinePriceForCalculations();
-
-    if (qty === 0 || price === 0) {
-      setEstimatedFee({ amount: 0, usd: 0, asset: quoteAsset, rate: 0 });
-      return;
-    }
-
-    const fees = await loadTradingFees(orderForm.symbol);
-    const isTakerExpected = ['MARKET', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT'].includes(orderForm.type);
-    const feeRate = isTakerExpected ? (fees.takerRate || 0.004) : (fees.makerRate || 0.001);
-
-    if (orderForm.side === 'BUY') {
-      const feeInAsset = qty * feeRate;
-      const feeInUSD = feeInAsset * price;
-
-      setEstimatedFee({
-        amount: feeInAsset,
-        usd: feeInUSD,
-        asset: baseAsset,
-        rate: feeRate
-      });
-    } else {
-      const total = qty * price;
-      const feeInQuote = total * feeRate;
-
-      setEstimatedFee({
-        amount: feeInQuote,
-        usd: feeInQuote,
-        asset: quoteAsset,
-        rate: feeRate
-      });
-    }
-  };
-
-  // Instant fee calculation using cached rates (no API call)
-  const calculateFeeInstant = () => {
-    const qty = parseFloat(orderForm.quantity) || 0;
-    const price = determinePriceForCalculations();
-
-    if (qty === 0 || price === 0) {
-      setEstimatedFee({ amount: 0, usd: 0, asset: quoteAsset, rate: 0 });
-      return;
-    }
-
-    const isTakerExpected = ['MARKET', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT'].includes(orderForm.type);
-    const defaultRate = isTakerExpected ? 0.004 : 0.001;
-    const feeRate = estimatedFee.rate !== undefined && estimatedFee.rate > 0 ? estimatedFee.rate : defaultRate;
-
-    if (orderForm.side === 'BUY') {
-      const feeInAsset = qty * feeRate;
-      const feeInUSD = feeInAsset * price;
-
-      setEstimatedFee({
-        amount: feeInAsset,
-        usd: feeInUSD,
-        asset: baseAsset,
-        rate: feeRate
-      });
-    } else {
-      const total = qty * price;
-      const feeInQuote = total * feeRate;
-
-      setEstimatedFee({
-        amount: feeInQuote,
-        usd: feeInQuote,
-        asset: quoteAsset,
-        rate: feeRate
-      });
-    }
-  };
+    };
+    loadFees(); const timer = setInterval(loadFees, 60000);
+    return () => { stopped = true; controller.abort(); clearInterval(timer); };
+  }, [orderForm.symbol, settings.test_mode_enabled]);
 
   // Handle balance slider change
   const handleBalanceSliderChange = (percentage) => {
@@ -1550,10 +1494,8 @@ const Trading = ({ isLightMode = false }) => {
       const availableQuote = balances.quote_usable !== undefined ? balances.quote_usable : balances.quote;
       const price = determinePriceForCalculations();
       if (price > 0 && availableQuote > 0) {
-        const defaultFeeRate = ['MARKET', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT'].includes(orderForm.type) ? 0.004 : 0.001;
-        const feeRate = estimatedFee.rate > 0 ? estimatedFee.rate : defaultFeeRate;
         const selectedBalance = (availableQuote * percentage) / 100;
-        const spendableQuote = Math.floor((selectedBalance / (1 + feeRate + 0.001)) * 100) / 100;
+        const spendableQuote = Math.floor(selectedBalance * 100) / 100;
         const selectedQty = spendableQuote / price;
         const formattedBase = selectedQty > 0 ? selectedQty.toFixed(8) : '';
         setOrderForm((prev) => ({ ...prev, quantity: formattedBase }));
@@ -1571,7 +1513,6 @@ const Trading = ({ isLightMode = false }) => {
     loadCurrentPrices(currentSymbol);
     loadBalances(currentSymbol);
     loadOpenOrders();
-    calculateFee();
 
     const priceInterval = setInterval(() => {
       loadCurrentPrices(currentSymbol);
@@ -1579,27 +1520,12 @@ const Trading = ({ isLightMode = false }) => {
     const balanceInterval = setInterval(() => {
       loadBalances(currentSymbol);
     }, 5000);
-    const feeInterval = setInterval(calculateFee, 10000);
 
     return () => {
       clearInterval(priceInterval);
       clearInterval(balanceInterval);
-      clearInterval(feeInterval);
     };
   }, [orderForm.symbol]);
-
-  // Instant recalculation when quantity/price/type/side changes (no API call)
-  useEffect(() => {
-    calculateFeeInstant();
-  }, [
-    orderForm.quantity,
-    orderForm.price,
-    orderForm.stopPrice,
-    orderForm.stopLimitPrice,
-    orderForm.type,
-    orderForm.side,
-    currentPrices
-  ]);
 
   const handleSettingsUpdate = async (updates) => {
     try {
@@ -1936,11 +1862,30 @@ const Trading = ({ isLightMode = false }) => {
       setLoading(true);
 
       // Submit order with token
-      await submitOrder(token);
+      await submitOrder(token, twoFactorModal.orderData);
 
     } catch (error) {
       throw error; // Re-throw to be caught by modal
     }
+  };
+
+  const openPaperDeposit = async () => {
+    setPaperDeposit(prev => ({ ...prev, visible: true, busy: true, error: '' }));
+    try {
+      const { data } = await axios.get('/api/trading/paper-account', { withCredentials: true });
+      if (!data.success) throw new Error(data.error || 'Could not load paper balances.');
+      setPaperDeposit(prev => ({ ...prev, balances: data.balances, busy: false }));
+    } catch (error) { setPaperDeposit(prev => ({ ...prev, busy: false, error: error.response?.data?.error || error.message })); }
+  };
+  const fundPaperAccount = async (amount, currency, reset = false) => {
+    setPaperDeposit(prev => ({ ...prev, busy: true, error: '' }));
+    try {
+      const { data } = await axios.post('/api/trading/paper-account/deposit', { amount, currency, reset, confirm_reset: reset }, { withCredentials: true });
+      if (!data.success) throw new Error(data.error || 'Paper funding failed.');
+      setPaperDeposit({ visible: false, balances: data.balances, busy: false, error: '' });
+      await loadBalances(); loadTestPortfolio(); loadTestOrders(); loadLadderOrders(); loadTrailingOrders();
+      setFeedbackModal({ isVisible: true, type: 'success', message: data.message });
+    } catch (error) { setPaperDeposit(prev => ({ ...prev, busy: false, error: error.response?.data?.error || error.message })); }
   };
 
   const handleDustSuccess = (_data, toAsset) => {
@@ -1951,7 +1896,7 @@ const Trading = ({ isLightMode = false }) => {
     });
   };
 
-  const submitOrder = async (twofaToken) => {
+  const submitOrder = async (twofaToken, confirmed = null) => {
     try {
       setLoading(true);
 
@@ -1978,8 +1923,9 @@ const Trading = ({ isLightMode = false }) => {
         orderData.activation_price = orderForm.activationPrice ? parseFloat(orderForm.activationPrice) : null;
         orderData.test_mode = settings.test_mode_enabled;
       } else if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
-        orderData.total_quantity = parseFloat(orderForm.quantity);
-        Object.assign(orderData, buildSyntheticPayload(ladderConfig));
+        orderData.total_quantity = confirmed?.syntheticReview?.total ?? syntheticReview.total;
+        orderData.quantity = orderData.total_quantity;
+        Object.assign(orderData, confirmed?.syntheticPayload || buildSyntheticPayload(ladderConfig));
         orderData.test_mode = settings.test_mode_enabled;
         orderData.broker = 'binance';
       }
@@ -2011,7 +1957,7 @@ const Trading = ({ isLightMode = false }) => {
           setActiveTab('synthetic_orders');
         } else {
           successMessage = settings.test_mode_enabled
-            ? `Test order placed successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol.replace('USDT', '')} validated with Binance.US and simulated.\n\nYour test portfolio has been updated.`
+            ? `Test order placed successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol.replace('USDT', '')} checked against Binance.US rules and simulated.\n\nYour test portfolio has been updated.`
             : `Real order placed successfully!\n\nOrder ID: ${response.data.binance_order_id}\n\nYour portfolio will be updated once the order is filled.`;
         }
 
@@ -2204,79 +2150,25 @@ const Trading = ({ isLightMode = false }) => {
             <div className="test-mode-banner">
               <span className="test-badge">TEST MODE</span>
               <span className="test-description">
-                Orders are validated with Binance.US but not executed. Safe for testing strategies.
+                Orders use simulated funds and live prices. Real balances are unaffected.
               </span>
             </div>
           )}
         </div>
 
-        {/* Convert Dust button + Test Mode toggle */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', paddingTop: '4px' }}>
-            <button
-              id="convert-dust-btn"
-              onClick={() => setDustModal({ isVisible: true })}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '8px',
-                border: '1px solid rgba(102,126,234,0.5)',
-                background: 'rgba(102,126,234,0.12)',
-                color: 'var(--text-primary, #c7d2fe)',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(102,126,234,0.22)';
-                e.currentTarget.style.borderColor = '#667eea';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(102,126,234,0.12)';
-                e.currentTarget.style.borderColor = 'rgba(102,126,234,0.5)';
-              }}
-              title="Convert small balances (dust) to BNB, BTC, ETH, or USDT"
-            >
-              🪙 Convert Dust
-            </button>
+        <div className="binance-header-controls">
+          <div className="binance-header-buttons">
+            {settings.test_mode_enabled ? <button type="button" className="binance-header-button" onClick={openPaperDeposit}>💰 Deposit Fake Money</button> : <button type="button" id="convert-dust-btn" className="binance-header-button" onClick={() => setDustModal({ isVisible: true })}>🪙 Convert Dust</button>}
+            <button type="button" className="binance-header-button" onClick={() => {
+              setTempMaxOrderSize(String(settings.max_order_size_usd || 0)); setShowMaxOrderModal(true);
+            }} title="Configure the maximum live order value">🛡️ Order Limit: {settings.max_order_size_usd > 0 ? `$${Number(settings.max_order_size_usd).toLocaleString()}` : 'Unlimited'} ⚙️</button>
           </div>
-
-          {/* Order Size Safety Limit Badge / Button */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-            <span className="trading-mode-caption">Order Limit</span>
-            <button
-              type="button"
-              onClick={() => {
-                setTempMaxOrderSize(settings.max_order_size_usd === 0 ? '0' : String(settings.max_order_size_usd || '0'));
-                setShowMaxOrderModal(true);
-              }}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                background: settings.max_order_size_usd > 0 ? 'rgba(99, 102, 241, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                border: settings.max_order_size_usd > 0 ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid rgba(16, 185, 129, 0.4)',
-                color: settings.max_order_size_usd > 0 ? '#a5b4fc' : '#6ee7b7',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-              }}
-              title="Click to configure or disable Maximum Order Size limit"
-            >
-              <span>{settings.max_order_size_usd > 0 ? `🛡️ $${Number(settings.max_order_size_usd).toLocaleString()}` : '🟢 Unlimited'}</span>
-              <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>⚙️</span>
-            </button>
-          </div>
-
           <div className="trading-mode-toggle">
             <span className="trading-mode-caption">Test Mode</span>
             <label className="toggle-switch">
               <input
                 type="checkbox"
+                aria-label="Binance.US Test Mode"
                 checked={settings.test_mode_enabled}
                 onChange={(e) => handleSettingsUpdate({ test_mode_enabled: e.target.checked })}
               />
@@ -2302,6 +2194,12 @@ const Trading = ({ isLightMode = false }) => {
         onVerify={handle2FAVerify}
         orderDetails={twoFactorModal.orderData}
       />
+
+      <PaperDepositModal visible={paperDeposit.visible} broker="Binance.US" balances={paperDeposit.balances}
+        currencies={['USD', 'USDT']} initialCurrency={quoteAsset === 'USDT' ? 'USDT' : 'USD'}
+        submitting={paperDeposit.busy} error={paperDeposit.error}
+        onClose={() => setPaperDeposit(prev => ({ ...prev, visible: false }))}
+        onDeposit={(amount, currency) => fundPaperAccount(amount, currency)} onReset={() => fundPaperAccount(0, 'USD', true)} />
 
       {/* Convert Dust Modal */}
       <ConvertDustModal
@@ -2656,31 +2554,16 @@ const Trading = ({ isLightMode = false }) => {
                 </div>
               </div>
 
-              {/* Row 4: Order Summary Card */}
+              {/* Scenario values use taker rates for every synthetic market execution. */}
               {(parseFloat(orderForm.quantity) > 0 || parseFloat(quoteQuantity) > 0) && (
                 <div className="order-summary-card">
-                  <div className="order-summary-row">
-                    <span>Order Total:</span>
-                    <strong>
-                      ${(parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()).toFixed(2)} {quoteAsset}
-                    </strong>
-                  </div>
-                  <div className="order-summary-row">
-                    <span>Estimated Fee (0.1%):</span>
-                    <span>
-                      {estimatedFee.usd > 0
-                        ? `$${estimatedFee.usd.toFixed(4)}`
-                        : '$0.00'}
-                    </span>
-                  </div>
-                  <div className="order-summary-row order-summary-total">
-                    <span>{orderForm.side === 'BUY' ? 'Total Cost:' : 'You Receive:'}</span>
-                    <span className="summary-total-val">
-                      {orderForm.side === 'BUY'
-                        ? `$${((parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) + (estimatedFee.usd || 0)).toFixed(2)}`
-                        : `${Math.max(0, (parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) - (estimatedFee.usd || 0)).toFixed(2)} ${quoteAsset}`}
-                    </span>
-                  </div>
+                  {isSynthetic ? <details><summary>Review every trigger, proceeds and estimated fee</summary><SyntheticOrderReview review={syntheticReview} /></details> : <>
+                    <div className="order-summary-row"><span>Gross order value:</span><strong>{money(Number(orderForm.quantity || 0) * determinePriceForCalculations(), quoteAsset)}</strong></div>
+                    <div className="order-summary-row"><span>Estimated {orderForm.type === 'LIMIT_MAKER' ? 'maker' : 'taker'} fee {estimatedFee.rate !== null ? `(${Number((estimatedFee.rate * 100).toFixed(6))}%)` : ''}:</span><span>{estimatedFee.usd === null ? 'Unavailable' : money(estimatedFee.usd, quoteAsset)}</span></div>
+                    <div className="order-summary-row order-summary-total"><span>{orderForm.side === 'BUY' ? 'Net asset received:' : 'Net proceeds:'}</span><span>{estimatedFee.rate === null ? 'Unavailable' : orderForm.side === 'BUY' ? `${(Number(orderForm.quantity || 0) * (1 - estimatedFee.rate)).toFixed(8)} ${baseAsset}` : money(Number(orderForm.quantity || 0) * determinePriceForCalculations() - estimatedFee.usd, quoteAsset)}</span></div>
+                    <small>Fee deducted from the received asset. Eligible BNB payment can reduce it. Limit orders that rest on the book may pay the lower maker rate.</small>
+                  </>}
+                  {feeError && <p role="alert">{feeError}</p>}
                 </div>
               )}
 

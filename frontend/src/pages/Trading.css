@@ -1,4 +1,10 @@
 /* Trading Center Styles */
+.binance-header-controls { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.binance-header-buttons { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.binance-header-button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 10px 16px; border-radius: 8px; background: var(--input-bg); color: var(--text-primary); border: 1px solid var(--input-border); font-size: .85rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.binance-header-button:hover { border-color: var(--accent-primary); }
+.binance-header-controls .trading-mode-toggle { min-width: 92px; align-items: center; }
+@media (max-width: 600px) { .binance-header-controls { width: 100%; gap: 14px; } .binance-header-buttons { flex: 1; } .binance-header-button { white-space: normal; } }
 
 .webull-trading-page {
   width: 100%;

@@ -57,7 +57,14 @@ _KLINES_CACHE_TTL = 300
 _WEBULL_WATCHLIST_REFRESHED_AT = {}
 _WEBULL_WATCHLIST_REFRESH_TTL = 45
 def _coerce_activity_datetime(dt): return dt # TODO: move to common
-def update_test_portfolio(*args, **kwargs): pass # TODO
+def update_test_portfolio(user_id, symbol, side, quantity, price, fee_rate=None):
+    from services.binance_paper_service import apply_fill
+    from services.binance_fee_service import paper_rates
+    quote = next((q for q in ('USDT', 'USDC', 'USD', 'BTC', 'ETH', 'BNB') if symbol.endswith(q)), None)
+    if not quote:
+        raise ValueError('Unsupported paper quote currency.')
+    rate = paper_rates(symbol)['takerRate'] if fee_rate is None else fee_rate
+    return apply_fill(user_id, symbol[:-len(quote)], quote, side, float(quantity), float(price), rate)
 
 # Blueprint Definition
 portfolio_bp = Blueprint('portfolio', __name__)
@@ -1882,7 +1889,7 @@ def get_symbol_info(symbol):
 @portfolio_bp.route('/api/trading/test-order', methods=['POST'])
 @login_required
 def place_test_order():
-    """Place a test order (validates with Binance.US but doesn't execute)"""
+    """Simulate an order against public exchange rules and the isolated paper ledger."""
     import traceback
     try:
         data = request.get_json()
@@ -1914,56 +1921,12 @@ def place_test_order():
         if order_type not in valid_order_types:
             return jsonify({'success': False, 'error': f'Invalid order type. Must be one of: {", ".join(valid_order_types)}'}), 400
         
-        # Check if 2FA is required
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
-        if settings and settings.require_2fa and settings.totp_secret:
-            # Verify 2FA token
-            twofa_token = data.get('twofa_token')
-            if not twofa_token:
-                return jsonify({'success': False, 'error': '2FA verification required', 'requires_2fa': True}), 403
-            
-            # Check token validity
-            token_data = session.get(f'2fa_verified_{twofa_token}')
-            if not token_data or token_data['user_id'] != current_user.id:
-                return jsonify({'success': False, 'error': '2FA verification invalid or expired', 'requires_2fa': True}), 403
-            
-            # Check if token is not older than 2 minutes
-            if (time.time() - token_data['timestamp']) > 120:
-                session.pop(f'2fa_verified_{twofa_token}', None)
-                return jsonify({'success': False, 'error': '2FA verification expired. Please verify again.', 'requires_2fa': True}), 403
-            
-            # Clear the token after use
-            session.pop(f'2fa_verified_{twofa_token}', None)
-        
-        # Get Binance.US Trading credentials
-        # Get Binance.US credentials
-        creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
-        if not creds:
-            return jsonify({
-                'success': False,
-                'error': 'No Binance.US trading credentials found. Please add them in Settings > Binance.US Trading API.',
-                'error_code': 'missing_trading_credentials'
-            }), 400
-        
-        trading_api_key = decrypt_secret(creds.trading_api_key)
-        trading_api_secret = decrypt_secret(creds.trading_api_secret)
-        if not trading_api_key or not trading_api_secret:
-            return jsonify({
-                'success': False,
-                'error': 'No Binance.US trading credentials found. Please add them in Settings > Binance.US Trading API.',
-                'error_code': 'missing_trading_credentials'
-            }), 400
-        
-        # Initialize Binance client
-        from binance.client import Client
-        client = Client(
-            api_key=trading_api_key,
-            api_secret=trading_api_secret,
-            testnet=False,
-            tld='us'
-        )
-        
+        if not settings or not settings.test_mode_enabled:
+            return jsonify(success=False, error='Enable Binance.US Test Mode before placing paper orders.'), 409
+        from services.synthetic_execution_service import binance_client
+        client = binance_client(public=True)
+
         # Get symbol filters and format values according to Binance.US rules
         filters = get_symbol_filters(client, symbol)
         if not filters:
@@ -2106,8 +2069,7 @@ def place_test_order():
                         'error': f'Order value too small. Minimum order value for {symbol} is ${filters["minNotional"]:.2f}. Your order value is approximately ${order_value:.2f} at current market price. Please increase quantity.'
                     }), 400
             
-            # Validate with Binance test endpoint
-            client.create_test_order(**test_params)
+            # No signed test submission: real account balances must not constrain paper funds.
             
         except Exception as e:
             error_msg = str(e)
@@ -2183,10 +2145,9 @@ def place_test_order():
         if 'stopPrice' in test_params:
             stop_price_for_record = test_params['stopPrice']
         
-        # Get API-provided fee rates for accurate simulation
-        fee_info = get_trade_fee_for_symbol(client, symbol) or {'maker': 0.001, 'taker': 0.001}
-        # Use taker fee for simulation (most conservative)
-        fee_rate = fee_info.get('taker', 0.001)
+        # Simulate the published US schedule; post-only orders use maker fees.
+        from services.binance_fee_service import paper_rates
+        fee_rate = paper_rates(symbol)['makerRate' if order_type == 'LIMIT_MAKER' else 'takerRate']
         simulated_commission = formatted_quantity * fill_price * fee_rate
         
         # Create test order record with formatted values
@@ -2203,12 +2164,12 @@ def place_test_order():
             simulated_fill_price=fill_price,
             simulated_fill_time=datetime.utcnow(),
             created_at=datetime.utcnow(),
-            notes=f'Simulated commission: ${simulated_commission:.4f} ({fee_rate*100:.2f}% API rate)'
+            notes=f'Simulated commission: ${simulated_commission:.4f} ({fee_rate*100:.2f}% published Binance.US paper rate)'
         )
         
         db.session.add(test_order)
         
-        # Update test portfolio with formatted quantity and API-provided fee rate
+        # Apply the simulated fill and received-asset commission atomically.
         update_test_portfolio(current_user.id, symbol, side, formatted_quantity, fill_price, fee_rate)
         
         db.session.commit()
@@ -2218,7 +2179,7 @@ def place_test_order():
         return jsonify({
             'success': True,
             'order': test_order.to_dict(),
-            'message': f'Test order validated and simulated successfully. Quantity adjusted from {quantity} to {formatted_quantity} to match trading rules.',
+            'message': f'Paper order checked against exchange rules and simulated. Quantity adjusted from {quantity} to {formatted_quantity} to match trading rules.',
             'formatted_values': {
                 'quantity': formatted_quantity,
                 'price': formatted_price,
@@ -2719,6 +2680,29 @@ def verify_2fa_code():
 
 
 
+@portfolio_bp.route('/api/trading/paper-account', methods=['GET'])
+@login_required
+def get_binance_paper_account():
+    from services.binance_paper_service import account_summary
+    return jsonify(success=True, **account_summary(current_user.id))
+
+
+@portfolio_bp.route('/api/trading/paper-account/deposit', methods=['POST'])
+@login_required
+def deposit_binance_paper_money():
+    from services.binance_paper_service import fund_account
+    try:
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data.get('reset', False), bool):
+            raise ValueError('reset must be a boolean.')
+        result = fund_account(current_user.id, data.get('amount'), str(data.get('currency', 'USD')).upper(),
+                              reset=data.get('reset', False), confirmed=data.get('confirm_reset') is True)
+        return jsonify(result)
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify(success=False, error=str(exc)), 400
+
+
 @portfolio_bp.route('/api/trading/portfolio', methods=['GET'])
 @login_required
 def get_test_portfolio():
@@ -2730,77 +2714,26 @@ def get_test_portfolio():
         
         logger.error(f"[TEST_PORTFOLIO] Found {len(holdings)} holdings for user {current_user.username}")
         
-        # Get current prices for each holding
-        from binance.client import Client
-        
-        # Get credentials for price fetching
-        # Get credentials for price fetching using ORM
-        creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
-        if creds:
-            api_key = creds.api_key
-            api_secret = creds.api_secret
-        else:
-            api_key = api_secret = None
-
-        logger.error(f"[TEST_PORTFOLIO] Credentials found: {bool(api_key)}")
-        
+        from services.synthetic_execution_service import binance_client
+        client = binance_client(public=True)
         portfolio_data = []
-        
-        if api_key and api_secret:
-            client = Client(
-                api_key=api_key,
-                api_secret=api_secret,
-                testnet=False,
-                tld='us'
-            )
-            
-            for holding in holdings:
-                try:
-                    logger.error(f"[TEST_PORTFOLIO] Processing {holding.symbol}, quantity: {holding.quantity}")
-                    
-                    # Handle stablecoins (USDT, USDC, BUSD, etc.) with $1.00 price
-                    if holding.symbol in ['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD']:
-                        current_price = 1.0
-                        logger.error(f"[TEST_PORTFOLIO] {holding.symbol} is stablecoin, price = 1.0")
-                    else:
-                        # Fetch real-time price from Binance
-                        symbol = holding.symbol + 'USDT'
-                        ticker = client.get_symbol_ticker(symbol=symbol)
-                        current_price = float(ticker['price'])
-                        logger.error(f"[TEST_PORTFOLIO] {holding.symbol} price from API: {current_price}")
-                    
-                    current_value = holding.quantity * current_price
-                    cost_basis = holding.quantity * holding.avg_entry_price
-                    pnl = current_value - cost_basis
-                    pnl_pct = (pnl / cost_basis * 100) if cost_basis > 0 else 0
-                    
-                    portfolio_data.append({
-                        'symbol': holding.symbol,
-                        'quantity': holding.quantity,
-                        'average_price': holding.avg_entry_price,
-                        'current_price': current_price,
-                        'current_value': current_value,
-                        'cost_basis': cost_basis,
-                        'pnl': pnl,
-                        'pnl_pct': pnl_pct,
-                        'last_updated': holding.last_updated.isoformat() if holding.last_updated else None
-                    })
-                except Exception as e:
-                    logger.warning(f"Failed to get price for {holding.symbol}: {e}")
-                    # Add holding with null price data
-                    portfolio_data.append({
-                        'symbol': holding.symbol,
-                        'quantity': holding.quantity,
-                        'average_price': holding.avg_entry_price,
-                        'current_price': None,
-                        'current_value': None,
-                        'cost_basis': holding.quantity * holding.avg_entry_price,
-                        'pnl': None,
-                        'pnl_pct': None,
-                        'last_updated': holding.last_updated.isoformat() if holding.last_updated else None
-                    })
-        
+        for holding in holdings:
+            current_price = None
+            try:
+                current_price = 1.0 if holding.symbol == 'USD' else float(client.get_symbol_ticker(symbol=holding.symbol + 'USD')['price'])
+            except Exception:
+                logger.warning("Paper valuation unavailable for %s", holding.symbol)
+            cost_basis = float(holding.total_cost_basis or 0)
+            value = holding.quantity * current_price if current_price is not None else None
+            pnl = value - cost_basis if value is not None else None
+            portfolio_data.append({
+                'symbol': holding.symbol, 'quantity': holding.quantity,
+                'average_price': holding.avg_entry_price, 'current_price': current_price,
+                'current_value': value, 'cost_basis': cost_basis, 'pnl': pnl,
+                'pnl_pct': pnl / cost_basis * 100 if pnl is not None and cost_basis > 0 else None,
+                'last_updated': holding.last_updated.isoformat() if holding.last_updated else None,
+            })
+
         return jsonify({
             'success': True,
             'holdings': portfolio_data
@@ -3606,138 +3539,22 @@ def api_cancel_ladder_order(ladder_id):
 @portfolio_bp.route('/api/trading/fees/<symbol>', methods=['GET'])
 @login_required
 def get_trading_fees(symbol):
-    """Get actual trading fees for a symbol from Binance.US"""
+    """Return verified account fees, or the documented paper simulation schedule."""
+    from services.binance_fee_service import get_fee_quote
+    from services.synthetic_execution_service import quantity_rules
+    from types import SimpleNamespace
+    settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+    paper = bool(settings.test_mode_enabled) if settings else True
     try:
-        symbol = symbol.upper()
-        
-        # ALWAYS fetch actual fees from Binance.US API
-        # Test mode only affects order execution, not fee display
-        # Get Binance trading credentials using SQLAlchemy ORM
-        creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
-        if not creds:
-            return jsonify({
-                'success': False,
-                'error': 'No trading API credentials found',
-                'error_code': 'missing_trading_credentials'
-            }), 400
-        
-        # Credential model properties auto-decrypt values
-        trading_api_key = creds.trading_api_key
-        trading_api_secret = creds.trading_api_secret
-        if not trading_api_key:
-            return jsonify({
-                'success': False,
-                'error': 'No trading API credentials found',
-                'error_code': 'missing_trading_credentials'
-            }), 400
-        
-        from binance.client import Client
-        client = Client(
-            api_key=trading_api_key,
-            api_secret=trading_api_secret,
-            testnet=False,
-            tld='us'
-        )
-        
-        # Method 1: Try to get symbol-specific trading fee
-        try:
-            # Call the trading fee API endpoint
-            fee_data = client.get_trade_fee(symbol=symbol)
-            logger.info(f"Binance.US get_trade_fee() raw response: {fee_data}")
-            
-            if fee_data and len(fee_data) > 0:
-                symbol_fee = fee_data[0]
-                logger.info(f"Symbol fee data: {symbol_fee}")
-                maker_rate = float(symbol_fee.get('makerCommission', 0.001))
-                taker_rate = float(symbol_fee.get('takerCommission', 0.001))
-                
-                logger.info(f"Parsed rates - Maker: {maker_rate}, Taker: {taker_rate}")
-                
-                return jsonify({
-                    'success': True,
-                    'fees': {
-                        'maker': f"{maker_rate:.6f}",
-                        'taker': f"{taker_rate:.6f}",
-                        'makerRate': maker_rate,
-                        'takerRate': taker_rate
-                    }
-                })
-        except Exception as e:
-            err_msg = str(e)
-            logger.warning(f"Could not fetch symbol-specific fees: {err_msg}\n{traceback.format_exc()}")
-            if "API-key" in err_msg or "Invalid Api-Key" in err_msg or "invalid api-key" in err_msg.lower():
-                return jsonify({
-                    'success': False,
-                    'error': 'Invalid Binance API credentials',
-                    'error_code': 'invalid_trading_credentials'
-                }), 400
-        
-        # Method 2: Fall back to account-level commission rates
-        try:
-            account = client.get_account()
-            logger.info(f"Binance.US account data keys: {list(account.keys())}")
-            
-            commission_rates = account.get('commissionRates', {})
-            logger.info(f"Binance.US commission rates (raw): {commission_rates}")
-            
-            tier_0_pairs = ['BTCUSD', 'BTCUSDT', 'BTCUSDC']
-            is_tier_0 = symbol in tier_0_pairs
-            
-            if is_tier_0:
-                maker_rate = 0.0
-                taker_rate = 0.0
-            elif commission_rates:
-                raw_maker = float(commission_rates.get('maker', '0.001'))
-                raw_taker = float(commission_rates.get('taker', '0.004'))
-                maker_rate = raw_maker if raw_maker > 0 else 0.001
-                taker_rate = raw_taker if raw_taker > 0 else 0.004
-            else:
-                maker_commission = account.get('makerCommission', 10)
-                taker_commission = account.get('takerCommission', 40)
-                maker_rate = (float(maker_commission) / 10000) if float(maker_commission) > 0 else 0.001
-                taker_rate = (float(taker_commission) / 10000) if float(taker_commission) > 0 else 0.004
-            
-            return jsonify({
-                'success': True,
-                'fees': {
-                    'maker': f"{maker_rate:.6f}",
-                    'taker': f"{taker_rate:.6f}",
-                    'makerRate': maker_rate,
-                    'takerRate': taker_rate
-                }
-            })
-        except Exception as e:
-            err_msg = str(e)
-            logger.error(f"Error fetching account commission rates: {err_msg}")
-            if "API-key" in err_msg or "Invalid Api-Key" in err_msg or "invalid api-key" in err_msg.lower():
-                return jsonify({
-                    'success': False,
-                    'error': 'Invalid Binance API credentials',
-                    'error_code': 'invalid_trading_credentials'
-                }), 400
-            # Last resort: use default Binance.US rates (0.1% maker, 0.4% taker)
-            return jsonify({
-                'success': True,
-                'fees': {
-                    'maker': '0.001000',
-                    'taker': '0.001000',
-                    'makerRate': 0.001,
-                    'takerRate': 0.001
-                }
-            })
-
-    except Exception as e:
-        err_msg = str(e)
-        logger.error(f"Error in get_trading_fees: {err_msg}\n{traceback.format_exc()}")
-        if "API-key" in err_msg or "Invalid Api-Key" in err_msg or "invalid api-key" in err_msg.lower():
-            return jsonify({
-                'success': False,
-                'error': 'Invalid Binance API credentials',
-                'error_code': 'invalid_trading_credentials'
-            }), 400
-        return jsonify({'success': False, 'error': err_msg}), 500
-
+        fees = get_fee_quote(current_user.id, symbol, paper=paper)
+    except Exception:
+        return jsonify(success=False, error='Binance.US account fees are unavailable. No fee rate has been assumed.'), 502
+    try:
+        rules = quantity_rules(SimpleNamespace(broker='binance', symbol=symbol.upper()))
+        fees['quantityStep'] = str(rules['step'])
+    except Exception:
+        fees['quantityStep'] = None
+    return jsonify(success=True, fees=fees)
 
 
 @portfolio_bp.route('/api/trading/price/<symbol>', methods=['GET'])
@@ -4311,35 +4128,12 @@ def place_test_oco_order():
         if price <= 0 or stop_price <= 0 or stop_limit_price <= 0:
             return jsonify({'success': False, 'error': 'All prices must be greater than 0'}), 400
         
-        # Get Binance.US Trading credentials using SQLAlchemy ORM
-        creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
-        if not creds:
-            return jsonify({
-                'success': False,
-                'error': 'No Binance.US trading credentials found.',
-                'error_code': 'missing_trading_credentials'
-            }), 400
-        
-        # Credential model properties auto-decrypt values
-        trading_api_key = creds.trading_api_key
-        trading_api_secret = creds.trading_api_secret
-        if not trading_api_key or not trading_api_secret:
-            return jsonify({
-                'success': False,
-                'error': 'No Binance.US trading credentials found.',
-                'error_code': 'missing_trading_credentials'
-            }), 400
-        
-        # Initialize Binance client
-        from binance.client import Client
-        client = Client(
-            api_key=trading_api_key,
-            api_secret=trading_api_secret,
-            testnet=False,
-            tld='us'
-        )
-        
+        settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        if not settings or not settings.test_mode_enabled:
+            return jsonify(success=False, error='Enable Binance.US Test Mode before placing paper orders.'), 409
+        from services.synthetic_execution_service import binance_client
+        client = binance_client(public=True)
+
         # Get symbol filters to format quantity properly
         filters = get_symbol_filters(client, symbol)
         if not filters:
@@ -4383,17 +4177,9 @@ def place_test_oco_order():
             if not (price < current_price < stop_price):
                 return jsonify({'success': False, 'error': 'For BUY OCO: Limit Price < Market Price < Stop Price'}), 400
         
-        # Use API-provided fees when possible
-        fee_info = get_trade_fee_for_symbol(client, symbol) or {'maker': 0.001, 'taker': 0.001}
-        # For simulation assume taker fee for immediate fills
-        fee_rate = fee_info.get('taker', 0.001)
-
-        # Balance check: ensure user has enough quote asset for BUY, or enough base asset for SELL
-        try:
-            account_info = client.get_account()
-            balances = {b['asset']: float(b['free']) for b in account_info.get('balances', [])}
-        except Exception:
-            balances = {}
+        from services.binance_fee_service import paper_rates
+        fee_rate = paper_rates(symbol)['takerRate']
+        balances = {r.symbol: float(r.quantity or 0) for r in TestPortfolio.query.filter_by(user_id=current_user.id).all()}
 
         if side == 'BUY':
             if symbol.endswith('USD') and not symbol.endswith('USDT'):
@@ -4403,7 +4189,7 @@ def place_test_oco_order():
             available_quote = balances.get(quote_asset, 0.0)
             check_price = max(price, stop_limit_price)
             required_quote = quantity * check_price
-            estimated_fee = required_quote * fee_rate
+            estimated_fee = 0  # BUY fees are deducted from the received asset.
 
             if available_quote is not None and (required_quote + estimated_fee) > available_quote:
                 step = filters['stepSize']
@@ -4466,7 +4252,7 @@ def place_test_oco_order():
         db.session.add(stop_order)
         
         # Update test portfolio (only for the filled leg)
-        update_test_portfolio(current_user.id, symbol, side, quantity, price)
+        update_test_portfolio(current_user.id, symbol, side, quantity, price, fee_rate)
         
         db.session.commit()
         

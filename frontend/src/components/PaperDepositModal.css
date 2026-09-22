@@ -1,0 +1,17 @@
+.paper-deposit-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px; }
+.paper-deposit-modal { width: 100%; max-width: 530px; max-height: 90vh; overflow: auto; box-sizing: border-box; padding: 28px; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--accent-primary); border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+.paper-deposit-modal h3 { margin: 0 0 12px; font-size: 1.5rem; color: var(--accent-primary); }
+.paper-deposit-modal p, .paper-deposit-modal label { color: var(--text-secondary); line-height: 1.5; }
+.paper-deposit-modal label { display: block; margin: 12px 0 6px; }
+.paper-deposit-modal input, .paper-deposit-modal select, .paper-deposit-modal button { font: inherit; color: var(--text-primary); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 8px; padding: 10px 12px; box-sizing: border-box; }
+.paper-deposit-modal input, .paper-deposit-modal select { width: 100%; }
+.paper-deposit-modal button { cursor: pointer; }
+.paper-deposit-modal button:disabled { opacity: .5; cursor: wait; }
+.paper-cash-balance { margin: 18px 0; padding: 16px; background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 10px; display: grid; gap: 6px; }
+.paper-cash-balance strong { color: var(--accent-primary); font-size: 1.6rem; }
+.paper-deposit-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+.paper-deposit-presets button { flex: 1; white-space: nowrap; font-size: 13px; }
+.paper-deposit-actions { margin-top: 24px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.paper-deposit-modal .paper-confirm { background: #047857; border-color: #047857; color: white; }
+.paper-deposit-modal .paper-reset { margin-right: auto; color: var(--accent-danger); }
+.paper-deposit-error { color: var(--accent-danger) !important; }

@@ -84,12 +84,23 @@ def webull_credentials(parent):
 
 def binance_client(user_id=None, public=False):
     from binance.client import Client
+    # The pinned 1.0.19 SDK always pings in __init__ and has no ping=False
+    # argument. Suppress only that eager network call, retaining normal ping().
+    class LazyClient(Client):
+        def __init__(self, *args, **kwargs):
+            self._initializing = True
+            super().__init__(*args, **kwargs)
+            self._initializing = False
+
+        def ping(self):
+            return {} if self._initializing else super().ping()
+
     if public:
-        return Client(tld='us', ping=False, requests_params={'timeout': 10})
+        return LazyClient(tld='us', requests_params={'timeout': 10})
     cred = Credential.query.filter_by(user_id=user_id).first()
     if not cred or not cred.trading_api_key or not cred.trading_api_secret:
         raise ValueError('Connect Binance.US trading credentials before placing this order.')
-    return Client(cred.trading_api_key, cred.trading_api_secret, tld='us', ping=False, requests_params={'timeout': 10})
+    return LazyClient(cred.trading_api_key, cred.trading_api_secret, tld='us', requests_params={'timeout': 10})
 
 
 def reference_price(symbol, client=None, broker='binance', instrument_type='CRYPTO', user_id=None, environment=None):
@@ -273,32 +284,14 @@ def apply_broker_result(execution, result, broker):
 
 
 def _binance_paper(parent, execution, price, rules):
-    base, quote = rules['base'], rules['quote']
-    holdings = {x.symbol: x for x in TestPortfolio.query.filter_by(user_id=parent.user_id).with_for_update().all()}
-    for symbol in (base, quote):
-        if symbol not in holdings:
-            holdings[symbol] = TestPortfolio(user_id=parent.user_id, symbol=symbol, quantity=0, total_cost_basis=0, realized_pnl=0)
-            db.session.add(holdings[symbol])
-    asset, cash = holdings[base], holdings[quote]
-    qty, cost = execution.quantity, execution.quantity * price
-    if parent.side == 'BUY':
-        if (cash.quantity or 0) + 1e-10 < cost:
-            raise ValueError(f'Insufficient paper {quote} balance.')
-        cash.quantity -= cost
-        asset.total_cost_basis = float(asset.total_cost_basis or 0) + cost
-        asset.quantity = float(asset.quantity or 0) + qty
-        asset.avg_entry_price = asset.total_cost_basis / asset.quantity
-    else:
-        if (asset.quantity or 0) + 1e-10 < qty:
-            raise ValueError(f'Insufficient paper {base} balance.')
-        basis = qty * float(asset.avg_entry_price or 0)
-        asset.quantity = max(0, asset.quantity - qty)
-        asset.total_cost_basis = max(0, float(asset.total_cost_basis or 0) - basis)
-        asset.realized_pnl = float(asset.realized_pnl or 0) + cost - basis
-        cash.quantity = float(cash.quantity or 0) + cost
+    from services.binance_fee_service import paper_rates
+    from services.binance_paper_service import apply_fill
+    qty = execution.quantity
+    fee_rate = paper_rates(parent.symbol)['rates'][parent.side]['taker']
+    fee = apply_fill(parent.user_id, rules['base'], rules['quote'], parent.side, qty, price, fee_rate)
     record = TestOrder(user_id=parent.user_id, symbol=parent.symbol, side=parent.side, type='MARKET',
                        quantity=qty, price=price, status='FILLED', simulated_fill_price=price,
-                       simulated_fill_time=utc_now(aware=False), notes=f'Synthetic {execution.client_order_id}')
+                       simulated_fill_time=utc_now(aware=False), notes=f'Synthetic {execution.client_order_id}; simulated fee {fee:.8f} {rules["quote"]} equivalent ({fee_rate * 100:g}%)')
     db.session.add(record)
     db.session.flush()
     return {'order_id': str(record.id), 'status': 'FILLED', 'filled_quantity': qty, 'filled_price': price}

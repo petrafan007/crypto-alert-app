@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { formatOrderType, formatTimeInForce } from '../utils/orderDisplay';
+import SyntheticOrderReview from './SyntheticOrderReview';
 import TotpCodeInput from './TotpCodeInput';
 import './TwoFactorModal.css';
 
@@ -152,7 +153,7 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
 
   return (
     <div className="two-factor-modal-backdrop" onClick={handleBackdropClick}>
-      <div className="two-factor-modal">
+      <div className={`two-factor-modal ${orderDetails?.syntheticReview ? 'has-synthetic-review' : ''}`}>
         <div className="two-factor-modal-header">
           <h3>🔐 Two-Factor Authentication</h3>
           {!loading && (
@@ -262,7 +263,7 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
                     {orderDetails.timeInForce && (
                       <div className="order-detail-row">
                         <span className="label">Time in Force:</span>
-                        <span className="value">{formatTimeInForce(orderDetails.timeInForce)}</span>
+                        <span className="value">{orderDetails.syntheticReview ? 'Until filled or cancelled (server monitored)' : formatTimeInForce(orderDetails.timeInForce)}</span>
                       </div>
                     )}
                     {orderDetails.tradingSession && (
@@ -274,9 +275,9 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
                   </div>
                 )}
 
-                {explanation && (
+                {(explanation || orderDetails?.syntheticReview) && (
                   <div className="order-explanation">
-                    {explanation}
+                    {orderDetails?.syntheticReview ? <SyntheticOrderReview review={orderDetails.syntheticReview} /> : explanation}
                   </div>
                 )}
               </div>

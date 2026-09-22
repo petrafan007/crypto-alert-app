@@ -47,3 +47,10 @@ body.light-mode .synthetic-orders, body.light-mode .ladder-order-config-containe
 .synthetic-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
 .synthetic-orders { width: 100%; min-width: 0; max-width: 100%; }
+.synthetic-review { color: var(--text-primary); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.synthetic-review h4 { color: var(--text-primary); margin: 10px 0; }
+.synthetic-review p { margin: 8px 0; }
+.synthetic-review-branch { border-top: 1px solid var(--card-border); padding: 8px 0; }
+.synthetic-review-step { border: 1px solid var(--card-border); background: var(--input-bg); border-radius: 8px; padding: 12px; margin: 10px 0; }
+.synthetic-proceeds { display: grid; gap: 4px; margin: 6px 0; }
+.synthetic-review small { color: var(--text-secondary); display: block; }

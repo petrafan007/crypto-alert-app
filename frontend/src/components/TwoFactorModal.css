@@ -1,4 +1,11 @@
 /* Two-Factor Authentication Modal */
+.two-factor-modal.has-synthetic-review { max-width: 1120px; }
+.has-synthetic-review .two-factor-grid { grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr); }
+.has-synthetic-review .two-factor-grid-right { position: sticky; top: 0; }
+@media (max-width: 760px) {
+  .has-synthetic-review .two-factor-grid { grid-template-columns: minmax(0, 1fr); }
+  .has-synthetic-review .two-factor-grid-right { position: static; }
+}
 .two-factor-modal-backdrop {
   position: fixed;
   top: 0;

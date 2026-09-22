@@ -17,16 +17,24 @@ try {
     import React, {useState} from 'react'; import {createRoot} from 'react-dom/client';
     import Table from './src/components/SyntheticOrdersTable.jsx';
     import Config, {defaultLadderState} from './src/components/LadderOrderConfig.jsx';
-    import {buildSyntheticPayload} from './src/utils/syntheticOrders.mjs';
+    import TwoFactorModal from './src/components/TwoFactorModal.jsx';
+    import PaperDepositModal from './src/components/PaperDepositModal.jsx';
+    import {buildSyntheticReview,buildSyntheticPayload} from './src/utils/syntheticOrders.mjs';
     import './src/theme.css'; import './src/light-theme.css'; import './src/theme-variables.css';
     import './src/index.css'; import './src/pages/Trading.theme.css';
+    const fees={takerRate:.0002, rates:{SELL:{taker:.0002},BUY:{taker:.0002}},bnb:{enabled:false},quantityStep:'.00001',source:'Verified test fixture',as_of:'2026-09-22T12:00:00Z'};
     const params=new URLSearchParams(location.search); document.body.className=params.get('theme')+'-mode'; document.documentElement.dataset.theme=params.get('theme');
-    function App(){const [config,setConfig]=useState(defaultLadderState);const [side,setSide]=useState('SELL');
+    function App(){const [config,setConfig]=useState(defaultLadderState);const [side,setSide]=useState('SELL'); const [modal,setModal]=useState('');
       return <main style={{padding:16, background:'var(--card-bg)', color:'var(--text-primary)'}}>
         <h1>Synthetic orders</h1><Table defaultBroker={params.get('broker') || 'all'} />
         <section aria-label="Strategy editor"><button onClick={()=>setSide(side==='BUY'?'SELL':'BUY')}>Switch side</button>
-          <Config side={side} currentPrice={100} totalQuantity="10" ladderConfig={config} onChange={setConfig}/>
+          <Config fees={fees} side={side} currentPrice={100} totalQuantity="10" ladderConfig={config} onChange={setConfig}/>
           <button onClick={()=>{window.reviewPayload=buildSyntheticPayload(config)}}>Review payload</button>
+          <button onClick={()=>setModal('2fa')}>Open confirmation</button>
+          <button onClick={()=>setModal('paper')}>Open deposit</button>
+          <button onClick={()=>setConfig({...config,upsideMode:'TRAILING',upsideActivationPrice:'200',upsideTrailValue:'2'})}>Set activation scenario</button>
+          <TwoFactorModal isVisible={modal==='2fa'} onClose={()=>setModal('')} onVerify={()=>{}} orderDetails={{side,quantity:10,symbol:'BTCUSD',type:'LADDER',syntheticReview:buildSyntheticReview(config,{side,quantity:10,currentPrice:100,baseAsset:'BTC',fees})}}/>
+          <PaperDepositModal visible={modal==='paper'} broker="Binance.US" balances={{USD:1200,USDT:2500}} currencies={['USD','USDT']} onClose={()=>setModal('')} onDeposit={(amount,currency)=>{window.deposit={amount,currency};setModal('')}} onReset={()=>{window.reset=true;setModal('')}}/>
         </section></main>}
     createRoot(document.getElementById('root')).render(<App/>);` }, bundle: true, outfile: path.join(scratch, 'app.js'), loader: { '.woff2': 'dataurl', '.woff': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl', '.png': 'dataurl' } });
   server = http.createServer(async (req, res) => {
@@ -53,11 +61,11 @@ try {
       await page.getByLabel('Strategy',{exact:true}).selectOption('LADDER');
       assert.equal(await page.getByRole('button',{name:'Details',exact:true}).count(),1);
       await page.getByRole('button',{name:'Details',exact:true}).click();
-      assert.ok((await page.locator('.synthetic-detail').innerText()).includes('0.00000012'));
+      assert.ok((await page.locator('.synthetic-detail').innerText()).includes('0.00 USD'));
       await page.getByLabel('Strategy',{exact:true}).selectOption('ALL');
       await page.getByLabel('Status',{exact:true}).selectOption('COMPLETED');
       assert.equal(await page.getByRole('button',{name:'Details',exact:true}).count(),1);
-      assert.ok((await page.locator('.synthetic-orders').innerText()).includes('Trail 5 USD'));
+      assert.ok((await page.locator('.synthetic-orders').innerText()).includes('Trail 5.00 USD'));
       const styles=await page.locator('.synthetic-orders tbody strong').first().evaluate(el=>{
         let ancestor=el,bg='';while(ancestor){bg=getComputedStyle(ancestor).backgroundColor;if(!bg.includes('rgba')&&bg!=='transparent')break;ancestor=ancestor.parentElement;}
         return {text:getComputedStyle(el).color,bg,muted:getComputedStyle(el.parentElement.querySelector('small')).color};
@@ -78,6 +86,41 @@ try {
       await page.getByRole('checkbox').uncheck();
       await page.getByRole('button',{name:'Review payload'}).click();
       assert.equal((await page.evaluate(()=>window.reviewPayload)).downside_mode,'NONE');
+      await page.getByRole('button',{name:'Switch side'}).click();
+      await page.getByRole('checkbox').check();
+      await page.getByRole('button',{name:'Open confirmation'}).click();
+      let explanation=await page.locator('.order-explanation').innerText();
+      assert.ok(explanation.includes('Upside strategy')); assert.ok(explanation.includes('Downside strategy'));
+      assert.equal(await page.locator('.order-explanation .synthetic-review-step').count(),6);
+      assert.ok(explanation.includes('Net proceeds')); assert.ok(explanation.includes('Cumulative gross'));
+      await page.getByRole('button',{name:'Close',exact:true}).click();
+      await page.getByRole('button',{name:'Set activation scenario'}).click();
+      await page.getByRole('button',{name:'Open confirmation'}).click();
+      explanation=await page.locator('.order-explanation').innerText();
+      assert.ok(explanation.includes('200.00 USD')); assert.ok(explanation.includes('196.00 USD')); assert.ok(explanation.includes('1,959.61 USD'));
+      await page.setViewportSize({width:390,height:844});
+      const modalBox=await page.locator('.two-factor-modal').boundingBox();assert.ok(modalBox.width<=390);
+      assert.ok(await page.locator('.two-factor-modal').evaluate(e=>e.scrollWidth<=e.clientWidth+1));
+      await page.getByRole('button',{name:'Close',exact:true}).click();
+      await page.setViewportSize({width:1440,height:1000});
+      await page.getByRole('button',{name:'Open deposit'}).click();
+      assert.ok((await page.getByRole('dialog').innerText()).includes('1,200.00 USD'));
+      await page.getByLabel('Paper currency').selectOption('USDT');
+      assert.ok((await page.getByRole('dialog').innerText()).includes('2,500.00 USDT'));
+      await page.getByRole('button',{name:'+5,000.00 USDT',exact:true}).click();
+      await page.getByRole('button',{name:'Confirm Deposit'}).click();
+      assert.deepEqual(await page.evaluate(()=>window.deposit),{amount:5000,currency:'USDT'});
+      await page.getByRole('button',{name:'Open deposit'}).click();
+      await page.getByLabel('Or Custom Deposit Amount (USD):').fill('12.345');
+      assert.ok(await page.getByRole('button',{name:'Confirm Deposit'}).isDisabled());
+      await page.getByLabel('Or Custom Deposit Amount (USD):').fill('123.45');
+      await page.getByRole('button',{name:'Confirm Deposit'}).click();
+      assert.deepEqual(await page.evaluate(()=>window.deposit),{amount:123.45,currency:'USD'});
+      await page.getByRole('button',{name:'Open deposit'}).click();
+      page.once('dialog',dialog=>dialog.dismiss());await page.getByRole('button',{name:'Reset Account'}).click();
+      assert.equal(await page.evaluate(()=>window.reset),undefined);
+      page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'Reset Account'}).click();
+      assert.equal(await page.evaluate(()=>window.reset),true);
       // A failed automatic refresh must retain the last known trailing row and surface an error.
       failTrailing=true; const before=loads; await page.getByRole('alert').waitFor({timeout:8000});
       assert.ok(loads>before); assert.equal(await page.getByRole('button',{name:'Details',exact:true}).count(),1);

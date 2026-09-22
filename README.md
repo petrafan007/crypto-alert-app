@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.9.0
+**Version:** 3.9.1
 
 ## Recent Updates
+
+### v3.9.1
+- **Complete synthetic order review:** Confirmation explains both directions, every rung, shared remaining quantity, gross proceeds, estimated taker fees, net proceeds and cumulative values. Trailing explanations define the observed peak/trough, activation hurdle and the resulting trigger/proceeds scenario.
+- **Consistent money formatting and layout:** USD/USDT strategy prices, Cut/Cum amounts and summaries display two decimal places. Order Limit and Convert Dust share aligned controls; confirmation and funding screens support light/dark themes and narrow screens.
+- **Verified Binance.US fees:** Live estimates use signed US account commission endpoints, preserve zero fees, and show unavailable rates explicitly. Every synthetic MARKET child uses taker fees. BNB discounts are separate conditional estimates based on the current US policy. Fixed compatibility with the pinned Binance SDK.
+- **Binance.US paper funding:** Added the shared Deposit Fake Money modal with presets, custom deposits, USD/USDT cash balances and a confirmed account reset. Paper fills now update cash, holdings and received-asset commissions atomically; real balances no longer constrain simulated purchases. Reset preserves history and cancels Binance paper strategies.
+- [Fee references, behavior and verification details](docs/synthetic_orders_v3.9.1.md).
 
 ### v3.9.0
 - **Synthetic order execution rebuilt:** Binance.US crypto and Webull crypto, stocks and ETFs now share durable execution tracking, broker-confirmed fill quantities/prices, reconciliation after uncertain submissions, and cancellation that waits for broker confirmation. Concurrent workers and cancellation cannot submit the same strategy twice.

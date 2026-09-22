@@ -7,7 +7,7 @@ test('preserves protection, custom target precision, allocation and dollar trail
   assert.equal(payload.downside_mode, 'TRAILING'); assert.equal(payload.has_stop_loss, true);
   assert.equal(payload.custom_rungs[0].target_price, 123.12345678); assert.equal(payload.custom_rungs[0].percentage_of_total, 100);
   assert.equal(payload.downside_trail_type, 'AMOUNT'); assert.equal(payload.downside_activation_price, 120);
-  assert.match(strategySummary(config)[1], /5 USD/);
+  assert.match(strategySummary(config)[1], /5\.00 USD/);
 });
 test('turning protection off does not retain a stale stop', () => {
   const payload = buildSyntheticPayload({ ...config, hasDownsideProtection: false, downsideTargetPrice: 95 });
@@ -25,6 +25,6 @@ test('completed includes trailing fills and stopped-out strategies, failed stays
 });
 test('preserves small trigger prices, quantities above one and unique identities', () => {
   assert.match(number(1.23456789), /23456789/); assert.match(number(0.00000012), /00000012/);
-  assert.equal(trailLabel(5, 'AMOUNT'), '5 USD'); assert.equal(trailLabel(5, 'PERCENT'), '5%');
+  assert.equal(trailLabel(5, 'AMOUNT'), '5.00 USD'); assert.equal(trailLabel(5, 'PERCENT'), '5%');
   assert.notEqual(orderKey({ parentKind: 'LADDER', id: 1 }), orderKey({ parentKind: 'TRAILING', id: 1 }));
 });

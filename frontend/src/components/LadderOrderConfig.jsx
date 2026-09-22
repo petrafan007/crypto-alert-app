@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import '../pages/Trading.css';
 import './SyntheticOrders.css';
-import { money, number, trailLabel } from '../utils/syntheticOrders.mjs';
+import SyntheticOrderReview, { ExecutionProceeds } from './SyntheticOrderReview';
+import { money, number, trailLabel, priceInput, buildSyntheticReview } from '../utils/syntheticOrders.mjs';
 
 export const UPSIDE_PRESETS = {
   CONSERVATIVE: {
@@ -140,12 +141,16 @@ const LadderOrderConfig = ({
   baseAsset = 'ASSET',
   quoteAsset = 'USD',
   ladderConfig = defaultLadderState,
-  onChange
+  onChange,
+  fees = null,
+  quantityStep
 }) => {
   const isSell = side === 'SELL';
   const previousSide = useRef(side);
   const price = parseFloat(currentPrice) || 0;
   const totalQty = parseFloat(totalQuantity) || 0;
+  const priceDecimals = ['USD', 'USDT'].includes(quoteAsset) ? 2 : 12;
+  const review = buildSyntheticReview(ladderConfig, { side, quantity: totalQty, currentPrice: price, baseAsset, quoteAsset, fees, quantityStep });
 
   // Active configurations with safe fallbacks
   const upsideMode = ladderConfig.upsideMode || 'LADDER';
@@ -183,7 +188,7 @@ const LadderOrderConfig = ({
       const tpl = isSell ? p.rungsSell : p.rungsBuy;
       newUpsideRungs = upsideRungs.map((r, i) => {
         const off = tpl[i]?.price_offset_pct ?? r.price_offset_pct;
-        const tgt = (price * (1 + off / 100)).toFixed(12);
+        const tgt = (price * (1 + off / 100)).toFixed(priceDecimals);
         return { ...r, price_offset_pct: off, target_price: tgt };
       });
       modified = true;
@@ -194,7 +199,7 @@ const LadderOrderConfig = ({
       const tpl = isSell ? p.rungsSell : p.rungsBuy;
       newDownsideRungs = downsideRungs.map((r, i) => {
         const off = tpl[i]?.price_offset_pct ?? r.price_offset_pct;
-        const tgt = (price * (1 + off / 100)).toFixed(12);
+        const tgt = (price * (1 + off / 100)).toFixed(priceDecimals);
         return { ...r, price_offset_pct: off, target_price: tgt };
       });
       modified = true;
@@ -203,14 +208,14 @@ const LadderOrderConfig = ({
     let upTarget = ladderConfig.upsideTargetPrice;
     if (!upTarget || sideChanged) {
       const off = parseFloat(ladderConfig.upsideOffsetPct || 5.0);
-      upTarget = (isSell ? price * (1 + off / 100) : price * (1 - off / 100)).toFixed(12);
+      upTarget = (isSell ? price * (1 + off / 100) : price * (1 - off / 100)).toFixed(priceDecimals);
       modified = true;
     }
 
     let downTarget = ladderConfig.downsideTargetPrice;
     if (!downTarget || sideChanged) {
       const off = parseFloat(ladderConfig.downsideOffsetPct || 5.0);
-      downTarget = (isSell ? price * (1 - off / 100) : price * (1 + off / 100)).toFixed(12);
+      downTarget = (isSell ? price * (1 - off / 100) : price * (1 + off / 100)).toFixed(priceDecimals);
       modified = true;
     }
 
@@ -236,7 +241,7 @@ const LadderOrderConfig = ({
     const updated = tpl.map(r => ({
       price_offset_pct: r.price_offset_pct,
       percentage_of_total: r.percentage_of_total,
-      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(12) : ''
+      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(priceDecimals) : ''
     }));
     updateConfig({
       upsidePreset: key,
@@ -256,7 +261,7 @@ const LadderOrderConfig = ({
     const updated = tpl.map(r => ({
       price_offset_pct: r.price_offset_pct,
       percentage_of_total: r.percentage_of_total,
-      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(12) : ''
+      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(priceDecimals) : ''
     }));
     updateConfig({
       downsidePreset: key,
@@ -270,7 +275,7 @@ const LadderOrderConfig = ({
     const rung = { ...updated[index], [field]: value };
     if (field === 'price_offset_pct' && price > 0) {
       const offset = parseFloat(value) || 0;
-      rung.target_price = (price * (1 + offset / 100)).toFixed(12);
+      rung.target_price = (price * (1 + offset / 100)).toFixed(priceDecimals);
     } else if (field === 'target_price' && price > 0) {
       const tgt = parseFloat(value) || 0;
       if (tgt > 0) {
@@ -285,7 +290,7 @@ const LadderOrderConfig = ({
     if (upsideRungs.length >= 10) return;
     const last = upsideRungs[upsideRungs.length - 1];
     const nextOffset = last ? (isSell ? Number(last.price_offset_pct) + 2.5 : Number(last.price_offset_pct) - 2.5) : (isSell ? 2.5 : -2.5);
-    const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(12) : '';
+    const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(priceDecimals) : '';
     const updated = [...upsideRungs, { price_offset_pct: nextOffset, percentage_of_total: 10, target_price: nextPrice }];
     updateConfig({ upsidePreset: 'CUSTOM', upsideRungs: updated });
   };
@@ -312,7 +317,7 @@ const LadderOrderConfig = ({
     const rung = { ...updated[index], [field]: value };
     if (field === 'price_offset_pct' && price > 0) {
       const offset = parseFloat(value) || 0;
-      rung.target_price = (price * (1 + offset / 100)).toFixed(12);
+      rung.target_price = (price * (1 + offset / 100)).toFixed(priceDecimals);
     } else if (field === 'target_price' && price > 0) {
       const tgt = parseFloat(value) || 0;
       if (tgt > 0) {
@@ -327,7 +332,7 @@ const LadderOrderConfig = ({
     if (downsideRungs.length >= 10) return;
     const last = downsideRungs[downsideRungs.length - 1];
     const nextOffset = last ? (isSell ? Number(last.price_offset_pct) - 2.5 : Number(last.price_offset_pct) + 2.5) : (isSell ? -2.5 : 2.5);
-    const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(12) : '';
+    const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(priceDecimals) : '';
     const updated = [...downsideRungs, { price_offset_pct: nextOffset, percentage_of_total: 10, target_price: nextPrice }];
     updateConfig({ downsidePreset: 'CUSTOM', downsideRungs: updated });
   };
@@ -348,59 +353,16 @@ const LadderOrderConfig = ({
     updateConfig({ downsidePreset: 'CUSTOM', downsideRungs: updated });
   };
 
-  // Stepped preview calculations for Upside
-  const calculatedUpsideTiers = useMemo(() => {
-    let cumulativeQty = 0;
-    let cumulativeUsd = 0;
-    return upsideRungs.map((r, idx) => {
-      const pct = parseFloat(r.percentage_of_total) || 0;
-      const rungQty = totalQty > 0 ? (totalQty * (pct / 100)) : 0;
-      let tgt = parseFloat(r.target_price) || 0;
-      if (tgt <= 0 && price > 0) {
-        tgt = price * (1 + (parseFloat(r.price_offset_pct) || 0) / 100);
-      }
-      const estUsd = rungQty * tgt;
-      cumulativeQty += rungQty;
-      cumulativeUsd += estUsd;
-      return {
-        rungNumber: idx + 1,
-        offsetPct: parseFloat(r.price_offset_pct) || 0,
-        targetPrice: tgt,
-        percentageOfTotal: pct,
-        quantity: rungQty,
-        estimatedUsd: estUsd,
-        cumulativeQty,
-        cumulativeUsd
-      };
-    });
-  }, [upsideRungs, totalQty, price]);
-
-  // Stepped preview calculations for Downside
-  const calculatedDownsideTiers = useMemo(() => {
-    let cumulativeQty = 0;
-    let cumulativeUsd = 0;
-    return downsideRungs.map((r, idx) => {
-      const pct = parseFloat(r.percentage_of_total) || 0;
-      const rungQty = totalQty > 0 ? (totalQty * (pct / 100)) : 0;
-      let tgt = parseFloat(r.target_price) || 0;
-      if (tgt <= 0 && price > 0) {
-        tgt = price * (1 + (parseFloat(r.price_offset_pct) || 0) / 100);
-      }
-      const estUsd = rungQty * tgt;
-      cumulativeQty += rungQty;
-      cumulativeUsd += estUsd;
-      return {
-        rungNumber: idx + 1,
-        offsetPct: parseFloat(r.price_offset_pct) || 0,
-        targetPrice: tgt,
-        percentageOfTotal: pct,
-        quantity: rungQty,
-        estimatedUsd: estUsd,
-        cumulativeQty,
-        cumulativeUsd
-      };
-    });
-  }, [downsideRungs, totalQty, price]);
+  const tiers = prefix => (review.branches.find(b => b.prefix === prefix)?.rows || []).map((row, idx) => ({
+    rungNumber: idx + 1, targetPrice: row.price, quantity: row.quantity,
+    percentageOfTotal: review.total > 0 ? 100 * row.quantity / review.total : 0,
+    offsetPct: price > 0 ? (row.price / price - 1) * 100 : 0,
+    estimatedUsd: row.gross, cumulativeUsd: row.cumulativeGross,
+    cumulativeQty: (review.branches.find(b => b.prefix === prefix)?.rows || []).slice(0, idx + 1).reduce((sum, r) => sum + r.quantity, 0),
+    fee: row.fee, net: row.net,
+  }));
+  const calculatedUpsideTiers = tiers('upside');
+  const calculatedDownsideTiers = tiers('downside');
 
   return (
     <div className="ladder-order-config-container" style={{ width: '100%', marginTop: '6px' }}>
@@ -479,6 +441,8 @@ const LadderOrderConfig = ({
                   step="any"
                   className="order-styled-input"
                   value={ladderConfig.upsideTargetPrice || ''}
+                      aria-label="upside TargetPrice"
+                      onBlur={e => updateConfig({ upsideTargetPrice: priceInput(e.target.value, quoteAsset) })}
                   placeholder="Target Price"
                   onChange={(e) => {
                     const val = e.target.value;
@@ -494,7 +458,7 @@ const LadderOrderConfig = ({
                       key={pct}
                       type="button"
                       onClick={() => {
-                        const tgt = price > 0 ? (price * (1 + (isSell ? pct : -pct) / 100)).toFixed(12) : '';
+                        const tgt = price > 0 ? (price * (1 + (isSell ? pct : -pct) / 100)).toFixed(priceDecimals) : '';
                         updateConfig({ upsideOffsetPct: String(pct), upsideTargetPrice: tgt });
                       }}
                       style={{
@@ -524,11 +488,9 @@ const LadderOrderConfig = ({
               }}>
                 <div style={{ fontSize: '11px', color: 'var(--syn-muted)', marginBottom: '4px' }}>Single {isSell ? 'Exit' : 'Entry'} Execution Summary</div>
                 <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--syn-positive)' }}>
-                  100% Position ({totalQty > 0 ? number(totalQty) : '—'} {baseAsset})
+                  100% Position ({totalQty > 0 ? number(review.total) : '—'} {baseAsset})
                 </div>
-                <div style={{ fontSize: '11px', color: 'var(--syn-text)', marginTop: '4px' }}>
-                  Est. {isSell ? 'Proceeds' : 'Cost'}: <strong style={{ color: 'var(--syn-text)' }}>{money(totalQty * (parseFloat(ladderConfig.upsideTargetPrice) || price), quoteAsset)}</strong>
-                </div>
+                {review.branches[0].rows[0] && <ExecutionProceeds row={review.branches[0].rows[0]} review={review} />}
               </div>
             </div>
           )}
@@ -548,6 +510,7 @@ const LadderOrderConfig = ({
                         className="order-styled-input"
                         value={ladderConfig.upsideTrailValue || '2.0'}
                         onChange={(e) => updateConfig({ upsideTrailValue: e.target.value })}
+                        onBlur={e => { if (ladderConfig.upsideTrailType === 'AMOUNT') updateConfig({ upsideTrailValue: priceInput(e.target.value, quoteAsset) }); }}
                         placeholder="2.0"
                       />
                       <button
@@ -568,6 +531,8 @@ const LadderOrderConfig = ({
                       step="any"
                       className="order-styled-input"
                       value={ladderConfig.upsideActivationPrice || ''}
+                      aria-label="upside ActivationPrice"
+                      onBlur={e => updateConfig({ upsideActivationPrice: priceInput(e.target.value, quoteAsset) })}
                       onChange={(e) => updateConfig({ upsideActivationPrice: e.target.value })}
                       placeholder="Optional Price"
                     />
@@ -609,6 +574,7 @@ const LadderOrderConfig = ({
                 <div style={{ fontSize: '11px', color: 'var(--syn-muted)', marginBottom: '4px' }}>Trailing Take-Profit Engine</div>
                 <div style={{ fontSize: '12px', color: 'var(--syn-text)', lineHeight: 1.4 }}>
                   Tracks the {isSell ? 'highest price' : 'lowest price'} after activation. A {isSell ? 'pullback' : 'rebound'} of <strong style={{ color: 'var(--syn-positive)' }}>{trailLabel(ladderConfig.upsideTrailValue || '2.0', ladderConfig.upsideTrailType, quoteAsset)}</strong> triggers a market {side.toLowerCase()} of the remaining quantity.
+                <SyntheticOrderReview review={review} branchOnly="upside" />
                 </div>
               </div>
             </div>
@@ -719,6 +685,8 @@ const LadderOrderConfig = ({
                         value={rung.target_price || ''}
                         placeholder="Target"
                         onChange={(e) => handleUpsideRungChange(index, 'target_price', e.target.value)}
+                        aria-label={`upside rung ${index + 1} price`}
+                        onBlur={e => handleUpsideRungChange(index, 'target_price', priceInput(e.target.value, quoteAsset))}
                       />
                       <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                         <input
@@ -818,15 +786,15 @@ const LadderOrderConfig = ({
                               {money(tier.targetPrice, quoteAsset)}
                             </span>
                             <span style={{ fontSize: '10.5px', color: 'var(--syn-positive)', marginLeft: '6px', fontWeight: '600' }}>
-                              (+{tier.offsetPct}%)
+                              (+{number(Number(tier.offsetPct.toFixed(2)))}%)
                             </span>
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--syn-text)' }}>
-                              {tier.quantity > 0 ? tier.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'} {baseAsset} ({tier.percentageOfTotal}%)
+                              {tier.quantity > 0 ? number(tier.quantity) : '—'} {baseAsset} ({number(Number(tier.percentageOfTotal.toFixed(2)))}%)
                             </div>
                             <div style={{ fontSize: '9.5px', color: 'var(--syn-muted)' }}>
-                              Val: {money(tier.estimatedUsd, quoteAsset)} | Cum: {money(tier.cumulativeUsd, quoteAsset)}
+                              Val: {money(tier.estimatedUsd, quoteAsset)} | Cum: {money(tier.cumulativeUsd, quoteAsset)}<br />Est. fee: {money(tier.fee, quoteAsset)} | Net value: {money(tier.net, quoteAsset)}
                             </div>
                           </div>
                         </div>
@@ -937,6 +905,8 @@ const LadderOrderConfig = ({
                       className="order-styled-input"
                       style={{ color: 'var(--syn-negative)', fontWeight: '700' }}
                       value={ladderConfig.downsideTargetPrice || ''}
+                      aria-label="downside TargetPrice"
+                      onBlur={e => updateConfig({ downsideTargetPrice: priceInput(e.target.value, quoteAsset) })}
                       placeholder="Stop Price"
                       onChange={(e) => {
                         const val = e.target.value;
@@ -952,7 +922,7 @@ const LadderOrderConfig = ({
                           key={pct}
                           type="button"
                           onClick={() => {
-                            const tgt = price > 0 ? (price * (1 + (isSell ? -pct : pct) / 100)).toFixed(12) : '';
+                            const tgt = price > 0 ? (price * (1 + (isSell ? -pct : pct) / 100)).toFixed(priceDecimals) : '';
                             updateConfig({ downsideOffsetPct: String(pct), downsideTargetPrice: tgt });
                           }}
                           style={{
@@ -1018,6 +988,7 @@ const LadderOrderConfig = ({
                             className="order-styled-input"
                             value={ladderConfig.downsideTrailValue || '3.0'}
                             onChange={(e) => updateConfig({ downsideTrailValue: e.target.value })}
+                            onBlur={e => { if (ladderConfig.downsideTrailType === 'AMOUNT') updateConfig({ downsideTrailValue: priceInput(e.target.value, quoteAsset) }); }}
                             placeholder="3.0"
                           />
                           <button
@@ -1038,6 +1009,8 @@ const LadderOrderConfig = ({
                           step="any"
                           className="order-styled-input"
                           value={ladderConfig.downsideActivationPrice || ''}
+                      aria-label="downside ActivationPrice"
+                      onBlur={e => updateConfig({ downsideActivationPrice: priceInput(e.target.value, quoteAsset) })}
                           onChange={(e) => updateConfig({ downsideActivationPrice: e.target.value })}
                           placeholder="Optional Hurdle"
                         />
@@ -1079,6 +1052,7 @@ const LadderOrderConfig = ({
                     <div style={{ fontSize: '11px', color: 'var(--syn-muted)', marginBottom: '4px' }}>Trailing Stop Loss Engine</div>
                     <div style={{ fontSize: '12px', color: 'var(--syn-text)', lineHeight: 1.4 }}>
                       Tracks the {isSell ? 'highest price' : 'lowest price'} after activation. A {isSell ? 'pullback' : 'rebound'} of <strong style={{ color: 'var(--syn-negative)' }}>{trailLabel(ladderConfig.downsideTrailValue || '3.0', ladderConfig.downsideTrailType, quoteAsset)}</strong> triggers a market {side.toLowerCase()} of the remaining quantity.
+                    <SyntheticOrderReview review={review} branchOnly="downside" />
                     </div>
                   </div>
                 </div>
@@ -1189,6 +1163,8 @@ const LadderOrderConfig = ({
                             value={rung.target_price || ''}
                             placeholder="Stop Px"
                             onChange={(e) => handleDownsideRungChange(index, 'target_price', e.target.value)}
+                        aria-label={`downside rung ${index + 1} price`}
+                        onBlur={e => handleDownsideRungChange(index, 'target_price', priceInput(e.target.value, quoteAsset))}
                           />
                           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                             <input
@@ -1288,15 +1264,15 @@ const LadderOrderConfig = ({
                                   {money(tier.targetPrice, quoteAsset)}
                                 </span>
                                 <span style={{ fontSize: '10.5px', color: 'var(--syn-negative)', marginLeft: '6px', fontWeight: '600' }}>
-                                  ({tier.offsetPct}%)
+                                  ({number(Number(tier.offsetPct.toFixed(2)))}%)
                                 </span>
                               </div>
                               <div style={{ textAlign: 'right' }}>
                                 <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--syn-text)' }}>
-                                  {tier.quantity > 0 ? tier.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'} {baseAsset} ({tier.percentageOfTotal}%)
+                                  {tier.quantity > 0 ? number(tier.quantity) : '—'} {baseAsset} ({number(Number(tier.percentageOfTotal.toFixed(2)))}%)
                                 </div>
                                 <div style={{ fontSize: '9.5px', color: 'var(--syn-muted)' }}>
-                                  Cut: {money(tier.estimatedUsd, quoteAsset)} | Cum: {money(tier.cumulativeUsd, quoteAsset)}
+                                  Cut: {money(tier.estimatedUsd, quoteAsset)} | Cum: {money(tier.cumulativeUsd, quoteAsset)}<br />Est. fee: {money(tier.fee, quoteAsset)} | Net value: {money(tier.net, quoteAsset)}
                                 </div>
                               </div>
                             </div>
