@@ -3,6 +3,43 @@ import os
 from core.extensions import db
 from services.copilot_context import DEFAULT_COPILOT_RESPONSE_PROMPT, DEFAULT_COPILOT_SEARCH_PROMPT
 
+def _recover_startup_state(conn):
+    """Recover interrupted sentiment checks without inventing acquisition costs."""
+    conn.execute(db.text("""
+        UPDATE coins
+        SET avg_entry = 0.0
+        WHERE amount <= 0.00000001
+          AND symbol != 'USD'
+          AND avg_entry > 0
+          AND symbol NOT IN (
+              SELECT symbol FROM staked_coins
+              WHERE amount > 0.00000001 AND (status IS NULL OR status != 'completed')
+          )
+    """))
+    # Clear any lingering stuck 'Checking now...' sentiment
+    conn.execute(db.text("""
+        UPDATE coins
+        SET sentiment = 'Hold',
+            sentiment_reason = 'Recovered from stale checking state',
+            sentiment_last_updated = CURRENT_TIMESTAMP
+        WHERE sentiment = 'Checking now...'
+    """))
+    conn.execute(db.text("""
+        UPDATE watchlist
+        SET sentiment = 'Watch',
+            sentiment_reason = 'Recovered from stale checking state',
+            sentiment_last_updated = CURRENT_TIMESTAMP
+        WHERE sentiment = 'Checking now...'
+    """))
+    # Fix blank asset for USDT/USD trades in all_activities
+    conn.execute(db.text("""
+        UPDATE all_activities
+        SET asset = 'USDT'
+        WHERE (asset = '' OR asset IS NULL)
+          AND (txid LIKE '%USDT%' OR details LIKE '%USDT%' OR description LIKE '%USDT%')
+    """))
+
+
 def init_db(app=None):
     """Initialize the database with all models"""
     # Import models here to avoid circular imports
@@ -362,46 +399,7 @@ def init_db(app=None):
 
         try:
             with db.engine.begin() as conn:
-                conn.execute(db.text("""
-                    UPDATE coins
-                    SET avg_entry = 0.0
-                    WHERE amount <= 0.00000001
-                      AND symbol != 'USD'
-                      AND avg_entry > 0
-                      AND symbol NOT IN (
-                          SELECT symbol FROM staked_coins
-                          WHERE amount > 0.00000001 AND (status IS NULL OR status != 'completed')
-                      )
-                """))
-                # Clear any lingering stuck 'Checking now...' sentiment
-                conn.execute(db.text("""
-                    UPDATE coins
-                    SET sentiment = 'Hold',
-                        sentiment_reason = 'Recovered from stale checking state',
-                        sentiment_last_updated = CURRENT_TIMESTAMP
-                    WHERE sentiment = 'Checking now...'
-                """))
-                conn.execute(db.text("""
-                    UPDATE watchlist_coins
-                    SET sentiment = 'Watch',
-                        sentiment_reason = 'Recovered from stale checking state',
-                        sentiment_last_updated = CURRENT_TIMESTAMP
-                    WHERE sentiment = 'Checking now...'
-                """))
-                # Fix blank asset for USDT/USD trades in all_activities
-                conn.execute(db.text("""
-                    UPDATE all_activities
-                    SET asset = 'USDT'
-                    WHERE (asset = '' OR asset IS NULL)
-                      AND (txid LIKE '%USDT%' OR details LIKE '%USDT%' OR description LIKE '%USDT%')
-                """))
-                # Restore GRAM avg_entry if 0 and user holds GRAM
-                conn.execute(db.text("""
-                    UPDATE coins
-                    SET avg_entry = 1.4474
-                    WHERE symbol = 'GRAM'
-                      AND (avg_entry <= 0.0 OR avg_entry IS NULL)
-                """))
+                _recover_startup_state(conn)
         except Exception as e:
             print(f"Startup migration note: {e}")
 
