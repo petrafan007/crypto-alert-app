@@ -758,26 +758,6 @@ def get_coin_sentiment(symbol, coin=None, current_price=None, username=None):
         if hasattr(coin, 'sentiment') and coin.sentiment in ['Buy', 'Sell', 'Hold']:
             return coin.sentiment
         elif hasattr(coin, 'sentiment') and coin.sentiment:
-            if coin.sentiment == "Checking now...":
-                is_stale = True
-                if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated:
-                    try:
-                        ts = coin.sentiment_last_updated
-                        ts_naive = ts.replace(tzinfo=None) if hasattr(ts, 'tzinfo') and ts.tzinfo else ts
-                        if (datetime.utcnow() - ts_naive).total_seconds() < 90:
-                            is_stale = False
-                    except Exception:
-                        pass
-                if is_stale:
-                    try:
-                        coin.sentiment = "Hold"
-                        coin.sentiment_reason = "Sentiment recovered from stale checking state."
-                        coin.sentiment_last_updated = datetime.utcnow()
-                        db.session.commit()
-                        return "Hold"
-                    except Exception:
-                        db.session.rollback()
-                        return "Hold"
             return coin.sentiment
             
         # If no valid sentiment is available, return 'Error' (NEVER fall back to 'Hold')

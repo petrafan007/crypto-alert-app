@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.8.6
+**Version:** 3.8.7
 
 ## Recent Updates
+
+### v3.8.7
+- **Sentiment Stuck State Root Cause Fix:** Resolved the actual cause of Bitcoin and other assets getting permanently stuck on `⌛ Checking now...`. Three bugs fixed: (1) Backend `run_sentiment_analysis_for_user` and `run_watchlist_sentiment_analysis_for_user` were setting `sentiment = "Checking now..."` on init without updating `sentiment_last_updated`, causing the frontend polling timestamp comparison to fail; (2) If the coin list was unexpectedly empty after the init mark (hidden state race), the coin was left permanently stuck — now it resets to `Hold`/`Watch`; (3) The `force-sentiment-analysis` background thread had no top-level exception safety net — a thread crash left the DB record stuck forever. Now wraps the full analysis in `try/except/finally` that guarantees cleanup. Frontend fix: `isChecking` is now only true when an active refresh poll is running (`refreshingSentiment[itemKey]`); a DB-orphaned `"Checking now..."` with no active polling is rendered as `⚠️ Stale` (amber) instead of an infinite spinner, with a tooltip instructing the user to click refresh.
 
 ### v3.8.6
 - **Strategy 50/50 Split Layout Alignment:** Resolved layout nesting where Upside and Downside strategy columns were squeezed side-by-side inside the left half under Quantity. Re-anchored the configuration container as a full-width block with matching grid column spacing (`20px`), aligning Upside Strategy directly underneath Quantity across its full width and Downside Strategy directly underneath Order Value across its full width.

@@ -2081,6 +2081,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
                 c_init = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).first()
                 if c_init:
                     c_init.sentiment = "Checking now..."
+                    c_init.sentiment_last_updated = datetime.utcnow()
                     db.session.commit()
             except Exception:
                 db.session.rollback()
@@ -2092,6 +2093,18 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
 
         if not coins:
             logger.info(f"No portfolio coins found for sentiment analysis for user {username} (symbol={symbol})")
+            # If a single symbol was pre-marked as Checking now... but there's nothing to process,
+            # reset it so it doesn't stay stuck forever.
+            if symbol:
+                try:
+                    c_stuck = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
+                    if c_stuck and c_stuck.sentiment == "Checking now...":
+                        c_stuck.sentiment = "Hold"
+                        c_stuck.sentiment_reason = "No processable coin record found for analysis."
+                        c_stuck.sentiment_last_updated = datetime.utcnow()
+                        db.session.commit()
+                except Exception:
+                    db.session.rollback()
             return 0
 
         logger.info(f"Running portfolio sentiment analysis for {len(coins)} coins (User: {username}, Force: {force}, Symbol: {symbol})")
@@ -2206,6 +2219,8 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
                 w_init = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).first()
                 if w_init:
                     w_init.sentiment = "Checking now..."
+                    if hasattr(w_init, 'sentiment_last_updated'):
+                        w_init.sentiment_last_updated = datetime.utcnow()
                     db.session.commit()
             except Exception:
                 db.session.rollback()
@@ -2217,6 +2232,19 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
 
         if not wl_coins:
             logger.info(f"No watchlist coins found for sentiment analysis for user {username} (symbol={symbol})")
+            # If a single symbol was pre-marked as Checking now... but there's nothing to process,
+            # reset it so it doesn't stay stuck forever.
+            if symbol:
+                try:
+                    w_stuck = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
+                    if w_stuck and w_stuck.sentiment == "Checking now...":
+                        w_stuck.sentiment = "Watch"
+                        w_stuck.sentiment_reason = "No processable watchlist record found for analysis."
+                        if hasattr(w_stuck, 'sentiment_last_updated'):
+                            w_stuck.sentiment_last_updated = datetime.utcnow()
+                        db.session.commit()
+                except Exception:
+                    db.session.rollback()
             return 0
 
         logger.info(f"Running watchlist sentiment analysis for {len(wl_coins)} coins (User: {username}, Force: {force}, Symbol: {symbol})")

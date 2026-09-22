@@ -4317,8 +4317,12 @@ function Dashboard({ isLightMode }) {
     }
     const itemKey = getItemIdentityKey(coin, isWatchlist);
     const rawSentiment = coin.sentiment || (isWatchlist ? 'Watch' : 'Hold');
-    const isChecking = rawSentiment === 'Checking now...' || !!refreshingSentiment[itemKey];
-    const sentiment = isChecking ? 'Checking now...' : rawSentiment;
+    // isChecking is only true when an active refresh is actually running for this coin.
+    // A DB-stored "Checking now..." with no active polling means the backend stalled — treat it as stale.
+    const isActiveRefresh = !!refreshingSentiment[itemKey];
+    const isOrphaned = rawSentiment === 'Checking now...' && !isActiveRefresh;
+    const isChecking = isActiveRefresh;
+    const sentiment = isChecking ? 'Checking now...' : (isOrphaned ? 'Stale' : rawSentiment);
     const rawReason = coin.sentiment_reason || '';
     const cleanReason = (rawReason && !['recommendation', 'sentiment', 'action', 'signal', 'suggestion', 'item 1', 'item 2', 'hold', 'buy', 'sell', 'none', 'null'].includes(rawReason.toLowerCase().trim()))
       ? rawReason.trim()
@@ -4379,6 +4383,9 @@ function Dashboard({ isLightMode }) {
     const tooltipSections = [];
     if (isChecking) {
       tooltipSections.push('Sentiment analysis currently in progress for this coin...');
+    } else if (isOrphaned) {
+      tooltipSections.push('Sentiment analysis stalled — the previous check did not complete. Click the refresh button to retry.');
+      if (lastUpdated) tooltipSections.push(lastUpdated);
     } else {
       if (cleanReason) tooltipSections.push(cleanReason);
       if (lastUpdated) {
@@ -4402,6 +4409,10 @@ function Dashboard({ isLightMode }) {
       color = '#38bdf8';
       bg = 'rgba(56, 189, 248, 0.15)';
       label = '⏳ Checking now...';
+    } else if (isOrphaned) {
+      color = '#f6ad55'; // Amber — stale state
+      bg = 'rgba(246, 173, 85, 0.15)';
+      label = '⚠️ Stale';
     } else if (isWatchlist) {
       if (['Definitely Buy', 'Strong Buy', 'Buy Immediately'].includes(sentiment)) {
         color = '#00e676'; // Bright vibrant green
@@ -4443,7 +4454,7 @@ function Dashboard({ isLightMode }) {
         title={`${tooltip}\n\nDouble-click to disable sentiment tracking for this coin.`}
         onDoubleClick={(e) => handleToggleSentimentTracking(coin, isWatchlist, e)}
         style={{
-          cursor: isChecking ? 'wait' : 'help',
+          cursor: isChecking ? 'wait' : (isOrphaned ? 'pointer' : 'help'),
           whiteSpace: 'nowrap',
           textAlign: 'center',
           padding: '6px 8px'

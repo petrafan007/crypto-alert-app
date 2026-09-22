@@ -633,27 +633,59 @@ def force_sentiment_analysis():
                     db.session.rollback()
                 except Exception:
                     pass
-                if source == 'webull':
-                    try:
-                        from services.webull_signal_service import run_scheduled_webull_signals
-                        run_scheduled_webull_signals(force=True, symbol=symbol)
-                    except Exception as e:
-                        logger.error(f"Error in force webull sentiment analysis: {e}")
-                elif source in ['binance', 'crypto']:
-                    if target in ['all', 'portfolio']:
-                        run_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
-                    if target in ['all', 'watchlist']:
-                        run_watchlist_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
-                else:
-                    if target in ['all', 'portfolio']:
-                        run_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                try:
+                    if source == 'webull':
                         try:
                             from services.webull_signal_service import run_scheduled_webull_signals
                             run_scheduled_webull_signals(force=True, symbol=symbol)
                         except Exception as e:
                             logger.error(f"Error in force webull sentiment analysis: {e}")
-                    if target in ['all', 'watchlist']:
-                        run_watchlist_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                    elif source in ['binance', 'crypto']:
+                        if target in ['all', 'portfolio']:
+                            run_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                        if target in ['all', 'watchlist']:
+                            run_watchlist_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                    else:
+                        if target in ['all', 'portfolio']:
+                            run_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                            try:
+                                from services.webull_signal_service import run_scheduled_webull_signals
+                                run_scheduled_webull_signals(force=True, symbol=symbol)
+                            except Exception as e:
+                                logger.error(f"Error in force webull sentiment analysis: {e}")
+                        if target in ['all', 'watchlist']:
+                            run_watchlist_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                except Exception as thread_err:
+                    logger.error(f"Unhandled error in force_sentiment_analysis thread: {thread_err}")
+                finally:
+                    # Safety net: if a crash left any coin stuck at "Checking now...", resolve it.
+                    if symbol:
+                        try:
+                            from models import Coin, WatchlistCoin
+                            from core.extensions import db as _db
+                            from datetime import datetime as _dt
+                            if target in ['all', 'portfolio'] and source not in ['webull']:
+                                c = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
+                                if c and c.sentiment == 'Checking now...':
+                                    c.sentiment = 'Hold'
+                                    c.sentiment_reason = 'Analysis did not complete — reset to default.'
+                                    c.sentiment_last_updated = _dt.utcnow()
+                                    _db.session.commit()
+                            if target in ['all', 'watchlist']:
+                                w = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
+                                if w and w.sentiment == 'Checking now...':
+                                    w.sentiment = 'Watch'
+                                    w.sentiment_reason = 'Analysis did not complete — reset to default.'
+                                    if hasattr(w, 'sentiment_last_updated'):
+                                        w.sentiment_last_updated = _dt.utcnow()
+                                    _db.session.commit()
+                        except Exception as cleanup_err:
+                            logger.warning(f"Post-analysis cleanup failed for {symbol}: {cleanup_err}")
+                            try:
+                                from core.extensions import db as _db
+                                _db.session.rollback()
+                            except Exception:
+                                pass
         
         thread = threading.Thread(target=run_async)
         thread.start()
