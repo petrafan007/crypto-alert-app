@@ -475,6 +475,8 @@ def get_user_ai_settings(username: str) -> dict:
                     if not settings.get('event_strategy_audit_prompt') and getattr(def_prompts, 'event_strategy_audit_prompt', None):
                         settings['event_strategy_audit_prompt'] = def_prompts.event_strategy_audit_prompt
 
+        from services.jev_settings import settings_for as jev_settings_for
+        settings.update(jev_settings_for(locals().get('user_setting')))
         return settings
     except Exception as e:
         logger.error(f"Error building user AI settings for {username}: {e}")

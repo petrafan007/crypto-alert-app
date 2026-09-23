@@ -77,7 +77,9 @@ def init_db(app=None):
             print(f"db.create_all error: {e}")
         
         # Ensure recently added columns exist in PostgreSQL
+        from services.jev_settings import schema_columns as jev_schema_columns
         columns_to_ensure = [
+            *jev_schema_columns(),
             *[(table, column, declaration) for table in ('trailing_orders', 'ladder_orders')
               for column, declaration in (
                   ('environment', 'VARCHAR(20)'), ('engine_version', 'INTEGER'),

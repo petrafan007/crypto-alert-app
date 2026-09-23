@@ -1,7 +1,7 @@
 """Write-only credential fields for browser settings; never export stored secrets."""
 MASK = '********'
 SECRET_FIELDS = frozenset({
-    'api_key', 'api_secret', 'trading_api_key', 'trading_api_secret',
+    'ai_gateway_key', 'api_key', 'api_secret', 'trading_api_key', 'trading_api_secret',
     'telegram_token', 'telegram_chat_id', 'news_api', 'news_api_key',
     'brave_search_api_key', 'brave_search_api_key_fallback',
     'webull_app_key', 'webull_app_secret', 'webull_access_token',

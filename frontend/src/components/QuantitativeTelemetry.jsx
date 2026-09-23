@@ -1,3 +1,4 @@
+import JevTelemetry from './JevTelemetry';
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { moduleStatusLabel } from '../utils/portfolioModules.mjs';
@@ -52,6 +53,7 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
       ].map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}
     </div>
     <p>Returns include simulated fees and slippage. Annualization needs 30 elapsed days; ratios need 30 daily returns. These are calculation thresholds, not strategy validation or implemented stress tests. Return targets are research objectives.</p>
+    <details><summary>Jev quant shadow research</summary><JevTelemetry useCase="quant_crypto" /></details>
     <PortfolioGoalTracking goal={status?.goal_tracking} />
     {!status?.goal_tracking && (curve.length > 1 ? <div className="quant-equity-chart"><Line data={{
       labels: curve.map(p => date(p.time)), datasets: [{ label: 'Paper equity', data: curve.map(p => p.equity), borderColor: '#38bdf8', pointRadius: 0, borderWidth: 2 },

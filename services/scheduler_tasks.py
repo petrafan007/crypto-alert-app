@@ -1397,6 +1397,8 @@ def sentiment_outcome_evaluation_loop(app):
                         logger.exception('Paper event lifecycle update failed for user %s', account.user_id)
                 evaluated = evaluate_pending_fixed_horizon_sentiments()
                 evaluated += evaluate_due_webull_signals()
+                from services.jev_outcomes import evaluate_pending_outcomes
+                evaluated += evaluate_pending_outcomes()
                 if evaluated:
                     logger.info("Graded %s fixed-horizon sentiment prediction(s).", evaluated)
             iteration()
@@ -1437,6 +1439,10 @@ def start_background_jobs(app=None):
     event_report_thread = threading.Thread(target=event_maintenance_loop, args=(app,), kwargs={'job':'report'}, daemon=True, name='event-reports')
     event_settlement_thread.start()
     event_report_thread.start()
+
+    from services.jev_evaluations import jev_worker_loop
+    jev_thread = threading.Thread(target=jev_worker_loop, args=(app,), daemon=True, name='jev-shadow-worker')
+    jev_thread.start()
 
     from services.portfolio_engine import portfolio_worker_loop, portfolio_audit_loop
     quant_thread = threading.Thread(target=portfolio_worker_loop, args=(app,), daemon=True, name="quant-paper-worker")
@@ -1566,6 +1572,7 @@ def start_background_jobs(app=None):
         "sentiment": sentiment_thread,
         "ai_workflows": ai_workflow_thread,
         "sentiment_outcomes": sentiment_outcome_thread,
+        "jev_shadow": jev_thread,
     }
 
 

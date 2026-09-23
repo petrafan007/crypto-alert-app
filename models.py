@@ -770,3 +770,59 @@ class StakingPurchase(db.Model):
     result = db.Column(db.Text, default='{}')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class JevEvaluation(db.Model):
+    """Durable shadow queue and immutable decision-time evaluation evidence."""
+    __tablename__ = 'jev_evaluations'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    use_case = db.Column(db.String(30), nullable=False)
+    symbol = db.Column(db.String(80), nullable=False)
+    instrument_type = db.Column(db.String(40), nullable=False)
+    market_source = db.Column(db.String(40), nullable=False)
+    state_schema_version = db.Column(db.String(40), nullable=False)
+    question_schema_version = db.Column(db.String(40), nullable=False)
+    state_hash = db.Column(db.String(64), nullable=False)
+    state_json = db.Column(db.Text, nullable=False)
+    answers_json = db.Column(db.Text)
+    probabilities_json = db.Column(db.Text)
+    confidence_json = db.Column(db.Text)
+    settings_json = db.Column(db.Text, nullable=False)
+    provider = db.Column(db.String(40), default='typesafe-ai')
+    model = db.Column(db.String(100))
+    transport = db.Column(db.String(20), default='vercel')
+    latency_ms = db.Column(db.Integer)
+    usage_json = db.Column(db.Text)
+    estimated_cost_usd = db.Column(db.Numeric(20, 12))
+    status = db.Column(db.String(30), nullable=False, default='pending')
+    error_code = db.Column(db.String(60))
+    error_message_safe = db.Column(db.String(200))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    decision_time = db.Column(db.DateTime, nullable=False)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    sentiment_history_id = db.Column(db.Integer, db.ForeignKey('sentiment_history.id'))
+    external_sentiment_signal_id = db.Column(db.Integer, db.ForeignKey('external_sentiment_signals.id'))
+    target_horizon = db.Column(db.Float, nullable=False)
+    outcome_due_at = db.Column(db.DateTime, nullable=False)
+    entry_price = db.Column(db.Float)
+    outcome_price = db.Column(db.Float)
+    outcome_return_pct = db.Column(db.Float)
+    max_favorable_excursion_pct = db.Column(db.Float)
+    max_adverse_excursion_pct = db.Column(db.Float)
+    outcome_evaluated_at = db.Column(db.DateTime)
+    outcome_checked_at = db.Column(db.DateTime)
+    base_signal_json = db.Column(db.Text)
+    action_taken = db.Column(db.String(30), default='shadow')
+    result_state = db.Column(db.String(60))
+    fallback_used = db.Column(db.Boolean, default=False)
+    counterfactual_json = db.Column(db.Text)
+    __table_args__ = (
+        db.Index('ix_jev_user_created', 'user_id', 'created_at'),
+        db.Index('ix_jev_user_symbol_created', 'user_id', 'symbol', 'created_at'),
+        db.Index('ix_jev_use_created', 'use_case', 'created_at'),
+        db.Index('ix_jev_market_outcome', 'user_id', 'symbol', 'market_source', 'decision_time'),
+        db.Index('ix_jev_status_due', 'status', 'outcome_due_at'),
+        db.Index('ix_jev_contract_created', 'question_schema_version', 'created_at'),
+    )

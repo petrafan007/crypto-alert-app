@@ -791,7 +791,13 @@ def api_ai_settings():
         
         elif request.method == "POST":
             # Save AI settings
-            data = request.get_json()
+            from services.credential_views import credential_changes
+            from services.jev_settings import validate_settings, save_settings as save_jev_settings
+            data = credential_changes(request.get_json() or {})
+            try:
+                validate_settings(data)
+            except ValueError as exc:
+                return jsonify(success=False, message=str(exc)), 400
             if not data:
                 return jsonify({"error": "No data provided"}), 400
 
@@ -820,6 +826,8 @@ def api_ai_settings():
                 db.session.add(cred)
             
             # Handle API keys separately
+            if 'ai_gateway_key' in data:
+                cred.ai_gateway_key = data['ai_gateway_key']
             if 'openai_key' in data:
                 cred.openai_key = data.pop('openai_key')
             if 'zai_key' in data:
@@ -921,6 +929,7 @@ def api_ai_settings():
                     }), 400
                 data['automated_trigger_confirmation_minutes'] = confirmation_minutes
             
+            save_jev_settings(user_setting, data)
             # Map of allowed fields to update
             allowed_fields = [
                 'ai_enabled', 'ai_provider', 'ai_model', 'ai_reasoning_level',
@@ -4090,3 +4099,40 @@ def api_ai_copilot_results():
             "stats": {},
             "timestamp": get_eastern_now().isoformat()
         }), 500
+
+
+@ai_bp.route('/api/jev/test-connection', methods=['POST'])
+@login_required
+def test_jev_connection():
+    from services.credential_views import saved_or_supplied
+    from services.jev_settings import settings_for, validate_settings
+    from services.jev_service import JevClient, JevError
+    payload = request.get_json(silent=True) or {}
+    try:
+        config = settings_for(db.session.get(UserSetting, current_user.id))
+        config.update(validate_settings(payload))
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        key = saved_or_supplied(payload.get('ai_gateway_key', '********'), credential, 'ai_gateway_key')
+        result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds']).evaluate(
+            state={'connection_test': True},
+            questions={'connected': {'type': 'boolean', 'instructions': 'Is connection_test true?'}})
+        return jsonify(success=True, model=result.model, latency_ms=result.latency_ms,
+                       message='Jev evaluation connection succeeded.')
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
+    except JevError as exc:
+        return jsonify(success=False, message=str(exc), code=exc.code, latency_ms=exc.latency_ms), 400
+    except Exception:
+        return jsonify(success=False, message='Jev connection test could not be completed.'), 503
+
+
+@ai_bp.route('/api/jev/telemetry', methods=['GET'])
+@login_required
+def jev_telemetry():
+    from services.jev_outcomes import telemetry
+    use_case = request.args.get('use_case')
+    if use_case not in (None, 'sentiment', 'quant_crypto'):
+        return jsonify(message='Unknown Jev use case.'), 400
+    response = jsonify(telemetry(current_user.id, use_case))
+    response.headers['Cache-Control'] = 'no-store'
+    return response

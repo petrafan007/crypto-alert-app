@@ -1,3 +1,4 @@
+import JevSettings, { JEV_DEFAULTS } from '../components/JevSettings';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
@@ -115,6 +116,7 @@ export default function Settings({ isLightMode }) {
     ollama: [],
   });
   const [settings, setSettings] = useState({
+    ...JEV_DEFAULTS,
     api_key: '',
     api_secret: '',
     binance_testnet: true,
@@ -1019,6 +1021,7 @@ export default function Settings({ isLightMode }) {
       });
       setSettings((prev) => ({
         ...prev,
+        ai_gateway_key: settingsResponse.data?.ai_gateway_key || '',
         credentials_encryption_key: Boolean(settingsResponse.data?.credentials_encryption_key_configured)
           ? '********'
           : ''
@@ -2561,6 +2564,7 @@ export default function Settings({ isLightMode }) {
       {/* AI Providers & Models Tab */}
       {activeTab === 'ai-providers' && (
         <div className="settings-grid">
+          <JevSettings settings={settings} onChange={handleInputChange} />
           {/* Row 2, Left: Primary AI Integration */}
           <div className="settings-page-section">
             <h3>Primary AI Integration</h3>

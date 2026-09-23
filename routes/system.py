@@ -1485,6 +1485,11 @@ def api_settings():
         
         if request.method == "POST":
             data = credential_changes(request.get_json() or {})
+            from services.jev_settings import validate_settings, save_settings as save_jev_settings
+            try:
+                validate_settings(data)
+            except ValueError as exc:
+                return jsonify(success=False, message=str(exc)), 400
             ollama_fields = (
                 'ai_provider',
                 'ai_provider_fallback',
@@ -1559,6 +1564,7 @@ def api_settings():
                 user_setting = UserSetting(user_id=current_user.id)
                 db.session.add(user_setting)
             
+            save_jev_settings(user_setting, data)
             allowed_fields = [
                 'ai_enabled', 'ai_provider', 'ai_model', 'ai_risk_tolerance',
                 'ai_confidence_threshold', 'ai_notifications_enabled', 'ai_analysis_frequency',
@@ -1674,6 +1680,8 @@ def api_settings():
                     cred.clear_webull_access_token()
                 # DEPRECATED: trading_api_key/secret are now unified with api_key/secret
                 # We do NOT update them here to prevent overwriting with stale frontend data
+                if 'ai_gateway_key' in data:
+                    cred.ai_gateway_key = data['ai_gateway_key']
                 if 'openai_key' in data:
                     cred.openai_key = data['openai_key']
                 if 'zai_key' in data:
@@ -1789,7 +1797,7 @@ def api_settings():
                     "error": "Credential encryption key is not configured. Add a Fernet key in Settings before saving secrets."
                 }), 500
         
-        response = ai_settings.copy()
+        response = get_user_ai_settings(username).copy()
         webull_settings = UserSetting.query.filter_by(user_id=current_user.id).first()
         
         # Overlay credentials
@@ -1815,6 +1823,7 @@ def api_settings():
             # Legacy fields maintained for frontend compatibility if needed, but values redirected
             "trading_api_key": getattr(cred, 'trading_api_key', None),
             "trading_api_secret": getattr(cred, 'trading_api_secret', None),
+            "ai_gateway_key": "********" if cred._ai_gateway_key else "",
             "openai_key": cred.openai_key,
             "zai_key": getattr(cred, 'zai_key', None),
             "perplexity_key": getattr(cred, 'perplexity_key', None),

@@ -843,6 +843,14 @@ def run_scan(user_id, force=False, provider=None):
     token = claim(user_id, force)
     if not token:
         return {'success': False, 'message': 'Engine stopped, paused, busy, or not due.'}
+    from credentials import UserSetting
+    from services.jev_settings import settings_for as jev_settings_for
+    from services.jev_quant_overlay import build_quant_state, queue_shadow
+    try:
+        jev_config = jev_settings_for(db.session.get(UserSetting, user_id))
+    except Exception:
+        db.session.rollback()
+        jev_config = jev_settings_for(None)
     report = {m: {'status': 'IDLE', 'messages': [], 'evaluated': 0, 'entries': 0,
                   'qualified_signals': 0, 'rejected_entries': [], 'observations': []} for m in MODULES}
     try:
@@ -1002,7 +1010,15 @@ def run_scan(user_id, force=False, provider=None):
                         db.session.rollback()
                         return {'success': False, 'message': 'Engine stopped or ownership changed.'}
                     balances(acc, state, user_id)
+                    jev_state = None
+                    if module == 'crypto' and jev_config['jev_enabled'] and jev_config['jev_quant_shadow_enabled']:
+                        try:
+                            jev_state = build_quant_state(symbol, price, signal, datetime.utcnow(),
+                                {'total_equity': acc.total_equity, 'kill_switch': bool(state.kill_switch)})
+                        except Exception:
+                            pass  # Observability must not change a paper decision.
                     is_held = check_circuit(cfg, acc, state) or not cfg.enabled or state.kill_switch
+                    entries_before_jev = report[module]['entries']
                     for entry_symbol, price, signal, details, key in entries:
                         report[module]['observations'].append({
                             'symbol': entry_symbol, 'observed_at': now.isoformat()+'Z', 'price': price,
@@ -1028,6 +1044,13 @@ def run_scan(user_id, force=False, provider=None):
                     report[module]['evaluated'] += 1
                     report[module]['status'] = 'READY'
                     db.session.commit()
+                    if jev_state is not None:
+                        queue_shadow(user_id, jev_state, jev_config, {
+                            'baseline_qualified': bool(signal and signal.get('enter')),
+                            'baseline_action': 'ENTER' if report[module]['entries'] > entries_before_jev else 'NO_ENTRY',
+                            'execution_held': bool(is_held), 'jev_action': 'SHADOW',
+                            'decision_changed': False,
+                        })
                 except Exception as exc:
                     db.session.rollback()
                     report[module]['messages'].append(f'{watch_symbol}: {str(exc)[:200]}')

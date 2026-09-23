@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.9.3
+**Version:** 4.0.0
 
 ## Recent Updates
+
+### v4.0.0
+- **Jev decision engine:** Added TypeSafe Jev through Vercel AI Gateway as an independent experimental evaluation subsystem. Configure the provider, model and encrypted/masked Vercel key under **Settings → AI Providers & Models**, with dedicated Save and Test Connection controls.
+- **Sentiment research and fast path:** Choose Off, Shadow or Jev-first sentiment, with deterministic portfolio/watchlist label mapping and configurable generative fallback. Evaluations link to existing sentiment and Webull signal history; stablecoin shortcuts remain intact.
+- **Quant shadow observations:** Persist frozen crypto setup features and baseline decisions, then evaluate them in a separate worker without changing paper entries, exits or risk controls. Quant supports Off/Shadow only; paper gating remains unavailable.
+- **Measurable results:** Versioned state/probabilities, usage/reported cost, latency/error telemetry and fixed-horizon outcome calibration are available in the settings and quant UI. Jev defaults to off; measured calibration and trading improvement require collected outcomes.
+- [Configuration, additive migrations, validation and research limitations](docs/jev_v4.0.0.md).
 
 ### v3.9.3
 - **App-owned confirmations:** Removed native browser alerts and confirmations from the frontend. Synthetic strategy cancellation, paper-account reset, exports, analysis, staking, and other notices now use responsive, theme-aware application dialogs.

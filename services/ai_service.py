@@ -726,7 +726,15 @@ def _is_equity_asset(sym, user_id=None):
         return False
     return True
 
-def call_ai_with_web_search(
+def call_ai_with_web_search(*args, jev_context=None, **kwargs):
+    if jev_context is not None:
+        from services.jev_sentiment import run_sentiment
+        # Jev hooks use named arguments; unrelated callers keep their old signature.
+        return run_sentiment(_call_generative_with_web_search, kwargs, jev_context)
+    return _call_generative_with_web_search(*args, **kwargs)
+
+
+def _call_generative_with_web_search(
     username,
     messages,
     model=None,
@@ -747,6 +755,7 @@ def call_ai_with_web_search(
     custom_api_keys=None,
     request_guard=None,
     deadline_monotonic=None,
+    evidence_observer=None,
 ):
     """
     AGENTIC AI WORKFLOW - 3-STAGE PROCESS WITH 3-TIER CASCADE FAILOVER:
@@ -1182,6 +1191,7 @@ def call_ai_with_web_search(
 
         # Stage 2: NewsAPI plus web searches
         search_summaries = []
+        grounding_items = []
         search_sources = set()
         
         freshness_filter = "pd"
@@ -1212,6 +1222,7 @@ def call_ai_with_web_search(
         if search_enabled:
             for news_symbol in news_symbols[:2]:
                 news_items.extend(news_api_search(news_symbol, username, search_lookback_hours, max_results=4, asset_context='crypto' if news_symbol in ('BTC', 'ETH', 'SOL') else asset_context))
+        grounding_items.extend(dict(item, available_at=datetime.now(timezone.utc).isoformat()) for item in news_items)
         for item in news_items:
             src = item.get('source', '')
             if src:
@@ -1233,6 +1244,7 @@ def call_ai_with_web_search(
                     search_error_msg = res.get('error')
                     continue
                 if isinstance(res, list):
+                    grounding_items.extend(dict(item, available_at=datetime.now(timezone.utc).isoformat()) for item in res if item.get('source') != 'System')
                     for item in res:
                         if not item.get('url') or item.get('source') == 'System':
                             continue
@@ -1276,6 +1288,9 @@ def call_ai_with_web_search(
             search_status = f"Google News Fallback ({valid_search_results} results found)"
         else:
             search_status = "Web Search Unavailable"
+
+        if evidence_observer is not None:
+            evidence_observer(grounding_items)
 
         # Stage 3: Synthesis
         stage3_prompt_map = {
@@ -1407,6 +1422,7 @@ def call_ai_with_web_search(
                     custom_api_keys=custom_api_keys,
                     request_guard=request_guard,
                     deadline_monotonic=deadline_monotonic,
+                    evidence_observer=evidence_observer,
                 )
         
         # All tiers exhausted
@@ -1442,6 +1458,7 @@ def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price
         )
         db.session.add(hist)
         db.session.commit()
+        return hist
     except Exception as e:
         logger.error(f"Error recording sentiment history: {e}")
         db.session.rollback()
@@ -1703,7 +1720,8 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             sentiment_post_prompt = (getattr(ai_prompts_obj, 'sentiment_prompt_post', None) or "").strip()
             prompt_type = "sentiment_analysis"
 
-        if not sentiment_pre_prompt or not sentiment_post_prompt:
+        jev_first = settings.get('jev_enabled') and settings.get('jev_sentiment_mode') == 'first'
+        if (not sentiment_pre_prompt or not sentiment_post_prompt) and not jev_first:
             logger.warning(f"Missing sentiment prompts for user {username} (watchlist={is_watchlist}). Marking Error.")
             err_sentiment = "Error"
             err_reason = "Missing sentiment prompt configuration in Settings."
@@ -1859,6 +1877,10 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             search_lookback_hours=lookback_hours,
             forecast_horizon_hours=forecast_horizon_hours,
             attempt_observer=observe_ai_attempt,
+            jev_context={'symbol': symbol, 'instrument_type': 'CRYPTO', 'market_source': 'binance',
+                         'current_price': current_price, 'forecast_horizon_hours': forecast_horizon_hours,
+                         'is_watchlist': is_watchlist, 'market_context': price_vol_history_text,
+                         'market_available_at': datetime.now(timezone.utc).isoformat()},
         )
 
         sentiment_text = ""
@@ -1919,7 +1941,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             except Exception:
                 pass
 
-        record_sentiment_history(
+        sentiment_history = record_sentiment_history(
             user_id=user_id,
             symbol=symbol,
             sentiment=sentiment_result,
@@ -1935,6 +1957,10 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             grading_config=grading_config,
             failover_history=failover_history_json,
         )
+
+        if sentiment_history and getattr(response, 'jev_evaluation_id', None):
+            from services.jev_evaluations import try_update_evaluation
+            try_update_evaluation(response.jev_evaluation_id, user_id=user_id, sentiment_history_id=sentiment_history.id)
 
         log_ai_conversation(user_id, prompt_type, "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id, provider=resp_provider, model=resp_model, tier=resp_tier)
         time.sleep(0.1)

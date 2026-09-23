@@ -71,6 +71,16 @@ class Credential(db.Model):
     _trading_api_key = db.Column("trading_api_key", db.String)
     _trading_api_secret = db.Column("trading_api_secret", db.String)
     
+    _ai_gateway_key = db.Column("ai_gateway_key", db.String)
+
+    @property
+    def ai_gateway_key(self):
+        return decrypt_secret(self._ai_gateway_key)
+
+    @ai_gateway_key.setter
+    def ai_gateway_key(self, value):
+        self._ai_gateway_key = normalize_secret_for_storage(value)
+
     # AI Integration (Primary)
     _openai_key = db.Column("openai_key", db.String)  # Encrypted OpenAI API Key
     _zai_key = db.Column("zai_key", db.String)  # Encrypted Z.AI API Key
@@ -432,6 +442,18 @@ class UserSetting(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), primary_key=True)
     ai_enabled = db.Column(db.Boolean, default=False)
     
+    # Jev is an independent evaluation subsystem. All research influence is opt-in.
+    jev_enabled = db.Column(db.Boolean, default=False)
+    jev_transport = db.Column(db.String(20), default='vercel')
+    jev_model = db.Column(db.String(100), default='typesafe-ai/jev')
+    jev_endpoint = db.Column(db.String(300), default='https://ai-gateway.vercel.sh/v1/evaluate')
+    jev_timeout_seconds = db.Column(db.Float, default=3.0)
+    jev_confidence_threshold = db.Column(db.Float, default=0.8)
+    jev_conflict_threshold = db.Column(db.Float, default=0.5)
+    jev_sentiment_mode = db.Column(db.String(20), default='off')
+    jev_generative_fallback_enabled = db.Column(db.Boolean, default=True)
+    jev_quant_shadow_enabled = db.Column(db.Boolean, default=False)
+
     # Primary AI Tier
     ai_provider = db.Column(db.String, default='openai')
     ai_model = db.Column(db.String, default='gpt-4o')
