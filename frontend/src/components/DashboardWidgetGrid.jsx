@@ -18,11 +18,9 @@ const WIDGETS = [
   { id: 'top_movers', title: 'Top Crypto Gainers & Losers' },
   { id: 'top_stock_movers', title: 'Top Stock Gainers & Losers' },
   { id: 'recent_trades', title: 'Recent Trade History' },
-  { id: 'ai_pulse', title: 'AI Copilot Market Pulse' },
   { id: 'staking_rewards', title: 'Staking Yield Tracker' },
   { id: 'risk_monitor', title: 'Portfolio Risk Monitor' },
   { id: 'quick_trade', title: 'Quick Trade Terminal' },
-  { id: 'gas_monitor', title: 'Network Gas & Fees' },
   { id: 'synthetic_orders', title: 'Synthetic & Ladder Orders' }
 ];
 
@@ -32,11 +30,9 @@ const DEFAULT_HIDDEN_WIDGET_IDS = [
   'portfolio_value',
   'staking',
   'recent_trades',
-  'ai_pulse',
   'staking_rewards',
   'risk_monitor',
-  'quick_trade',
-  'gas_monitor'
+  'quick_trade'
 ];
 
 const getWidgetBounds = (id) => {
@@ -51,11 +47,9 @@ const getWidgetBounds = (id) => {
     case 'top_movers': return { minW: 1, minH: 3 };
     case 'top_stock_movers': return { minW: 1, minH: 3 };
     case 'recent_trades': return { minW: 1, minH: 3 };
-    case 'ai_pulse': return { minW: 1, minH: 3 };
     case 'staking_rewards': return { minW: 1, minH: 2 };
     case 'risk_monitor': return { minW: 1, minH: 2 };
     case 'quick_trade': return { minW: 1, minH: 2 };
-    case 'gas_monitor': return { minW: 1, minH: 2 };
     case 'synthetic_orders': return { minW: 1, minH: 2 };
     default: return { minW: 1, minH: 2 };
   }
@@ -65,7 +59,7 @@ const getWidgetDefaultSize = (id, bp = 'lg') => {
   if (id === 'allocations') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : { w: 4, h: 4 };
   if (id === 'trend') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : bp === 'md' ? { w: 10, h: 4 } : { w: 4, h: 4 };
   if (id === 'performance') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : bp === 'md' ? { w: 5, h: 4 } : { w: 4, h: 4 };
-  if (['top_movers', 'top_stock_movers', 'recent_trades', 'ai_pulse', 'synthetic_orders'].includes(id)) {
+  if (['top_movers', 'top_stock_movers', 'recent_trades', 'synthetic_orders'].includes(id)) {
     return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 7, h: 3 } : { w: 4, h: 3 };
   }
   if (['fear_greed', 'cbbi'].includes(id)) {

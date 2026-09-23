@@ -6,6 +6,7 @@ const CBBIWidget = () => {
   const [cbbiData, setCbbiData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [status, setStatus] = useState('ok');
 
   const fetchCBBIData = async () => {
     try {
@@ -16,9 +17,11 @@ const CBBIWidget = () => {
       }
       const data = await response.json();
       
+      setStatus(data.status || 'ok');
+      
       // Get the latest confidence score
       const confidenceData = data.confidence;
-      if (confidenceData && typeof confidenceData === 'object') {
+      if (confidenceData && typeof confidenceData === 'object' && Object.keys(confidenceData).length > 0) {
         // Get the most recent timestamp and value
         const timestamps = Object.keys(confidenceData).map(Number).sort((a, b) => b - a);
         const latestTimestamp = timestamps[0];
@@ -36,6 +39,7 @@ const CBBIWidget = () => {
       setError(null);
     } catch (err) {
       setError(err.message);
+      setStatus('unavailable');
     } finally {
       setLoading(false);
     }
@@ -114,7 +118,14 @@ const CBBIWidget = () => {
     <div className="cbbi-widget">
       <div className="widget-header">
         <h3>CBBI</h3>
-        <small>Peak Confidence</small>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {status === 'stale' && (
+            <span style={{ fontSize: '10px', backgroundColor: '#f59e0b', color: 'black', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+              STALE
+            </span>
+          )}
+          <small>Peak Confidence</small>
+        </div>
       </div>
       <div className="widget-content">
         <div className="cbbi-center-content">

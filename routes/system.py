@@ -1960,6 +1960,16 @@ def _store_webull_token(credential, token_details, environment):
 def api_initiate_webull_token():
     """Create the server-side Webull token and begin its app/SMS verification flow."""
     try:
+        try:
+            if request.is_json and request.data:
+                data = request.get_json()
+                if not isinstance(data, dict):
+                    return jsonify({'success': False, 'message': 'JSON body must be an object'}), 400
+            else:
+                data = {}
+        except Exception:
+            return jsonify({'success': False, 'message': 'Malformed JSON body'}), 400
+
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
@@ -1979,7 +1989,17 @@ def api_initiate_webull_token():
                 'status': 'PENDING', 'expires': credential.webull_token_expires_at.isoformat()
                 if credential.webull_token_expires_at else None,
             }, environment))
-        force = bool(data.get('force') or request.args.get('force'))
+        
+        raw_force = data.get('force') if 'force' in data else request.args.get('force')
+        if raw_force is None:
+            force = False
+        elif raw_force in (True, 'true', '1', 1):
+            force = True
+        elif raw_force in (False, 'false', '0', 0):
+            force = False
+        else:
+            return jsonify({'success': False, 'message': 'Invalid value for force parameter'}), 400
+        
         if (
             not force
             and credential.webull_access_token
@@ -4693,7 +4713,13 @@ Message:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE
                 )
-                stdout, stderr = process.communicate(email_content.encode())
+                try:
+                    stdout, stderr = process.communicate(email_content.encode(), timeout=15)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                    logger.error("Sendmail timed out")
+                    raise Exception("Sendmail timed out, trying SMTP")
                 if process.returncode != 0:
                     logger.error(f"Sendmail failed: {stderr.decode(errors='ignore')}")
                     raise Exception("Sendmail failed, trying SMTP")
@@ -4708,7 +4734,7 @@ Message:
                 logger.error(f"SMTP also failed: {smtp_err}")
                 # Log the message anyway so we don't lose it
                 logger.info(f"SUPPORT MESSAGE (email failed): From={email}, Topic={topic}, Message={message[:200]}...")
-                # Still return success - message logged
+                return jsonify({"success": False, "message": "Failed to send message. Please try again later."}), 503
         
         logger.info(f"Support message received from {email} about {topic}")
         return jsonify({"success": True, "message": "Message sent successfully"}), 200

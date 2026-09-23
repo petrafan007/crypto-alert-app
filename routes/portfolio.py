@@ -4715,8 +4715,8 @@ def _tax_datetime(value):
     return parsed
 
 
-def _build_tax_transactions(raw_transactions):
-    """Build tax rows and term-specific FIFO results from dated transactions."""
+def _build_tax_transactions(raw_transactions, accounting_method='FIFO'):
+    """Build tax rows and term-specific results using defined accounting methods."""
     from collections import defaultdict, deque
 
     acquisition_types = {'BUY', 'TRANSFER', 'RECEIVE', 'GIFT', 'BONUS'}
@@ -4808,7 +4808,7 @@ def _build_tax_transactions(raw_transactions):
         proceeds_per_unit = proceeds / quantity if quantity else 0.0
 
         while remaining > 1e-12 and lots:
-            lot = lots[0]
+            lot = lots[-1] if accounting_method == 'LIFO' else lots[0]
             slice_amount = min(remaining, lot['amount'])
             cost_slice = slice_amount * (lot['cost'] / lot['amount']) if lot['amount'] else 0.0
             cost_total += cost_slice
@@ -4816,7 +4816,12 @@ def _build_tax_transactions(raw_transactions):
             acquisition_date = lot.get('date')
             if acquisition_date and tx_date:
                 holding_days = max(0, (tx_date - acquisition_date).days)
-                term = 'long_term' if holding_days >= 365 else 'short_term'
+                try:
+                    anniversary_date = acquisition_date.replace(year=acquisition_date.year + 1)
+                except ValueError:
+                    anniversary_date = acquisition_date.replace(year=acquisition_date.year + 1, month=3, day=1)
+                
+                term = 'long_term' if tx_date > anniversary_date else 'short_term'
                 terms.add(term)
                 acquisition_dates.append((acquisition_date, holding_days))
                 if term == 'long_term':
@@ -4830,7 +4835,10 @@ def _build_tax_transactions(raw_transactions):
             lot['cost'] -= cost_slice
             remaining -= slice_amount
             if lot['amount'] <= 1e-12:
-                lots.popleft()
+                if accounting_method == 'LIFO':
+                    lots.pop()
+                else:
+                    lots.popleft()
 
         if remaining > 1e-12:
             fallback_cost = max(stored_cost - cost_total, 0.0)
@@ -4867,7 +4875,7 @@ def _build_tax_transactions(raw_transactions):
     return tax_rows, fifo_lots
 
 
-def _build_webull_tax_report(user_id):
+def _build_webull_tax_report(user_id, accounting_method='FIFO'):
     """Create a tax report from filled live Webull orders and holdings."""
     raw_transactions = []
     holdings = WebullHolding.query.filter_by(user_id=user_id).all()
@@ -4885,7 +4893,7 @@ def _build_webull_tax_report(user_id):
         status = str(order.status or '').upper()
         filled_quantity = float(order.filled_quantity or 0.0)
         filled_price = float(order.filled_price or order.price or 0.0)
-        if filled_quantity <= 0 or filled_price <= 0 or status in {'CANCELED', 'CANCELLED', 'REJECTED', 'WORKING', 'OPEN'}:
+        if filled_quantity <= 0 or filled_price <= 0:
             continue
         side = str(order.side or '').upper()
         tx_type = 'SELL' if side.startswith('SELL') else 'BUY'
@@ -4904,55 +4912,102 @@ def _build_webull_tax_report(user_id):
         }
         fee = abs(float(order.fee or 0.0))
         fee_asset = getattr(order, 'fee_asset', None) or 'USD'
+        inst_type_upper = str(order.instrument_type or '').upper()
+        multiplier = 1.0
+        is_unsupported_multiplier = False
+        if inst_type_upper in ('OPTION', 'FUTURES', 'EVENT'):
+            if hasattr(holding, 'option_multiplier') and holding.option_multiplier:
+                multiplier = float(holding.option_multiplier)
+            elif hasattr(holding, 'contract_multiplier') and holding.contract_multiplier:
+                multiplier = float(holding.contract_multiplier)
+            else:
+                is_unsupported_multiplier = True
+
         if fee == 0.0:
-            inst = str(order.instrument_type or '').upper()
-            if inst == 'EVENT':
+            if inst_type_upper == 'EVENT':
                 fee = round(filled_quantity * 0.025, 4)
-            elif inst == 'OPTION':
+            elif inst_type_upper == 'OPTION':
                 fee = round(filled_quantity * 0.55, 4)
             elif tx_type == 'SELL' and filled_quantity > 0 and filled_price > 0:
                 fee = max(0.01, round(filled_quantity * filled_price * 0.0000278, 2))
-        gross_value = filled_quantity * filled_price
+        
+        gross_value = filled_quantity * filled_price * multiplier if not is_unsupported_multiplier else 0.0
+        
+        from trading_models import TaxCorrection
+        corrections = {c.field: c.new_value for c in TaxCorrection.query.filter_by(user_id=user_id, source='webull', source_id=str(order.id)).all()}
+        
+        try:
+            adj_date = datetime.fromisoformat(corrections['date'].replace('Z', '')) if 'date' in corrections else (order.updated_at or order.created_at)
+        except:
+            adj_date = order.updated_at or order.created_at
+            
+        adj_amount = float(corrections.get('amount', filled_quantity))
+        adj_price = float(corrections.get('price_sold_at', filled_price))
+        adj_fee = float(corrections.get('fee', fee))
+        
+        gross_value = adj_amount * adj_price * multiplier if not is_unsupported_multiplier else 0.0
+        
+        # QA-06 Canonical Lot Identity
+        provider = 'webull'
+        account_id = order.account_id or 'unknown'
+        currency = 'USD'
+        asset_symbol = corrections.get('asset') or instrument.get('instrument_id') or order.symbol
+        asset_type = 'ETF' if is_etf_asset(instrument) else (order.instrument_type or 'ASSET')
+        asset_key = f"{provider}:{account_id}:{currency}:{asset_type}:{asset_symbol}"
         raw_transactions.append({
             'id': order.id,
-            'date': order.updated_at or order.created_at,
+            'date': adj_date,
             'type': tx_type,
             'asset': order.symbol,
             'display_symbol': display_symbol(instrument),
             'is_etf': is_etf_asset(instrument),
             'instrument_type': order.instrument_type,
             'instrument_id': instrument.get('instrument_id'),
-            '_asset_key': f"webull:{instrument.get('instrument_id') or order.symbol}:{'ETF' if is_etf_asset(instrument) else order.instrument_type or 'ASSET'}",
-            'amount': -filled_quantity if tx_type == 'SELL' else filled_quantity,
-            'proceeds': gross_value - fee if tx_type == 'SELL' else 0.0,
-            'cost_basis': gross_value + fee if tx_type == 'BUY' else 0.0,
+            '_asset_key': asset_key,
+            'amount': -adj_amount if tx_type == 'SELL' else adj_amount,
+            'proceeds': gross_value - adj_fee if tx_type == 'SELL' else 0.0,
+            'cost_basis': gross_value + adj_fee if tx_type == 'BUY' else 0.0,
             'gain_loss': None,
-            'fee': fee,
+            'fee': adj_fee,
             'fee_asset': fee_asset,
             'txid': f'webull_{order.account_id}_{order.provider_order_id}',
-            'price_sold_at': filled_price,
+            'price_sold_at': adj_price,
+            'multiplier_warning': is_unsupported_multiplier,
             'exchange': 'webull',
         })
 
     from trading_models import AllActivity
-    manual_webull_activities = AllActivity.query.filter_by(user_id=user_id).all()
-    raw_transactions.extend({
-        'id': activity.id,
-        'date': activity.date,
-        'type': activity.type,
-        'asset': activity.asset,
-        'display_symbol': display_symbol({'symbol': activity.asset, 'source': 'webull'}),
-        'amount': activity.amount,
-        'proceeds': activity.proceeds,
-        'cost_basis': activity.cost_basis,
-        'gain_loss': activity.gain_loss,
-        'fee': activity.fee,
-        'txid': activity.txid,
-        'price_sold_at': activity.price_sold_at,
-        'exchange': 'webull',
-    } for activity in manual_webull_activities if str(activity.exchange or '').lower() == 'webull')
+    from trading_models import TaxCorrection
+    for activity in manual_webull_activities:
+        if str(activity.exchange or '').lower() != 'webull':
+            continue
+        corrections = {c.field: c.new_value for c in TaxCorrection.query.filter_by(user_id=user_id, source='webull', source_id=str(activity.id)).all()}
+        adj_amount = float(corrections.get('amount', activity.amount or 0.0))
+        adj_price = float(corrections.get('price_sold_at', activity.price_sold_at or 0.0))
+        adj_fee = float(corrections.get('fee', activity.fee or 0.0))
+        adj_asset = corrections.get('asset', activity.asset)
+        try:
+            adj_date = datetime.fromisoformat(corrections['date'].replace('Z', '')) if 'date' in corrections else activity.date
+        except:
+            adj_date = activity.date
+            
+        raw_transactions.append({
+            'id': activity.id,
+            'date': adj_date,
+            'type': activity.type,
+            'asset': adj_asset,
+            'display_symbol': display_symbol({'symbol': adj_asset, 'source': 'webull'}),
+            'amount': adj_amount,
+            'proceeds': activity.proceeds,
+            'cost_basis': activity.cost_basis,
+            'gain_loss': activity.gain_loss,
+            'fee': adj_fee,
+            'txid': activity.txid,
+            'price_sold_at': adj_price,
+            'exchange': 'webull',
+        })
 
-    tax_data, fifo_lots = _build_tax_transactions(raw_transactions)
+    tax_data, fifo_lots = _build_tax_transactions(raw_transactions, accounting_method=accounting_method)
     holdings_map = {}
     holdings = [holding for holding in holdings if not getattr(holding, 'hidden', False)]
     for holding in holdings:
@@ -5038,11 +5093,14 @@ def api_tax_report():
     try:
         from trading_models import AllActivity
         from models import Coin
+        from credentials import UserSetting
         source = str(request.args.get('source') or 'binance').lower()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        accounting_method = str(request.args.get('method') or (setting.tax_cost_basis_method if setting else 'fifo')).upper()
         if source not in {'binance', 'webull'}:
             return jsonify({'error': 'Unsupported tax report source'}), 400
         if source == 'webull':
-            return jsonify(_build_webull_tax_report(current_user.id))
+            return jsonify(_build_webull_tax_report(current_user.id, accounting_method=accounting_method))
         # Use actual Binance balances from coins table, not calculated transaction totals
         # sync_coins_from_transactions() overwrites correct balances with wrong calculated amounts
         
@@ -5086,27 +5144,38 @@ def api_tax_report():
                 elif tx_asset in ['USD', 'USDT', 'USDC', 'BUSD', 'DAI']:
                     tx_price = 1.0
 
+            from trading_models import TaxCorrection
+            corrections = {c.field: c.new_value for c in TaxCorrection.query.filter_by(user_id=current_user.id, source='binance', source_id=str(activity.id)).all()}
+            adj_amount = float(corrections.get('amount', activity.amount or 0.0))
+            adj_price = float(corrections.get('price_sold_at', tx_price or 0.0))
+            adj_fee = float(corrections.get('fee', fee or 0.0))
+            adj_asset = corrections.get('asset', tx_asset)
+            try:
+                adj_date = datetime.fromisoformat(corrections['date'].replace('Z', '')) if 'date' in corrections else activity.date
+            except:
+                adj_date = activity.date
+                
             tx_dict = {
                 'id': activity.id,
-                'date': activity.date,
+                'date': adj_date,
                 'type': activity.type,
-                'asset': tx_asset,
-                'amount': activity.amount,
+                'asset': adj_asset,
+                'amount': adj_amount,
                 'proceeds': activity.proceeds,
                 'cost_basis': activity.cost_basis,
                 'gain_loss': activity.gain_loss,
-                'fee': fee,
+                'fee': adj_fee,
                 'fee_asset': fee_asset,
                 'txid': activity.txid,
                 'status': activity.status,
                 'details': activity.details,
-                'price_sold_at': tx_price,
-                'avg_entry': getattr(activity, 'avg_entry', None) or tx_price,
-                'exchange': activity.exchange or 'coinbase'  # Default to coinbase for legacy records
+                'price_sold_at': adj_price,
+                'avg_entry': getattr(activity, 'avg_entry', None) or adj_price,
+                'exchange': activity.exchange or 'coinbase'
             }
             transactions.append(tx_dict)
         
-        tax_data, fifo_lots = _build_tax_transactions(transactions)
+        tax_data, fifo_lots = _build_tax_transactions(transactions, accounting_method=accounting_method)
         
         # Get actual current holdings from the coins table (which reflects real balances)
         current_coins = Coin.query.filter_by(user_id=current_user.id, hidden=False).all()
@@ -6599,17 +6668,69 @@ def set_watchlist_favorite():
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "Watchlist coin not found"}), 404
 
+@portfolio_bp.route("/api/tax/transactions/<source>/<source_id>", methods=["PATCH"])
+@login_required
+def update_tax_transaction(source, source_id):
+    from trading_models import TaxCorrection
+    data = request.get_json()
+    field = data.get('field')
+    value = data.get('value')
+    
+    if not field or value is None:
+        return jsonify({'error': 'Missing field or value'}), 400
+        
+    allowed_fields = {'date', 'asset', 'amount', 'price_sold_at', 'fee'}
+    if field not in allowed_fields:
+        return jsonify({'error': 'Field not editable'}), 400
+        
+    if source == 'binance':
+        from trading_models import AllActivity
+        record = AllActivity.query.filter_by(id=source_id, user_id=current_user.id).first()
+    elif source == 'webull':
+        from models import WebullOrder
+        record = WebullOrder.query.filter_by(id=source_id, user_id=current_user.id).first()
+        if not record:
+            from trading_models import AllActivity
+            record = AllActivity.query.filter_by(id=source_id, user_id=current_user.id).first()
+    else:
+        return jsonify({'error': 'Unsupported source'}), 400
+        
+    if not record:
+        return jsonify({'error': 'Record not found'}), 404
+        
+    override = TaxCorrection.query.filter_by(
+        user_id=current_user.id, source=source, source_id=str(source_id), field=field
+    ).first()
+    
+    if not override:
+        override = TaxCorrection(
+            user_id=current_user.id,
+            source=source,
+            source_id=str(source_id),
+            field=field
+        )
+        db.session.add(override)
+        
+    override.new_value = str(value)
+    override.created_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
 @portfolio_bp.route("/api/tax-report/export", methods=["GET"])
 @login_required
 def export_tax_report_csv():
     try:
         import io
         import csv
+        from credentials import UserSetting
         source = str(request.args.get('source') or 'binance').lower()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        accounting_method = str(request.args.get('method') or (setting.tax_cost_basis_method if setting else 'fifo')).upper()
         if source not in {'binance', 'webull'}:
             return jsonify({'error': 'Unsupported tax report source'}), 400
         if source == 'webull':
-            transactions = _build_webull_tax_report(current_user.id)['transactions']
+            transactions = _build_webull_tax_report(current_user.id, accounting_method=accounting_method)['transactions']
         else:
             from trading_models import AllActivity
             activities = AllActivity.query.filter_by(user_id=current_user.id).order_by(AllActivity.date.desc()).all()
@@ -6630,7 +6751,7 @@ def export_tax_report_csv():
                 }
                 for activity in activities
                 if str(activity.exchange or '').lower() != 'webull'
-            ])
+            ], accounting_method=accounting_method)
         
         output = io.StringIO()
         writer = csv.writer(output)

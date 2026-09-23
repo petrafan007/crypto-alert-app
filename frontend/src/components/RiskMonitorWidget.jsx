@@ -54,14 +54,14 @@ const RiskMonitorWidget = ({ isLightMode, portfolio = [], totalValue = 0 }) => {
           </div>
           <div style={{ padding: '8px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', textAlign: 'center' }}>
             <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' }}>Peak Drawdown</div>
-            <div style={{ fontSize: '15px', fontWeight: '700', color: '#4ade80' }}>
-              -4.2%
+            <div style={{ fontSize: '15px', fontWeight: '700', color: '#94a3b8' }}>
+              N/A
             </div>
           </div>
         </div>
 
         <div style={{ fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
-          Volatility auto-protection is enabled across primary assets.
+          Volatility auto-protection status: Unknown
         </div>
       </div>
     </div>

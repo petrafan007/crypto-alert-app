@@ -1544,10 +1544,18 @@ export default function WebullTrading({ isLightMode = false }) {
     const numCash = parseFloat(orderForm.totalCashAmount) || parseFloat(orderForm.quoteQuantity?.replace(/[^0-9.]/g, '') || 0);
     const numQty = parseFloat(orderForm.quantity || 0);
     const isCashMode = orderForm.entrustType === 'AMOUNT' || (numCash > 0 && (!numQty || numQty <= 0));
+    
+    // Find the actual holding to fallback to its price
+    const actualHolding = holdings.find((h) => 
+      String(h.account_id) === String(activeAcc?.account_id) && 
+      h.symbol === selectedSymbol &&
+      (selectedInstrumentType === 'OPTION' ? h.optionContractId === orderForm.optionContractId : true)
+    );
+    
     const refPx = effectivePrice
       || livePrice
       || (Number(orderForm.price) > 0 ? Number(orderForm.price) : 0)
-      || (Number(selectedHolding?.current_price) > 0 ? Number(selectedHolding.current_price) : 0)
+      || (Number(actualHolding?.current_price) > 0 ? Number(actualHolding.current_price) : 0)
       || 0;
     setScheduledOrderData({
       account_id: activeAcc?.account_id || selectedAccountId || '',
@@ -7361,7 +7369,15 @@ export default function WebullTrading({ isLightMode = false }) {
                     Server-side synthetic trailing stops, tiered ladder scale-outs, and smart bracket orders for Webull Equities, ETFs, and Crypto.
                   </p>
                 </div>
-                <SyntheticOrdersTable accountId={isTestMode ? "TEST_PAPER_ACCOUNT" : effectiveAccountId} testMode={isTestMode} defaultBroker="webull" showBrokerFilter={false} />
+                {(() => {
+                  const renderedAccountId = activeAccount?.account_id || selectedAccountId;
+                  if (!isTestMode && !renderedAccountId) {
+                    return <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>Please select a live account to view synthetic orders.</div>;
+                  }
+                  return (
+                    <SyntheticOrdersTable accountId={isTestMode ? "TEST_PAPER_ACCOUNT" : renderedAccountId} testMode={isTestMode} defaultBroker="webull" showBrokerFilter={false} />
+                  );
+                })()}
               </section>
             )}
 

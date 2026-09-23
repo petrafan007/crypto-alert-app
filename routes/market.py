@@ -808,13 +808,30 @@ def api_fear_greed_index():
         return jsonify({"error": "Failed to fetch Fear & Greed Index"}), 500
 
 
+import time
+
+CBBI_CACHE = {
+    'data': None,
+    'timestamp': 0,
+    'status': 'unavailable'
+}
+CBBI_CACHE_TTL_SECONDS = 3600  # 1 hour
+
 @market_bp.route('/api/widgets/cbbi', methods=['GET'])
 def api_cbbi_data():
     """Proxy endpoint for CBBI data to avoid CORS issues"""
+    global CBBI_CACHE
+    current_time = time.monotonic()
+    
+    if CBBI_CACHE['data'] is not None and (current_time - CBBI_CACHE['timestamp']) < CBBI_CACHE_TTL_SECONDS:
+        response_data = CBBI_CACHE['data'].copy()
+        response_data['status'] = 'ok'
+        return jsonify(response_data)
+        
     try:
         import requests
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         response = requests.get('https://colintalkscrypto.com/cbbi/data/latest.json', 
                               timeout=10, 
@@ -823,36 +840,39 @@ def api_cbbi_data():
         response.raise_for_status()
         data = response.json()
         
-        # Extract the Confidence data which contains the actual CBBI values (not 2YMA)
+        extracted_data = None
         if isinstance(data, dict):
             if 'Confidence' in data:
-                # Use Confidence data which is the actual CBBI score
-                cbbi_data = data['Confidence']
-                return jsonify({"confidence": cbbi_data})
+                extracted_data = {"confidence": data['Confidence']}
             elif 'confidence' in data and 'Confidence' in data['confidence']:
-                # Data is structured differently - extract Confidence
-                return jsonify({"confidence": data['confidence']['Confidence']})
+                extracted_data = {"confidence": data['confidence']['Confidence']}
             elif 'confidence' not in data:
-                # Raw timestamp data - wrap it properly (fallback)
-                return jsonify({"confidence": data})
+                extracted_data = {"confidence": data}
             else:
-                # Already has proper structure
-                return jsonify(data)
+                extracted_data = data
         else:
-            # Unexpected data format
             raise Exception("Unexpected API response format")
             
+        CBBI_CACHE['data'] = extracted_data
+        CBBI_CACHE['timestamp'] = current_time
+        CBBI_CACHE['status'] = 'ok'
+        
+        response_data = extracted_data.copy()
+        response_data['status'] = 'ok'
+        return jsonify(response_data)
+        
     except Exception as e:
         logger.error(f"Error fetching CBBI data: {e}")
-        # Return mock data if the real API fails
-        from datetime import datetime
-        current_timestamp = int(datetime.now().timestamp())
-        mock_data = {
-            "confidence": {
-                str(current_timestamp): 0.25  # 25% confidence (moderate risk)
-            }
-        }
-        return jsonify(mock_data)
+        if CBBI_CACHE['data'] is not None:
+            response_data = CBBI_CACHE['data'].copy()
+            response_data['status'] = 'stale'
+            return jsonify(response_data)
+            
+        return jsonify({
+            "status": "unavailable", 
+            "error": "Failed to fetch CBBI data",
+            "confidence": {}
+        }), 503
 
 def _options_thesis_parameters(data):
     baseline_price = float(data.get("baseline_price", 0))

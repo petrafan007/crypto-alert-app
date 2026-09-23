@@ -48,7 +48,7 @@ class TaxReportCalculationTests(unittest.TestCase):
         self.assertAlmostEqual(fifo_lots['BTC'][0]['amount'], 0.5)
         self.assertAlmostEqual(fifo_lots['BTC'][0]['cost'], 100.0)
 
-    def test_exact_365_day_holding_is_long_term(self):
+    def test_exact_365_day_holding_is_short_term(self):
         transactions, _ = _build_tax_transactions([
             {
                 'id': 1,
@@ -71,8 +71,34 @@ class TaxReportCalculationTests(unittest.TestCase):
         ])
 
         sale = transactions[-1]
-        self.assertEqual(sale['gain_loss_type'], 'long_term')
+        self.assertEqual(sale['gain_loss_type'], 'short_term')
         self.assertEqual(sale['holding_days'], 365)
+
+    def test_366_day_holding_is_long_term(self):
+        transactions, _ = _build_tax_transactions([
+            {
+                'id': 1,
+                'date': '2024-01-01T12:00:00',
+                'type': 'BUY',
+                'asset': 'ETH',
+                'amount': 1.0,
+                'cost_basis': 100.0,
+                'price_sold_at': 100.0,
+            },
+            {
+                'id': 2,
+                'date': '2025-01-02T12:00:00',
+                'type': 'SELL',
+                'asset': 'ETH',
+                'amount': -1.0,
+                'proceeds': 150.0,
+                'price_sold_at': 150.0,
+            },
+        ])
+
+        sale = transactions[-1]
+        self.assertEqual(sale['gain_loss_type'], 'long_term')
+        self.assertEqual(sale['holding_days'], 367)
         self.assertAlmostEqual(sale['long_term_gain_loss'], 50.0)
         self.assertAlmostEqual(sale['short_term_gain_loss'], 0.0)
 

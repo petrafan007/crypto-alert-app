@@ -297,19 +297,14 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     try {
       const { id, columnKey } = editingCell;
       
-      await axios.post('/api/logs/update', {
-        id: id,
+      await axios.patch(`/api/tax/transactions/${source}/${id}`, {
         field: columnKey,
         value: editValue
       }, { withCredentials: true });
       
-      // Update local state
-      setTaxData(prev => ({
-        ...prev,
-        transactions: (prev?.transactions || []).map((t) =>
-          t.id === id ? { ...t, [columnKey]: editValue } : t
-        )
-      }));
+      // Update local state by refetching to ensure tax cells recalculate
+      const response = await axios.get('/api/tax-report', { params: { source }, withCredentials: true });
+      setTaxData(response.data);
       
       setEditingCell(null);
       setEditValue('');

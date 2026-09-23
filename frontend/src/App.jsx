@@ -341,7 +341,7 @@ export default function App() {
 
       {/* Main Content */}
       <div className={isOnboarding ? '' : 'main-content'}>
-        <ErrorBoundary fallbackTitle="View Loading Error" fallbackMessage="An error occurred while displaying this page. Please reload to restore live data.">
+        <ErrorBoundary fallbackTitle="View Loading Error" fallbackMessage="An error occurred while displaying this page. Please reload to restore live data." resetKey={location.pathname}>
           <React.Suspense fallback={
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
               <div className="spinner-border text-primary" role="status">

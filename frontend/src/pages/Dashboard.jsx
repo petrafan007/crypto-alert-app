@@ -19,11 +19,9 @@ import DashboardWidgetGrid from '../components/DashboardWidgetGrid';
 import TopMoversWidget from '../components/TopMoversWidget';
 import TopStockMoversWidget from '../components/TopStockMoversWidget';
 import RecentTradesWidget from '../components/RecentTradesWidget';
-import AIPulseWidget from '../components/AIPulseWidget';
 import StakingYieldWidget from '../components/StakingYieldWidget';
 import RiskMonitorWidget from '../components/RiskMonitorWidget';
 import QuickTradeWidget from '../components/QuickTradeWidget';
-import GasMonitorWidget from '../components/GasMonitorWidget';
 import SyntheticOrdersWidget from '../components/SyntheticOrdersWidget';
 import { FaBitcoin, FaDollarSign, FaSyncAlt } from 'react-icons/fa';
 import { SiBinance } from 'react-icons/si';
@@ -4744,16 +4742,12 @@ function Dashboard({ isLightMode }) {
                 />;
               case 'recent_trades':
                 return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} onCoinClick={handleCoinClick} accountScope={accountScope} />;
-              case 'ai_pulse':
-                return <AIPulseWidget isLightMode={isLightMode} />;
               case 'staking_rewards':
                 return <StakingYieldWidget isLightMode={isLightMode} />;
               case 'risk_monitor':
                 return <RiskMonitorWidget isLightMode={isLightMode} portfolio={scopedPortfolio} totalValue={scopedTotalValue} />;
               case 'quick_trade':
                 return <QuickTradeWidget isLightMode={isLightMode} portfolio={scopedPortfolio} accountScope={accountScope} />;
-              case 'gas_monitor':
-                return <GasMonitorWidget isLightMode={isLightMode} />;
               case 'synthetic_orders':
                 return <SyntheticOrdersWidget isLightMode={isLightMode} />;
               default:

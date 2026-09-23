@@ -3395,3 +3395,13 @@ Historical changelog entries retain the product name used when they were origina
 * Relocated Master Engine and AI Evaluation statuses to the top of the Quantitative Strategy Engine ribbon for centralized visibility.
 * Removed redundant "Save Settings" buttons inside the strategy configuration modals.
 * Expanded the Master Quantitative Strategy Engine AI Configuration modal to include a consolidated Master CIO/Auditor system prompt input field.
+
+## Release Notes v4.1.0 (Phase 1 & 2 Audit Fixes)
+- **Webull Token Resiliency**: Corrected parser to handle nested headers from Android token exports.
+- **Order Scheduling Resiliency**: Improved order polling algorithms to catch silent failures and prevent zombie orders.
+- **Tax Report Math Fixes**:
+  - Validated 365-day short term limit per IRS guidelines.
+  - Added option & future multiplier support for Webull tax accounting.
+  - Tax overriding allows inline adjustments to correct import discrepancies.
+  - Plumbed user FIFO/LIFO choices reliably end-to-end.
+- **Frontend Quality of Life**: Added full Error Boundary reset flows, stabilized Trading View widget caching, and optimized dashboard UI layout.

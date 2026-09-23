@@ -434,6 +434,22 @@ class SyntheticExecution(db.Model):
                             'error_message', 'created_at', 'updated_at')
                 for value in (getattr(self, key),)}
 
+class TaxCorrection(db.Model):
+    """
+    User-provided overrides for imported or manual tax records.
+    """
+    __tablename__ = 'tax_corrections'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    source = Column(String(20), nullable=False) # 'webull' or 'binance'
+    source_id = Column(String(100), nullable=False)
+    field = Column(String(50), nullable=False)
+    original_value = Column(String(255), nullable=True)
+    new_value = Column(String(255), nullable=True)
+    reason = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class AllActivity(db.Model):
     """
