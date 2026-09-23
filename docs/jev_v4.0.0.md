@@ -66,7 +66,7 @@ Run the Jev suites with `.venv/bin/python -m unittest tests.test_jev_service tes
 
 The browser test `tests/browser/jev_settings.mjs` exercises the real settings tab against local API fixtures, including mobile layout. Run it against the frontend dev server with `PLAYWRIGHT_MODULE` pointing to an installed Playwright module if needed.
 
-After an explicitly requested release, normal startup applies the additive migration and starts the Jev worker. No release, tag, push or personal-instance deployment is part of this implementation-only task.
+The repository release routine publishes v4.0.0 and upgrades the personal instance. Normal startup applies the additive migration and starts the Jev worker; deployment verification must confirm both services, port 5010, the Jev schema and the release commit.
 
 ### Implementation verification — September 23, 2026
 
@@ -75,4 +75,4 @@ After an explicitly requested release, normal startup applies the additive migra
 - Related sentiment/outcome, external-signal, credential and Telegram settings regressions passed in isolated SQLite tests.
 - The real Settings tab passed browser fixture checks for placement, defaults, save/reload, masked key, connection testing, quant shadow controls and a 390-pixel mobile viewport.
 - `npm run build`, Python compilation for all 24 modified/new modules, and `git diff --check` passed. Built frontend artifacts are included.
-- Live Vercel authentication/inference has not been tested with a real account key. No API key was required or used by automated tests. Release publication and personal-instance deployment have not been performed.
+- Live Vercel authentication/inference has not been tested with a real account key. No API key was required or used by automated tests. Release and deployment verification are performed separately from these isolated implementation tests.
