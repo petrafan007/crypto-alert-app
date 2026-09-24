@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.2.0
+**Version:** 4.2.1
 
 ## Recent Updates
+
+### v4.2.1
+- **Replace Order Enhancements:** The Replace Order modal now displays the real-time market price of the asset being replaced. Additionally, adjusting either the price or the quantity automatically scales the other field to maintain the same total order value.
 
 ### v4.2.0
 - **Replace Order Capability:** Added the ability to replace pending limit orders (including Binance orders) natively without having to manually cancel and recreate them. The Replace button is now available next to the Cancel button across the portfolio grid, watchlist, and their respective context menus. A confirmation modal provides 2FA security validation before execution.

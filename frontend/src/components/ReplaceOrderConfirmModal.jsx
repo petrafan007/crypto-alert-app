@@ -14,7 +14,7 @@ export default function ReplaceOrderConfirmModal({
 }) {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [localError, setLocalError] = useState('');
-  
+
   const [newPrice, setNewPrice] = useState('');
   const [newQuantity, setNewQuantity] = useState('');
 
@@ -22,10 +22,10 @@ export default function ReplaceOrderConfirmModal({
     if (isOpen && order) {
       setTwoFactorCode('');
       setLocalError('');
-      
+
       const price = order.price || order.trigger_price || '';
       const quantity = order.quantity || order.origQty || order.amount || '';
-      
+
       setNewPrice(price ? String(price) : '');
       setNewQuantity(quantity ? String(quantity) : '');
     }
@@ -37,7 +37,7 @@ export default function ReplaceOrderConfirmModal({
   const isAutoBuy = !!order.isAutoBuy || order.trigger_type === 'auto_buy';
   const isAutoSell = !!order.isAutoSell || order.trigger_type === 'auto_sell';
   const isAutoTrigger = isAutoBuy || isAutoSell;
-  
+
   const isLadder = String(order.order_id || '').startsWith('ladder_');
   const isTrailing = String(order.order_id || '').startsWith('trail_');
 
@@ -59,17 +59,49 @@ export default function ReplaceOrderConfirmModal({
     orderDescription += ` @ $${Number(oldPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
   }
 
+  const handlePriceChange = (val) => {
+    setNewPrice(val);
+    setLocalError('');
+    if (!val) return;
+
+    const numericVal = parseFloat(val);
+    const oldQtyNum = parseFloat(oldQuantity);
+    const oldPriceNum = parseFloat(oldPrice);
+
+    if (!isNaN(numericVal) && numericVal > 0 && !isNaN(oldQtyNum) && !isNaN(oldPriceNum)) {
+      const totalValue = oldPriceNum * oldQtyNum;
+      const calculatedQty = totalValue / numericVal;
+      setNewQuantity(Number(calculatedQty.toFixed(8)).toString());
+    }
+  };
+
+  const handleQuantityChange = (val) => {
+    setNewQuantity(val);
+    setLocalError('');
+    if (!val) return;
+
+    const numericVal = parseFloat(val);
+    const oldQtyNum = parseFloat(oldQuantity);
+    const oldPriceNum = parseFloat(oldPrice);
+
+    if (!isNaN(numericVal) && numericVal > 0 && !isNaN(oldQtyNum) && !isNaN(oldPriceNum)) {
+      const totalValue = oldPriceNum * oldQtyNum;
+      const calculatedPrice = totalValue / numericVal;
+      setNewPrice(Number(calculatedPrice.toFixed(8)).toString());
+    }
+  };
+
   const handleConfirmClick = async () => {
     if (!/^\d{6}$/.test(twoFactorCode)) {
       setLocalError('Enter a valid 6-digit two-factor authentication code.');
       return;
     }
-    
+
     if (!newPrice || Number(newPrice) <= 0) {
       setLocalError('Please enter a valid new price.');
       return;
     }
-    
+
     if (!isAutoTrigger && !isTrailing && !isLadder && (!newQuantity || Number(newQuantity) <= 0)) {
       setLocalError('Please enter a valid new quantity.');
       return;
@@ -109,7 +141,12 @@ export default function ReplaceOrderConfirmModal({
           <p className="replace-confirm-main-text">
             You are replacing <strong>{orderDescription}</strong>.
           </p>
-          
+          {coin?.current_price && (
+            <p className="replace-current-price" style={{ margin: '0 0 16px 0', fontSize: '13px', color: 'var(--text-secondary, #94a3b8)' }}>
+              Current Market Price: <strong>${Number(coin.current_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</strong>
+            </p>
+          )}
+
           <div className="replace-order-inputs">
              <div className="replace-input-group">
                 <label htmlFor="replace-price">New Price ($)</label>
@@ -117,7 +154,7 @@ export default function ReplaceOrderConfirmModal({
                   type="number"
                   id="replace-price"
                   value={newPrice}
-                  onChange={(e) => { setNewPrice(e.target.value); setLocalError(''); }}
+                  onChange={(e) => handlePriceChange(e.target.value)}
                   min="0"
                   step="any"
                   disabled={loading}
@@ -131,7 +168,7 @@ export default function ReplaceOrderConfirmModal({
                     type="number"
                     id="replace-quantity"
                     value={newQuantity}
-                    onChange={(e) => { setNewQuantity(e.target.value); setLocalError(''); }}
+                    onChange={(e) => handleQuantityChange(e.target.value)}
                     min="0"
                     step="any"
                     disabled={loading}

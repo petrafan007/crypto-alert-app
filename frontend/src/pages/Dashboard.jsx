@@ -7060,7 +7060,10 @@ function Dashboard({ isLightMode }) {
         isOpen={replaceModalState.isOpen}
         onClose={() => setReplaceModalState({ isOpen: false, coin: null, order: null, loading: false, error: null })}
         order={replaceModalState.order}
-        coin={replaceModalState.coin}
+        coin={replaceModalState.coin?.isWatchlist
+          ? watchlist.find(c => c.symbol === replaceModalState.coin?.symbol) || replaceModalState.coin
+          : portfolio.find(c => c.symbol === replaceModalState.coin?.symbol) || replaceModalState.coin
+        }
         onConfirm={handleConfirmReplaceOrder}
         loading={replaceModalState.loading}
         error={replaceModalState.error}
