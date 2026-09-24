@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.3.3
+**Version:** 4.3.4
 
 ## Recent Updates
+
+### v4.3.4
+- **Compact Replace Modal:** Redesigned the Replace Order modal to aggressively condense margins, padding, and UI elements. The entire replacement form (for Binance, Webull, and synthetic orders) now fits neatly into a single view without any scrolling required.
+- **Synthetic Replace Orders:** You can now natively replace Synthetic Orders (e.g. Smart Brackets) directly from the context menu, bringing parity with standard Limit orders.
+- **Optimistic State Persistence:** Fixed a UI race condition where coins hidden from the portfolio would momentarily reappear before the database update was fully broadcast to subsequent state fetches. Hidden coins now immediately and permanently disappear from the table without flashing.
 
 ### v4.3.3
 - **Embedded Modal Cleanup:** Hid unnecessary navigation tabs and large charts in the embedded Replace Order modal for Binance.US to reduce clutter and focus purely on order replacement fields. Also updated submit button text to reflect "Replace Order".

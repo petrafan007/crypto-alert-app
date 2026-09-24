@@ -139,6 +139,7 @@ function Dashboard({ isLightMode }) {
   const [accountTotals, setAccountTotals] = useState({ all: 0, binance: 0, webull: 0 });
   const [accountScope, setAccountScope] = useState(() => localStorage.getItem('dashboard_account_scope') || 'all');
   const [portfolio, setPortfolio] = useState([]);
+  const [optimisticHiddenCoins, setOptimisticHiddenCoins] = useState(new Set());
   const [watchlist, setWatchlist] = useState([]);
   const [portfolioAssetFilter, setPortfolioAssetFilter] = useState(() => localStorage.getItem('dashboard_portfolio_asset_filter') || 'all');
   const [watchlistAssetFilter, setWatchlistAssetFilter] = useState(() => localStorage.getItem('dashboard_watchlist_asset_filter') || 'all');
@@ -391,6 +392,7 @@ function Dashboard({ isLightMode }) {
     else if (accountScope === 'webull') list = portfolio.filter(item => item.is_external === true || item.source === 'webull');
     // Defensively exclude any duplicate Webull Events Cash USD holding if one was returned
     return list.filter(item => {
+      if (optimisticHiddenCoins.has(item.id)) return false;
       const isWebull = item?.is_external === true || item?.source === 'webull';
       if (!isWebull) return true;
       const isCash = String(item?.symbol || '').toUpperCase() === 'USD' || String(item?.instrument_type || '').toUpperCase() === 'CASH';
@@ -398,7 +400,7 @@ function Dashboard({ isLightMode }) {
       const accountType = String(item?.webull_account_type || item?.account_label || '').toLowerCase();
       return !accountType.includes('event');
     });
-  }, [portfolio, accountScope]);
+  }, [portfolio, accountScope, optimisticHiddenCoins]);
 
   const scopedTotalValue = useMemo(() => {
     const apiTotal = Number(accountTotals[accountScope] ?? 0);
@@ -2554,13 +2556,10 @@ function Dashboard({ isLightMode }) {
   const canReplaceOrder = (order) => {
     const isAutoBuy = !!order.isAutoBuy || order.trigger_type === 'auto_buy';
     const isAutoSell = !!order.isAutoSell || order.trigger_type === 'auto_sell';
-    const isLadder = String(order.order_id || '').startsWith('ladder_');
-    const isTrailing = String(order.order_id || '').startsWith('trail_');
-    if (isAutoBuy || isAutoSell || isLadder || isTrailing) return false;
+    if (isAutoBuy || isAutoSell) return false;
     const orderId = String(order.order_id || order.orderId || order.id || '');
     if (orderId.startsWith('webull-')) return false;
-    const type = String(order.type || order.order_type || '').toUpperCase();
-    return type.includes('LIMIT');
+    return true; // Allow replacing all other open orders (Limit, OCO, Bracket, Synthetic)
   };
 
   const handleReplaceButtonClick = (coin, coinOrders, event) => {
@@ -3581,6 +3580,11 @@ function Dashboard({ isLightMode }) {
   const hideCoin = async (coinId, symbol) => {
     try {
       console.log('Hiding coin with ID:', coinId, 'symbol:', symbol);
+      
+      // Optimistically hide immediately
+      setOptimisticHiddenCoins(prev => new Set(prev).add(coinId));
+      setPortfolio(prev => prev.filter(coin => coin.id !== coinId));
+      
       const response = await axios.post('/api/hide-coin', {
         coin_id: coinId,
         symbol: symbol,
@@ -3588,11 +3592,23 @@ function Dashboard({ isLightMode }) {
 
       console.log('Hide response:', response.data);
       if (response.data.success) {
-        setPortfolio(prev => prev.filter(coin => coin.id !== coinId));
         console.log('Coin hidden successfully');
+      } else {
+        // Revert if failed
+        setOptimisticHiddenCoins(prev => {
+          const next = new Set(prev);
+          next.delete(coinId);
+          return next;
+        });
       }
     } catch (err) {
       console.error('Hide coin error:', err);
+      // Revert if failed
+      setOptimisticHiddenCoins(prev => {
+        const next = new Set(prev);
+        next.delete(coinId);
+        return next;
+      });
     }
   };
 

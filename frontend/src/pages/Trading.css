@@ -3114,3 +3114,102 @@ body.light-mode .event-payout-summary strong { color: #166534; }
     grid-template-columns: 1fr !important;
   }
 }
+
+/* ==========================================================================
+   EMBEDDED REPLACE MODE - CONDENSED UI
+   Overrides the default Trading.jsx layout for a compact modal experience
+   ========================================================================== */
+
+.embedded-replace-mode {
+  padding: 0 !important;
+  min-height: auto !important;
+}
+
+/* Condense the header cards grid */
+.embedded-replace-mode .trading-order-header-cards {
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 8px !important;
+  margin-bottom: 12px !important;
+}
+
+/* Shrink the header cards */
+.embedded-replace-mode .trading-asset-card {
+  padding: 8px 10px !important;
+  gap: 8px !important;
+}
+
+.embedded-replace-mode .trading-asset-card svg {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+.embedded-replace-mode .trading-asset-card-label {
+  font-size: 0.7rem !important;
+  margin-bottom: 2px !important;
+}
+
+.embedded-replace-mode .trading-asset-card-value {
+  font-size: 1rem !important;
+}
+
+.embedded-replace-mode .trading-asset-card-sub {
+  font-size: 0.7rem !important;
+}
+
+/* Condense the order form container */
+.embedded-replace-mode .order-form-container {
+  padding: 16px !important;
+  margin-top: 0 !important;
+}
+
+/* Shrink margins inside the form */
+.embedded-replace-mode .order-form-group {
+  margin-bottom: 12px !important;
+}
+
+/* Condense the order side buttons (Buy/Sell) */
+.embedded-replace-mode .order-side-toggle {
+  margin-bottom: 12px !important;
+}
+.embedded-replace-mode .order-side-toggle button {
+  padding: 8px 12px !important;
+  font-size: 0.9rem !important;
+}
+
+/* Shrink the order type tabs */
+.embedded-replace-mode .order-type-tabs {
+  margin-bottom: 16px !important;
+  gap: 4px !important;
+}
+.embedded-replace-mode .order-type-tabs button {
+  padding: 6px 10px !important;
+  font-size: 0.75rem !important;
+}
+
+/* Condense the inputs */
+.embedded-replace-mode .modern-input,
+.embedded-replace-mode .modern-select {
+  padding: 8px 12px !important;
+  font-size: 0.9rem !important;
+  height: 38px !important;
+}
+
+/* Adjust labels */
+.embedded-replace-mode label {
+  font-size: 0.75rem !important;
+  margin-bottom: 4px !important;
+}
+
+/* Shrink max button and percentage shortcuts */
+.embedded-replace-mode .max-button,
+.embedded-replace-mode .shortcut-btn {
+  padding: 4px 8px !important;
+  font-size: 0.7rem !important;
+}
+
+/* Submit button */
+.embedded-replace-mode .modern-submit-button {
+  padding: 10px 16px !important;
+  font-size: 0.95rem !important;
+  margin-top: 8px !important;
+}

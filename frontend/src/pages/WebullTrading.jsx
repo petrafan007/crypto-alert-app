@@ -4994,7 +4994,9 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
   return (
     <div className="trading-page webull-trading-page">
-      <div className="trading-header" style={{ marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+      {!isEmbeddedReplaceMode && (
+        <>
+          <div className="trading-header" style={{ marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1 style={{ fontSize: '2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
             <WebullLogo size={32} /> Webull Trading
@@ -5257,10 +5259,13 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
           </div>
         </div>
       )}
+        </>
+      )}
 
       {error && <div className="modern-real-warning" style={{ marginBottom: '16px' }}>⚠️ {error}</div>}
       {/* Navigation Tabs */}
-      <div className="trading-tabs webull-trading-tabs">
+      {!isEmbeddedReplaceMode && (
+        <div className="trading-tabs webull-trading-tabs">
         <button className={`tab-button ${activeTab === 'order' && selectedInstrumentType === 'EQUITY' ? 'active' : ''}`} onClick={() => handleAssetTabChange('EQUITY')} disabled={assetClassDisabled('EQUITY')} title={assetClassDisabled('EQUITY') ? 'Stocks and ETFs are unavailable in a Crypto Webull account.' : 'Trade stocks and ETFs'}>
           <span className="tab-text">Equities &amp; ETFs</span>
         </button>
@@ -5299,6 +5304,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
           </button>
         )}
       </div>
+      )}
 
       <div className="trading-content">
         {loading ? (
@@ -5320,7 +5326,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
             {activeTab === 'order' && !(selectedInstrumentType === 'EQUITY' && equityOrderMode === 'combo') && (
               <div className="order-form-container">
                 {/* 1. FUTURES DISCOVERY & SELECTION SUITE (Appears FIRST at the top when FUTURES selected) */}
-                {selectedInstrumentType === 'FUTURES' && (
+                {!isEmbeddedReplaceMode && selectedInstrumentType === 'FUTURES' && (
                   <WebullFuturesDiscoverySuite
                     catalog={futuresCatalog}
                     loading={futuresLoading}
@@ -5340,7 +5346,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                 )}
 
                 {/* 2. Full-Width Chart: Native Open-Source Lightweight Chart for FUTURES, TradingView Widget for Stocks/Crypto/Options */}
-                {selectedInstrumentType === 'FUTURES' ? (
+                {!isEmbeddedReplaceMode && (selectedInstrumentType === 'FUTURES' ? (
                   <WebullFuturesLightweightChart
                     symbol={selectedSymbol || selectedFuturesProduct?.product_code || 'MES'}
                     product={selectedFuturesProduct}
@@ -5371,10 +5377,10 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                     isLightMode={isLightMode}
                     accountOnly={selectedInstrumentType === 'EVENT'}
                   />
-                )}
+                ))}
 
                 {/* 3. CONTRACT SPECIFICATIONS & MARGIN STRIP (Positioned beneath live chart for FUTURES) */}
-                {selectedInstrumentType === 'FUTURES' && (
+                {!isEmbeddedReplaceMode && selectedInstrumentType === 'FUTURES' && (
                   <WebullFuturesSpecStrip
                     selectedContract={selectedFuturesContract}
                     isLightMode={isLightMode}
@@ -6804,14 +6810,26 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                           <span>⏳ Processing Order...</span>
                         ) : isQuantMode ? (
                           <span>🤖 Quantitative Strategy Mode Active (Autonomous Trading)</span>
-                        ) : isTestMode ? (
-                          <span>
-                            🧪 Place Simulated {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
-                          </span>
+                        ) : isEmbeddedReplaceMode ? (
+                          isTestMode ? (
+                            <span>
+                              🧪 Replace Simulated {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
+                            </span>
+                          ) : (
+                            <span>
+                              ⚡ Replace Real {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
+                            </span>
+                          )
                         ) : (
-                          <span>
-                            ⚡ Place Real {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
-                          </span>
+                          isTestMode ? (
+                            <span>
+                              🧪 Place Simulated {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
+                            </span>
+                          ) : (
+                            <span>
+                              ⚡ Place Real {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
+                            </span>
+                          )
                         )}
                       </button>
                     </div>

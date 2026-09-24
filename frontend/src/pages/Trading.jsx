@@ -2140,7 +2140,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
   ];
 
   return (
-    <div className="trading-container" style={{ minHeight: '100vh', padding: '20px', color: isLightMode ? '#2d3748' : '#ffffff' }}>
+    <div className={`trading-container ${isEmbeddedReplaceMode ? 'embedded-replace-mode' : ''}`} style={isEmbeddedReplaceMode ? { color: isLightMode ? '#2d3748' : '#ffffff' } : { minHeight: '100vh', padding: '20px', color: isLightMode ? '#2d3748' : '#ffffff' }}>
       {/* API Key Required Modal */}
       <ApiKeyRequiredModal
         show={showApiKeyModal}
