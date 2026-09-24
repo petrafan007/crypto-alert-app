@@ -67,7 +67,7 @@ const getOrderOrigin = (order) => {
 
 const DEFAULT_TRADING_PAIR = 'BTCUSDT';
 
-const Trading = ({ isLightMode = false }) => {
+const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedOrder = null, embeddedCoin = null, onEmbeddedClose = null, onEmbeddedSuccess = null }) => {
   const { user } = useAuth();
   console.log('Trading component rendering...');
   const location = useLocation();

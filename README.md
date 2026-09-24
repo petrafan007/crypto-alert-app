@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.3.0
+**Version:** 4.3.1
 
 ## Recent Updates
+
+### v4.3.1
+- **Hotfix:** Fixed a `ReferenceError` preventing the Trading page and embedded Replace Order modal from loading due to missing destructuring of `isEmbeddedReplaceMode` in the `Trading.jsx` component signature.
 
 ### v4.3.0
 - **Advanced Replace Order Modal:** Upgraded the Replace Order modal to natively embed the full Trading and WebullTrading interfaces. This provides the complete suite of order options, fractional calculations, maximum asset allocations, dynamic percentages, and precise asset-specific validation within the replace flow, completely replacing the previous simplified modal.
