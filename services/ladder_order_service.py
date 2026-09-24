@@ -173,8 +173,11 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     clean_upside_mode = str(upside_mode or 'LADDER').strip().upper()
     clean_downside_mode = str(downside_mode or 'NONE').strip().upper()
 
-    if clean_upside_mode not in {'SINGLE', 'LADDER', 'TRAILING'} or clean_downside_mode not in {'NONE', 'SINGLE', 'LADDER', 'TRAILING'}:
+    if clean_upside_mode not in {'NONE', 'SINGLE', 'LADDER', 'TRAILING'} or clean_downside_mode not in {'NONE', 'SINGLE', 'LADDER', 'TRAILING'}:
         raise ValueError('Choose a supported upside and downside mode.')
+
+    if clean_upside_mode == 'NONE' and clean_downside_mode == 'NONE':
+        raise ValueError('You must configure at least one active strategy (upside or downside).')
 
     if clean_side not in ('BUY', 'SELL'):
         raise ValueError("Order side must be BUY or SELL.")

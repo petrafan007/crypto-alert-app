@@ -94,9 +94,10 @@ export function buildSyntheticPayload(config) {
   const numeric = value => value === '' || value === null || value === undefined ? null : Number(value);
   const rungs = rows => (rows || []).map(r => ({ price_offset_pct: Number(r.price_offset_pct), percentage_of_total: Number(r.percentage_of_total), target_price: numeric(r.target_price) }));
   const protectedOrder = config.hasDownsideProtection ?? config.hasStopLoss ?? false;
+  const hasUpside = config.hasUpsideProtection ?? true;
   return {
     strategy_type: protectedOrder ? 'BRACKET' : config.upsideMode === 'TRAILING' ? 'TRAILING' : 'LADDER',
-    upside_mode: config.upsideMode || 'LADDER', upside_target_price: numeric(config.upsideTargetPrice),
+    upside_mode: hasUpside ? (config.upsideMode || 'LADDER') : 'NONE', upside_target_price: numeric(config.upsideTargetPrice),
     upside_trail_value: numeric(config.upsideTrailValue), upside_trail_type: config.upsideTrailType || 'PERCENT',
     upside_activation_price: numeric(config.upsideActivationPrice),
     preset_name: config.upsidePreset || config.preset || 'CONSERVATIVE',
