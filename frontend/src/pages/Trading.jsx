@@ -2154,45 +2154,47 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
         pageName="trading"
         isLightMode={isLightMode}
       />
-      <div className="trading-header">
-        <div className="trading-header-left">
-          <h1 style={{ fontSize: '2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <BinanceLogo size={32} /> Binance.US Trading
-          </h1>
+      {!isEmbeddedReplaceMode && (
+        <div className="trading-header">
+          <div className="trading-header-left">
+            <h1 style={{ fontSize: '2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <BinanceLogo size={32} /> Binance.US Trading
+            </h1>
 
-          {/* Test Mode Banner */}
-          {settings.test_mode_enabled && (
-            <div className="test-mode-banner">
-              <span className="test-badge">TEST MODE</span>
-              <span className="test-description">
-                Orders use simulated funds and live prices. Real balances are unaffected.
-              </span>
+            {/* Test Mode Banner */}
+            {settings.test_mode_enabled && (
+              <div className="test-mode-banner">
+                <span className="test-badge">TEST MODE</span>
+                <span className="test-description">
+                  Orders use simulated funds and live prices. Real balances are unaffected.
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="binance-header-controls">
+            <div className="binance-header-buttons">
+              {settings.test_mode_enabled ? <button type="button" className="binance-header-button" onClick={openPaperDeposit}>💰 Deposit Fake Money</button> : <button type="button" id="convert-dust-btn" className="binance-header-button" onClick={() => setDustModal({ isVisible: true })}>🪙 Convert Dust</button>}
+              <button type="button" className="binance-header-button" onClick={() => {
+                setTempMaxOrderSize(String(settings.max_order_size_usd || 0)); setShowMaxOrderModal(true);
+              }} title="Configure the maximum live order value">🛡️ Order Limit: {settings.max_order_size_usd > 0 ? `$${Number(settings.max_order_size_usd).toLocaleString()}` : 'Unlimited'} ⚙️</button>
             </div>
-          )}
-        </div>
-
-        <div className="binance-header-controls">
-          <div className="binance-header-buttons">
-            {settings.test_mode_enabled ? <button type="button" className="binance-header-button" onClick={openPaperDeposit}>💰 Deposit Fake Money</button> : <button type="button" id="convert-dust-btn" className="binance-header-button" onClick={() => setDustModal({ isVisible: true })}>🪙 Convert Dust</button>}
-            <button type="button" className="binance-header-button" onClick={() => {
-              setTempMaxOrderSize(String(settings.max_order_size_usd || 0)); setShowMaxOrderModal(true);
-            }} title="Configure the maximum live order value">🛡️ Order Limit: {settings.max_order_size_usd > 0 ? `$${Number(settings.max_order_size_usd).toLocaleString()}` : 'Unlimited'} ⚙️</button>
-          </div>
-          <div className="trading-mode-toggle">
-            <span className="trading-mode-caption">Test Mode</span>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                aria-label="Binance.US Test Mode"
-                checked={settings.test_mode_enabled}
-                onChange={(e) => handleSettingsUpdate({ test_mode_enabled: e.target.checked })}
-              />
-              <span className="toggle-slider"></span>
-            </label>
-            <span className="trading-mode-status">{settings.test_mode_enabled ? 'Enabled' : 'Disabled'}</span>
+            <div className="trading-mode-toggle">
+              <span className="trading-mode-caption">Test Mode</span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  aria-label="Binance.US Test Mode"
+                  checked={settings.test_mode_enabled}
+                  onChange={(e) => handleSettingsUpdate({ test_mode_enabled: e.target.checked })}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+              <span className="trading-mode-status">{settings.test_mode_enabled ? 'Enabled' : 'Disabled'}</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Order Feedback Modal */}
       <OrderFeedbackModal
@@ -2249,78 +2251,80 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
       />
 
       {/* Tab Navigation */}
-      <div className="trading-tabs">
-        <button
-          className={`tab-button ${activeTab === 'order' ? 'active' : ''}`}
-          onClick={() => setActiveTab('order')}
-        >
-          <span className="tab-icon">📝</span>
-          <span className="tab-text">{isEmbeddedReplaceMode ? 'Replace Order' : 'Place Order'}</span>
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'open_orders' ? 'active' : ''}`}
-          onClick={() => setActiveTab('open_orders')}
-        >
-          <span className="tab-icon">⏳</span>
-          <span className="tab-text">Open Orders</span>
-          {openOrders && openOrders.length > 0 && (
-            <span className="tab-badge">{openOrders.length}</span>
-          )}
-        </button>
-        <button
-          className={`tab-button ${['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) ? 'active' : ''}`}
-          onClick={() => {
-            setActiveTab('synthetic_orders');
-            loadTrailingOrders();
-            loadLadderOrders();
-          }}
-        >
-          <span className="tab-icon">⚡</span>
-          <span className="tab-text">Synthetic Orders</span>
-          {((trailingOrders?.filter(o => o.status === 'ACTIVE').length || 0) + (ladderOrders?.filter(o => o.status === 'ACTIVE').length || 0) > 0) && (
-            <span className="tab-badge" style={{ background: '#38bdf8' }}>
-              {(trailingOrders?.filter(o => o.status === 'ACTIVE').length || 0) + (ladderOrders?.filter(o => o.status === 'ACTIVE').length || 0)}
-            </span>
-          )}
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'staking' ? 'active' : ''}`}
-          onClick={() => setActiveTab('staking')}
-        >
-          <span className="tab-icon">💰</span>
-          <span className="tab-text">Staking</span>
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'history' ? 'active' : ''}`}
-          onClick={() => setActiveTab('history')}
-        >
-          <span className="tab-icon">📜</span>
-          <span className="tab-text">Order History</span>
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'trade_chart' ? 'active' : ''}`}
-          onClick={() => setActiveTab('trade_chart')}
-        >
-          <span className="tab-icon">📈</span>
-          <span className="tab-text">Trade Chart</span>
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'ai_analysis' ? 'active' : ''}`}
-          onClick={() => setActiveTab('ai_analysis')}
-        >
-          <span className="tab-icon">🤖</span>
-          <span className="tab-text">AI Analysis</span>
-        </button>
-        {settings.test_mode_enabled && (
+      {!isEmbeddedReplaceMode && (
+        <div className="trading-tabs">
           <button
-            className={`tab-button ${activeTab === 'portfolio' ? 'active' : ''}`}
-            onClick={() => setActiveTab('portfolio')}
+            className={`tab-button ${activeTab === 'order' ? 'active' : ''}`}
+            onClick={() => setActiveTab('order')}
           >
-            <span className="tab-icon">💼</span>
-            <span className="tab-text">Test Portfolio</span>
+            <span className="tab-icon">📝</span>
+            <span className="tab-text">{isEmbeddedReplaceMode ? 'Replace Order' : 'Place Order'}</span>
           </button>
-        )}
-      </div>
+          <button
+            className={`tab-button ${activeTab === 'open_orders' ? 'active' : ''}`}
+            onClick={() => setActiveTab('open_orders')}
+          >
+            <span className="tab-icon">⏳</span>
+            <span className="tab-text">Open Orders</span>
+            {openOrders && openOrders.length > 0 && (
+              <span className="tab-badge">{openOrders.length}</span>
+            )}
+          </button>
+          <button
+            className={`tab-button ${['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('synthetic_orders');
+              loadTrailingOrders();
+              loadLadderOrders();
+            }}
+          >
+            <span className="tab-icon">⚡</span>
+            <span className="tab-text">Synthetic Orders</span>
+            {((trailingOrders?.filter(o => o.status === 'ACTIVE').length || 0) + (ladderOrders?.filter(o => o.status === 'ACTIVE').length || 0) > 0) && (
+              <span className="tab-badge" style={{ background: '#38bdf8' }}>
+                {(trailingOrders?.filter(o => o.status === 'ACTIVE').length || 0) + (ladderOrders?.filter(o => o.status === 'ACTIVE').length || 0)}
+              </span>
+            )}
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'staking' ? 'active' : ''}`}
+            onClick={() => setActiveTab('staking')}
+          >
+            <span className="tab-icon">💰</span>
+            <span className="tab-text">Staking</span>
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'history' ? 'active' : ''}`}
+            onClick={() => setActiveTab('history')}
+          >
+            <span className="tab-icon">📜</span>
+            <span className="tab-text">Order History</span>
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'trade_chart' ? 'active' : ''}`}
+            onClick={() => setActiveTab('trade_chart')}
+          >
+            <span className="tab-icon">📈</span>
+            <span className="tab-text">Trade Chart</span>
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'ai_analysis' ? 'active' : ''}`}
+            onClick={() => setActiveTab('ai_analysis')}
+          >
+            <span className="tab-icon">🤖</span>
+            <span className="tab-text">AI Analysis</span>
+          </button>
+          {settings.test_mode_enabled && (
+            <button
+              className={`tab-button ${activeTab === 'portfolio' ? 'active' : ''}`}
+              onClick={() => setActiveTab('portfolio')}
+            >
+              <span className="tab-icon">💼</span>
+              <span className="tab-text">Test Portfolio</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Tab Content */}
       <div className="trading-content">
@@ -2329,16 +2333,18 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
         {activeTab === 'order' && (
           <div className="order-form-container">
             {/* Trading Chart - Full Width */}
-            <TradingViewAdvancedChart
-              symbol={orderForm.symbol}
-              onSymbolChange={handleSymbolChange}
-              tradingPairs={displayedTradingPairs}
-              watchlistPairs={tradingPairs}
-              totalPairsCount={tradingPairs.length}
-              filterCoin={filterCoin}
-              onResetFilter={() => setFilterCoin(null)}
-              isLightMode={isLightMode}
-            />
+            {!isEmbeddedReplaceMode && (
+              <TradingViewAdvancedChart
+                symbol={orderForm.symbol}
+                onSymbolChange={handleSymbolChange}
+                tradingPairs={displayedTradingPairs}
+                watchlistPairs={tradingPairs}
+                totalPairsCount={tradingPairs.length}
+                filterCoin={filterCoin}
+                onResetFilter={() => setFilterCoin(null)}
+                isLightMode={isLightMode}
+              />
+            )}
 
             {/* Redesigned Order Placement Header Cards */}
             <div className="trading-order-header-cards">
@@ -2633,9 +2639,15 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
                   <span>⏳ Processing Order...</span>
                 ) : (
                   <span>
-                    {settings.test_mode_enabled
-                      ? `🧪 Place Test ${['LADDER', 'SYNTHETIC', 'TRAILING_STOP'].includes(orderForm.type) ? 'Ladder / Trailing Stop' : ''} Order`
-                      : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : ['LADDER', 'SYNTHETIC', 'TRAILING_STOP'].includes(orderForm.type) ? 'Ladder / Trailing Stop' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
+                    {isEmbeddedReplaceMode ? (
+                      settings.test_mode_enabled
+                        ? `🧪 Replace Test ${['LADDER', 'SYNTHETIC', 'TRAILING_STOP'].includes(orderForm.type) ? 'Ladder / Trailing Stop' : ''} Order`
+                        : `⚡ Replace Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : ['LADDER', 'SYNTHETIC', 'TRAILING_STOP'].includes(orderForm.type) ? 'Ladder / Trailing Stop' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`
+                    ) : (
+                      settings.test_mode_enabled
+                        ? `🧪 Place Test ${['LADDER', 'SYNTHETIC', 'TRAILING_STOP'].includes(orderForm.type) ? 'Ladder / Trailing Stop' : ''} Order`
+                        : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : ['LADDER', 'SYNTHETIC', 'TRAILING_STOP'].includes(orderForm.type) ? 'Ladder / Trailing Stop' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`
+                    )}
                   </span>
                 )}
               </button>

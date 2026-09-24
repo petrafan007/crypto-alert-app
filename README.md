@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.3.2
+**Version:** 4.3.3
 
 ## Recent Updates
+
+### v4.3.3
+- **Embedded Modal Cleanup:** Hid unnecessary navigation tabs and large charts in the embedded Replace Order modal for Binance.US to reduce clutter and focus purely on order replacement fields. Also updated submit button text to reflect "Replace Order".
 
 ### v4.3.2
 - **Hotfix:** Fixed a `ReferenceError: setSelectedPair is not defined` when initializing the embedded Replace Order modal in the standard Trading interface.
