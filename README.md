@@ -3406,6 +3406,9 @@ Historical changelog entries retain the product name used when they were origina
   - Plumbed user FIFO/LIFO choices reliably end-to-end.
 - **Frontend Quality of Life**: Added full Error Boundary reset flows, stabilized Trading View widget caching, and optimized dashboard UI layout.
 
+## Release Notes v4.1.5 (Phase 4 Enhancements)
+- **Flexible Synthetic Strategies**: Added the ability to completely disable the Upside Strategy (Take Profit) when constructing synthetic ladders or trailing orders. Users can now build Downside-only protection orders for Binance.US and Webull without being forced to set an upside target.
+
 ## Release Notes v4.1.4 (Phase 4 Hotfixes)
 - **Synthetic Orders UI Fix**: Fixed a ValueError where synthetic orders (ladders and trailing orders) cancelled directly from the general unified dashboard component crashed the `/api/cancel-order` endpoint, which erroneously expected an integer Binance `orderId`. Synthetic cancellations are now cleanly intercepted and executed.
 - **AI Service Hardening**: Fixed a `NameError` crash where `amount_value` was referenced instead of `amount` in `call_ai_with_web_search`, causing sentiment refreshes to fail.

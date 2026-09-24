@@ -156,6 +156,7 @@ const LadderOrderConfig = ({
   const upsideMode = ladderConfig.upsideMode || 'LADDER';
   const downsideMode = ladderConfig.downsideMode || (ladderConfig.hasStopLoss ? 'SINGLE' : 'LADDER');
   const hasDownside = ladderConfig.hasDownsideProtection !== undefined ? ladderConfig.hasDownsideProtection : (ladderConfig.hasStopLoss ?? false);
+  const hasUpside = ladderConfig.hasUpsideProtection ?? true;
 
   const upsideRungs = ladderConfig.upsideRungs || ladderConfig.rungs || defaultLadderState.upsideRungs;
   const downsideRungs = ladderConfig.downsideRungs || defaultLadderState.downsideRungs;
@@ -382,16 +383,40 @@ const LadderOrderConfig = ({
         }}>
           {/* Header & Tagline */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label className="order-field-label" style={{ margin: 0, color: 'var(--syn-positive)', fontWeight: '700', letterSpacing: '0.05em' }}>
+            <label
+              className="order-field-label"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                margin: 0,
+                color: hasUpside ? 'var(--syn-positive)' : 'var(--syn-text)',
+                fontWeight: '700',
+                letterSpacing: '0.05em'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={hasUpside}
+                onChange={(e) => updateConfig({ hasUpsideProtection: e.target.checked })}
+                style={{ width: '15px', height: '15px', accentColor: 'var(--syn-positive)', cursor: 'pointer' }}
+              />
               <span>🟢 UPSIDE STRATEGY (TAKE PROFIT)</span>
             </label>
-            <span style={{ fontSize: '11px', color: 'var(--syn-muted)' }}>
-              {isSell ? 'Exit into strength' : 'Dip entry'}
+            <span style={{ fontSize: '11px', fontWeight: '600', color: hasUpside ? 'var(--syn-positive)' : 'var(--syn-muted)' }}>
+              {hasUpside ? 'Active' : 'Disabled (Off)'}
             </span>
           </div>
 
           {/* Mode Selector Buttons */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '6px',
+            opacity: hasUpside ? 1 : 0.38,
+            pointerEvents: hasUpside ? 'auto' : 'none'
+          }}>
             {[
               { id: 'SINGLE', label: 'Mode A', title: 'Single Target (100% Exit)' },
               { id: 'LADDER', label: 'Mode B', title: 'Multi-Rung Ladder' },
@@ -419,8 +444,10 @@ const LadderOrderConfig = ({
             ))}
           </div>
 
-          {/* Mode Title & Market Price */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px', borderTop: '1px solid var(--syn-input)' }}>
+          {hasUpside ? (
+            <>
+              {/* Mode Title & Market Price */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px', borderTop: '1px solid var(--syn-input)' }}>
             <span style={{ fontWeight: '600', fontSize: '12px', color: 'var(--syn-positive)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span>📈</span> {upsideMode === 'SINGLE' ? 'Mode A (Single Target 100%)' : upsideMode === 'TRAILING' ? 'Mode C (Trailing Take-Profit)' : 'Mode B (Multi-Rung Ladder)'}
             </span>
@@ -803,6 +830,16 @@ const LadderOrderConfig = ({
                   })}
                 </div>
               </div>
+            </div>
+          )}
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--syn-muted)', fontSize: '12px' }}>
+              <span style={{ fontSize: '24px', opacity: 0.5, display: 'block', marginBottom: '8px' }}>📈</span>
+              Upside take-profit strategy is disabled.<br/>
+              <span style={{ cursor: 'pointer', color: 'var(--syn-positive)', textDecoration: 'underline' }}
+                onClick={() => updateConfig({ hasUpsideProtection: true })}
+              >Enable Take Profit</span>
             </div>
           )}
         </div>
