@@ -843,6 +843,16 @@ const LadderOrderConfig = ({
               >Enable Take Profit</span>
             </div>
           )}
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--syn-muted)', fontSize: '12px' }}>
+              <span style={{ fontSize: '24px', opacity: 0.5, display: 'block', marginBottom: '8px' }}>📈</span>
+              Upside take-profit strategy is disabled.<br/>
+              <span style={{ cursor: 'pointer', color: 'var(--syn-positive)', textDecoration: 'underline' }}
+                onClick={() => updateConfig({ hasUpsideProtection: true })}
+              >Enable Take Profit</span>
+            </div>
+          )}
         </div>
 
         {/* ============================================================== */}
