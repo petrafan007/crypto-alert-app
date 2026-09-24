@@ -38,16 +38,49 @@ const QuickTradeWidget = ({ isLightMode, portfolio = [], accountScope = 'binance
   const [side, setSide] = useState('BUY');
   const [amountPct, setAmountPct] = useState(25);
 
+  const holding = React.useMemo(() => {
+    return portfolio.find(p => String(p.symbol || '').toUpperCase() === String(selectedSymbol || '').toUpperCase() && (isWebull ? p.source === 'webull' : p.source !== 'webull'));
+  }, [portfolio, selectedSymbol, isWebull]);
+
+  const buyingPower = React.useMemo(() => {
+    const cashSymbol = isWebull ? 'USD' : 'USDT';
+    const cash = portfolio.find(p => String(p.symbol || '').toUpperCase() === cashSymbol && (isWebull ? p.source === 'webull' : p.source !== 'webull'));
+    return cash ? parseFloat(cash.amount || 0) : 0;
+  }, [portfolio, isWebull]);
+
+  const instrumentType = holding?.instrument_type || (isWebull ? 'EQUITY' : 'CRYPTO');
+  const unsupportedMsg = isWebull && instrumentType !== 'EQUITY' && instrumentType !== 'CRYPTO' ? `Unsupported instrument: ${instrumentType}` : null;
+  const holdingAmount = holding ? parseFloat(holding.amount || 0) : 0;
+
+  const canTrade = React.useMemo(() => {
+    if (unsupportedMsg) return false;
+    if (side === 'SELL') return holdingAmount > 0;
+    return buyingPower > 0;
+  }, [side, holdingAmount, buyingPower, unsupportedMsg]);
+
   // Switch default symbol when toggling exchange mode
   const handleExchangeChange = (mode) => {
     setExchangeMode(mode);
     setSelectedSymbol(mode === 'webull' ? (availableStocks[0] || 'AAPL') : (availableCoins[0] || 'BTC'));
+    setAmountPct(25);
   };
 
   const handleGoToTrade = () => {
+    if (!canTrade) return;
+    
     if (isWebull) {
-      navigate(`/trading/webull?symbol=${encodeURIComponent(selectedSymbol)}&side=${side}&instrument_type=EQUITY&account_preference=individual_cash&mode=REAL`, {
-        state: { mode: 'REAL' }
+      navigate(`/trading/webull?symbol=${encodeURIComponent(selectedSymbol)}&side=${side}&instrument_type=${instrumentType}&account_preference=individual_cash&mode=REAL`, {
+        state: { 
+          mode: 'REAL',
+          tradePrefill: {
+            symbol: selectedSymbol,
+            side: side,
+            percentage: amountPct,
+            provider: 'webull',
+            instrumentType: instrumentType,
+            account: 'individual_cash'
+          }
+        }
       });
     } else {
       const cleanBase = String(selectedSymbol || '').toUpperCase();
@@ -59,7 +92,9 @@ const QuickTradeWidget = ({ isLightMode, portfolio = [], accountScope = 'binance
             symbol: pair,
             side: side === 'SELL' ? 'SELL' : 'BUY',
             baseCoin: cleanBase,
-            mode: 'REAL'
+            mode: 'REAL',
+            percentage: amountPct,
+            provider: 'binance'
           }
         }
       });
@@ -202,20 +237,21 @@ const QuickTradeWidget = ({ isLightMode, portfolio = [], accountScope = 'binance
         <button
           type="button"
           onClick={handleGoToTrade}
+          disabled={!canTrade}
           style={{
             marginTop: 'auto',
             padding: '8px',
             borderRadius: '6px',
             border: 'none',
-            background: side === 'BUY' ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #ef4444, #dc2626)',
-            color: '#fff',
+            background: !canTrade ? '#475569' : (side === 'BUY' ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #ef4444, #dc2626)'),
+            color: !canTrade ? '#94a3b8' : '#fff',
             fontWeight: '700',
             fontSize: '13px',
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+            cursor: canTrade ? 'pointer' : 'not-allowed',
+            boxShadow: canTrade ? '0 2px 8px rgba(0,0,0,0.3)' : 'none'
           }}
         >
-          {isWebull ? `Open ${selectedSymbol} in Webull Trading` : `Open ${selectedSymbol}/USDT Terminal`}
+          {unsupportedMsg ? unsupportedMsg : (!canTrade ? `Insufficient ${side === 'SELL' ? 'Balance' : 'Buying Power'}` : (isWebull ? `Open ${selectedSymbol} in Webull Trading` : `Open ${selectedSymbol}/USDT Terminal`))}
         </button>
       </div>
     </div>

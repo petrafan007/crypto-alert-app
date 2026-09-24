@@ -30,23 +30,10 @@ def utc(value):
     return utc(datetime.fromisoformat(str(value).replace('Z', '+00:00')))
 
 
-@lru_cache(maxsize=24)
-def _year_session_bounds(year):
-    """Build each exchange year once instead of rebuilding holidays per bar."""
-    import pandas_market_calendars as calendars
-    schedule = calendars.get_calendar('NYSE').schedule(start_date=f'{year}-01-01', end_date=f'{year}-12-31')
-    return {index.date(): (row.market_open.to_pydatetime(), row.market_close.to_pydatetime())
-            for index, row in schedule.iterrows()}
-
-
-@lru_cache(maxsize=4096)
-def session_bounds(day):
-    return _year_session_bounds(day.year).get(day)
-
+from services.market_calendar_service import is_regular_market_hours
 
 def in_session(now):
-    bounds = session_bounds(utc(now).astimezone(ET).date())
-    return bool(bounds and bounds[0] <= utc(now) < bounds[1])
+    return is_regular_market_hours(utc(now))
 
 
 def fresh_quote(quote, now, seconds=120):
@@ -92,7 +79,17 @@ def rsi(closes, period=2):
     for change in changes[period:]:
         gain = (gain * (period-1) + max(0, change)) / period
         loss = (loss * (period-1) + max(0, -change)) / period
-    return 50.0 if gain == loss == 0 else 100.0 if loss == 0 else 100 - 100 / (1 + gain/loss)
+    
+    # Handle flat/monotonic windows safely
+    if gain == 0 and loss == 0:
+        return 50.0
+    if loss == 0:
+        return 100.0
+    if gain == 0:
+        return 0.0
+        
+    rs = gain / loss
+    return 100.0 - (100.0 / (1.0 + rs))
 
 
 def atr(bars, period=14):

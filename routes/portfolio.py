@@ -823,8 +823,9 @@ def api_orders():
 def api_transaction_history():
     """Get transaction history from Binance"""
     try:
-        # Return empty for now - can be implemented later if needed
-        return jsonify({'transactions': []})
+        from services.portfolio_service import get_comprehensive_crypto_data_for_user
+        data = get_comprehensive_crypto_data_for_user(current_user.id)
+        return jsonify({'transactions': data.get('recent_transactions', [])})
     except Exception as e:
         logger.error(f"Transaction history error: {str(e)}")
         return jsonify({'transactions': [], 'message': 'Unable to fetch transactions'})

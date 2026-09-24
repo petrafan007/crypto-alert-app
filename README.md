@@ -3405,3 +3405,10 @@ Historical changelog entries retain the product name used when they were origina
   - Tax overriding allows inline adjustments to correct import discrepancies.
   - Plumbed user FIFO/LIFO choices reliably end-to-end.
 - **Frontend Quality of Life**: Added full Error Boundary reset flows, stabilized Trading View widget caching, and optimized dashboard UI layout.
+
+## Release Notes v4.1.1 (Phase 4 Audit Fixes)
+- **AI Service Hardening**: Retired unsupported AI endpoints (now returning 410 Gone), fixed token substitution KeyError vulnerabilities in custom prompts, and repaired RSI generation edge cases on monotonic windows.
+- **Resilient Staking Dashboard**: Rebuilt staking summaries to pull accurate allocations without relying on hardcoded defaults.
+- **Frontend Quality of Life**: Refactored the Quick Trade Widget to honor dynamic balance constraints and carry state securely between views.
+- **Robust Market Charts**: Wrapped CoinGecko market charts with server-side memory caching and localized fallbacks to prevent rate limit timeouts from crashing components.
+- **Auth & Transaction Integrity**: Updated desktop session polling to correctly use standard bearer flow and restored the transaction history endpoint with accurate unified records.

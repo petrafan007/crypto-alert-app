@@ -383,6 +383,7 @@ def sync_binance_logs():
     """Sync Binance trade history for every user with Binance credentials."""
     try:
         from binance.client import Client
+        from services.binance_service import sync_binance_account
 
         users = db.session.query(User.id.label('user_id'), User.username, Credential.api_key, Credential.api_secret)\
             .join(Credential, User.username == Credential.username)\
@@ -404,60 +405,11 @@ def sync_binance_logs():
 
             try:
                 client = Client(api_key=api_key, api_secret=api_secret, testnet=False, tld='us')
+                cred = Credential.query.filter_by(username=username).first()
+                sync_binance_account(user_id, username, client, cred)
             except Exception as client_error:
-                logger.error(f"Failed to create Binance client for {username}: {client_error}")
+                logger.error(f"Failed to sync Binance for {username}: {client_error}")
                 continue
-
-            try:
-                account_info = client.get_account()
-            except Exception as account_error:
-                logger.error(f"Failed to fetch account info for {username}: {account_error}")
-                continue
-
-            balances = account_info.get('balances', [])
-            assets_with_balance = [
-                balance['asset']
-                for balance in balances
-                if float(balance.get('free') or 0) > 0 or float(balance.get('locked') or 0) > 0
-            ]
-
-            if not assets_with_balance:
-                logger.info(f"No Binance balances found for user {username}")
-                continue
-
-            logger.info(f"Syncing Binance logs for user {username}: {assets_with_balance}")
-
-            all_trades = []
-            for asset in assets_with_balance:
-                if asset in ('USDT', 'USD'):
-                    continue
-
-                for quote in ('USD', 'USDT'):
-                    symbol = f"{asset}{quote}"
-                    try:
-                        trades = client.get_my_trades(symbol=symbol, limit=100)
-                        if trades:
-                            all_trades.extend(trades)
-                            logger.info(f"Found {len(trades)} trades for {symbol} (user {username})")
-                    except Exception as pair_error:
-                        error_text = str(pair_error)
-                        if 'Invalid symbol' in error_text or 'not found' in error_text.lower():
-                            logger.debug(f"Trading pair {symbol} unavailable for {username}")
-                        else:
-                            logger.warning(f"Error fetching trades for {symbol} ({username}): {pair_error}")
-                        continue
-                    finally:
-                        time.sleep(0.2)
-
-            if all_trades:
-                process_binance_trades(user_id, all_trades)
-            else:
-                logger.info(f"No recent trades to record for user {username}")
-
-            try:
-                update_coins_from_binance_balances(user_id, balances)
-            except Exception as balance_error:
-                logger.error(f"Failed to update coins table for {username}: {balance_error}")
 
         logger.info("Binance logs sync completed successfully")
 

@@ -557,7 +557,8 @@ def _build_staking_dashboard_payload(cred):
         'avgApy': summary.get('avgApy', 0.0),
         'activeValue': summary.get('activeUsd', 0.0),
         'pendingValue': summary.get('pendingUsd', 0.0),
-        'totalValue': summary.get('totalUsd', 0.0)
+        'totalValue': summary.get('totalUsd', 0.0),
+        'positions': overview.get('activePositions', [])
     }
 
 def _dashboard_staking_response(cred):

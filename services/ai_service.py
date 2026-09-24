@@ -1317,10 +1317,8 @@ def _call_generative_with_web_search(
                 "trading-mode boundaries, and never describe Test or Quantitative paper holdings as live assets."
             )
         
-        try:
-            stage3_system = stage3_template.format(symbol=symbol_value, datetime=current_datetime, amount=amount_value)
-        except Exception:
-            stage3_system = stage3_template.replace('{symbol}', symbol_value).replace('{datetime}', current_datetime)
+        # Safely render prompts strictly replacing expected placeholders
+        stage3_system = stage3_template.replace('{symbol}', str(symbol_value)).replace('{datetime}', str(current_datetime)).replace('{amount}', str(amount_value))
 
         if prompt_type in ['copilot', 'manual']:
             # Mandatory role/mode rules are appended even when the user keeps a

@@ -17,28 +17,35 @@ const StakingYieldWidget = ({ isLightMode }) => {
     let cancelled = false;
     const fetchStaking = async () => {
       try {
-        const res = await axios.get('/api/staking-balances', { withCredentials: true });
-        if (res.data?.success && Array.isArray(res.data.positions)) {
-          let total = 0;
+        const res = await axios.get('/api/staking/dashboard-summary', { withCredentials: true });
+        if (res.data && Array.isArray(res.data.positions)) {
+          let totalUsdValue = 0;
+          let weightedAprSum = 0;
+
           const assets = res.data.positions.map(p => {
-            const usd = parseFloat(p.usd_value || p.total_usd || 0);
-            total += usd;
+            const usd = parseFloat(p.usd_value || p.total_usd || p.currentValue || 0);
+            const apr = parseFloat(p.apr || p.apy || p.annual_yield_pct || 0);
+            
+            totalUsdValue += usd;
+            weightedAprSum += (usd * apr);
+
             return {
               asset: p.asset || p.symbol,
-              amount: parseFloat(p.amount || 0),
-              apr: parseFloat(p.apr || p.annual_yield_pct || 5.0),
+              amount: parseFloat(p.amount || p.stakingAmount || 0),
+              apr: apr,
               usdValue: usd
             };
           });
 
-          const avgApr = assets.length > 0 ? assets.reduce((acc, curr) => acc + curr.apr, 0) / assets.length : 4.8;
-          const yearly = (total * (avgApr / 100));
+          // Compute weighted average APR
+          const avgApr = totalUsdValue > 0 ? (weightedAprSum / totalUsdValue) : 0;
+          const yearly = totalUsdValue * (avgApr / 100);
           const monthly = yearly / 12;
           const daily = yearly / 365;
 
           if (!cancelled) {
             setStakingData({
-              totalStakedUsd: total,
+              totalStakedUsd: totalUsdValue,
               estimatedDailyUsd: daily,
               estimatedMonthlyUsd: monthly,
               estimatedYearlyUsd: yearly,
@@ -47,6 +54,8 @@ const StakingYieldWidget = ({ isLightMode }) => {
             });
             setLoading(false);
           }
+        } else {
+            if (!cancelled) setLoading(false);
         }
       } catch (err) {
         console.error('Failed to load staking yield:', err);

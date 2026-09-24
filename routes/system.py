@@ -542,7 +542,8 @@ def get_last_alert_state():
     return get_alert_state()
 
 def get_user_from_desktop_session():
-    return None # Placeholder
+    from routes.helpers import get_user_from_bearer
+    return get_user_from_bearer()
 
 from flask import make_response, send_file
 
@@ -965,13 +966,7 @@ def api_hide_notification(notif_id):
 @system_bp.route('/api/logs/all')
 @login_required
 def api_logs_all():
-    try:
-        # Try to sync Binance logs, but don't fail if API is broken
-        sync_binance_logs()
-    except Exception as e:
-        logger.warning(f"Logs sync failed, returning existing data: {str(e)}")
-        # Continue with existing data even if sync fails
-    
+    # Removed background sync from GET request. Use POST /api/logs/sync explicitly.
     try:
         from trading_models import AllActivity
         # Use ORM to query logs
@@ -1045,7 +1040,16 @@ def api_logs_sync():
     """Force sync with Binance to pull latest transactions"""
     try:
         logger.info(f"Manual sync requested by user {current_user.username}")
-        sync_binance_logs()
+        from services.binance_service import sync_binance_account
+        from services.portfolio_service import get_user_credentials
+        from binance.client import Client
+        
+        cred = get_user_credentials(current_user.username)
+        if not cred or not cred.binance_api_key:
+            return jsonify({"success": False, "error": "Binance credentials missing."}), 400
+            
+        client = Client(cred.binance_api_key, cred.binance_api_secret, tld='us')
+        sync_binance_account(current_user.id, current_user.username, client, cred)
         return jsonify({"success": True, "message": "Binance logs synced successfully"})
     except Exception as e:
         logger.error(f"Error syncing Binance logs: {e}")

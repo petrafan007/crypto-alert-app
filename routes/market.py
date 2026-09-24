@@ -100,16 +100,16 @@ def chart_history(symbol):
                         points.append([ts * 1000, float(r['Close'])])
                 if points:
                     return jsonify({"prices": points})
-        except Exception as stock_err:
-            logger.debug(f"chart_history fallback error for {sym}: {stock_err}")
+        except (requests.exceptions.RequestException, ValueError) as stock_err:
+            logger.warning(f"chart_history fallback error for {sym}: {stock_err}", exc_info=True)
 
         if rows:
             points = [[int(row.timestamp) * 1000, float(row.price)] for row in rows]
             return jsonify({"prices": points})
 
         return jsonify({"prices": []})
-    except Exception as e:
-        logger.error(f"chart_history: Exception for {symbol}: {e}", exc_info=True)
+    except (requests.exceptions.RequestException, ValueError, KeyError) as e:
+        logger.warning(f"chart_history: Exception for {symbol}: {e}", exc_info=True)
         return jsonify({"prices": [], "error": str(e)}), 200
 
 
@@ -149,7 +149,8 @@ def coingecko_chart(slug):
             return jsonify({"error": f"No price data for slug {slug}"}), 404
         COINGECKO_CHART_CACHE[slug] = (data, now)
         return jsonify(data)
-    except Exception as e:
+    except (requests.exceptions.RequestException, ValueError) as e:
+        logger.warning(f"CoinGecko API request failed for {slug}: {e}", exc_info=True)
         # Fallback: use local DB
         prices = get_last_7d_prices(slug.upper())
         if prices and len(prices) >= 2:

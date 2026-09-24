@@ -23,13 +23,7 @@ from services.webull_service import (
 SUPPORTED_WEBULL_SIGNAL_TYPES = {'CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION'}
 
 
-def _equity_market_is_open(now=None):
-    """Avoid grading or scheduling US equities against a stale closing price."""
-    eastern = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo('America/New_York'))
-    if eastern.weekday() >= 5:
-        return False
-    current_minutes = eastern.hour * 60 + eastern.minute
-    return 9 * 60 + 30 <= current_minutes <= 16 * 60
+from services.market_calendar_service import is_regular_market_hours
 
 
 def _settings_value(settings, instrument_type, suffix, default=24):
@@ -66,6 +60,22 @@ def _credentials_for_user(user_id):
         raise WebullConnectionError('Webull is not connected or token has expired.')
     return credential, settings, environment
 
+def _latest_market_price(credential, environment, signal):
+    from services.webull_service import get_webull_market_snapshot
+    inst_type = str(signal.instrument_type or '').upper()
+    if inst_type == 'OPTION':
+        # Options need exact contract identity. Retain unscored instead of using underlying stock.
+        return None, None
+    elif inst_type in ('EQUITY', 'STOCK', 'ETF', 'CRYPTO'):
+        snapshot = get_webull_market_snapshot(
+            credential.webull_app_key, credential.webull_app_secret,
+            environment, credential.webull_access_token,
+            symbol=signal.symbol, instrument_type=inst_type
+        )
+        if snapshot:
+            price = snapshot.get('price') or snapshot.get('close') or 0.0
+            return float(price), None
+    return None, None
 
 def _latest_equity_bar(credential, environment, symbol):
     bars = get_webull_market_bars(
@@ -82,7 +92,7 @@ def create_webull_signal(user, holding, *, origin='manual'):
     instrument_type = str(holding.instrument_type or '').upper()
     if instrument_type not in SUPPORTED_WEBULL_SIGNAL_TYPES:
         raise ValueError('Webull option analysis is unavailable until contract-level options market data is mapped.')
-    if instrument_type != 'CRYPTO' and origin != 'manual' and not _equity_market_is_open():
+    if instrument_type != 'CRYPTO' and origin != 'manual' and not is_regular_market_hours():
         raise ValueError('Webull equity and option signals are scheduled during regular U.S. market hours.')
     if not is_ai_enabled(user.username):
         raise ValueError('Enable an AI integration in Settings before generating Webull analysis.')
@@ -210,7 +220,7 @@ def run_scheduled_webull_signals(force=False, symbol=None):
             instrument_type = str(holding.instrument_type or '').upper()
             if instrument_type not in SUPPORTED_WEBULL_SIGNAL_TYPES:
                 continue
-            if not force and instrument_type != 'CRYPTO' and not _equity_market_is_open():
+            if not force and instrument_type != 'CRYPTO' and not is_regular_market_hours():
                 continue
             frequency = _settings_value(settings, instrument_type, 'frequency_hours')
             if not force:
@@ -240,16 +250,12 @@ def evaluate_due_webull_signals():
     credentials = {}
     for signal in due:
         try:
-            if signal.instrument_type != 'CRYPTO' and not _equity_market_is_open():
+            if signal.instrument_type != 'CRYPTO' and not is_regular_market_hours():
                 continue
             if signal.user_id not in credentials:
                 credentials[signal.user_id] = _credentials_for_user(signal.user_id)
             credential, _, environment = credentials[signal.user_id]
-            holding = WebullHolding(
-                symbol=signal.symbol, instrument_type=signal.instrument_type,
-                currency=signal.currency, account_id=signal.account_id or '',
-            )
-            price, _ = _latest_market_price(credential, environment, holding)
+            price, _ = _latest_market_price(credential, environment, signal)
             if price:
                 grade_external_signal(signal, price, now)
                 db.session.commit()

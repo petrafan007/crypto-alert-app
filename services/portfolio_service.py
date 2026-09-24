@@ -309,30 +309,30 @@ def trigger_portfolio_snapshot(user_id: int, username: str) -> None:
         return
     _snapshot_cooldown[user_id] = now
 
-    def _run():
+    try:
         from flask import current_app
-        # We'll use the current_app's context to run the snapshot
-        # Since we're in a factory, we must ensure we have an app context
-        try:
-            # Check if we are already in an app context (might be if called from a request)
-            # but usually background threads need their own.
-            # However, in this pattern, we'll try to get the app from current_app
-            # which works if the thread was started from an active context.
-            app = current_app._get_current_object()
-            with app.app_context():
-                try:
-                    cred = get_user_credentials(username)
-                    total_value = compute_portfolio_total_value(user_id, username=username, cred=cred)
-                    total_value = round(total_value, 2)
-                    if total_value > 0:
-                        record_portfolio_history(user_id, total_value)
-                        logger.info(f"[snapshot] Recorded ${total_value:.2f} for user {user_id} after trade/stake")
-                except Exception as exc:
-                    logger.error(f"[snapshot] Failed to record snapshot for user {user_id}: {exc}")
-        except Exception as e:
-            logger.error(f"[snapshot] Could not get app context for background thread: {e}")
+        app = current_app._get_current_object()
+    except Exception as e:
+        logger.error(f"[snapshot] Could not capture app context before spawning thread: {e}")
+        return
 
-    threading.Thread(target=_run, daemon=True).start()
+    def _run(app_instance):
+        with app_instance.app_context():
+            try:
+                cred = get_user_credentials(username)
+                total_value = compute_portfolio_total_value(user_id, username=username, cred=cred)
+                total_value = round(total_value, 2)
+                if total_value > 0:
+                    record_portfolio_history(user_id, total_value)
+                    logger.info(f"[snapshot] Recorded ${total_value:.2f} for user {user_id} after trade/stake")
+            except Exception as exc:
+                db.session.rollback()
+                logger.error(f"[snapshot] Failed to record snapshot for user {user_id}: {exc}")
+                _snapshot_cooldown.pop(user_id, None)
+            finally:
+                db.session.remove()
+
+    threading.Thread(target=_run, args=(app,), daemon=True).start()
 
 def _compute_portfolio_history_series(user_id, range_key, account_scope='all'):
     """Return evenly spaced portfolio history points straight from stored values."""
