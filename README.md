@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.3.1
+**Version:** 4.3.2
 
 ## Recent Updates
+
+### v4.3.2
+- **Hotfix:** Fixed a `ReferenceError: setSelectedPair is not defined` when initializing the embedded Replace Order modal in the standard Trading interface.
 
 ### v4.3.1
 - **Hotfix:** Fixed a `ReferenceError` preventing the Trading page and embedded Replace Order modal from loading due to missing destructuring of `isEmbeddedReplaceMode` in the `Trading.jsx` component signature.

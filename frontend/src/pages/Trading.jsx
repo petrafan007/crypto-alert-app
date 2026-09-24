@@ -765,9 +765,9 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
   // Embedded mode initialization
   useEffect(() => {
     if (isEmbeddedReplaceMode && embeddedOrder) {
-      setSelectedPair(embeddedOrder.symbol || embeddedCoin?.symbol || '');
       setOrderForm(prev => ({
         ...prev,
+        symbol: embeddedOrder.symbol || embeddedCoin?.symbol || prev.symbol,
         side: embeddedOrder.side?.toUpperCase() || 'BUY',
         type: embeddedOrder.type || embeddedOrder.order_type || 'LIMIT',
         price: embeddedOrder.price || embeddedOrder.trigger_price || '',
