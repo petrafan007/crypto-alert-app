@@ -3406,6 +3406,9 @@ Historical changelog entries retain the product name used when they were origina
   - Plumbed user FIFO/LIFO choices reliably end-to-end.
 - **Frontend Quality of Life**: Added full Error Boundary reset flows, stabilized Trading View widget caching, and optimized dashboard UI layout.
 
+## Release Notes v4.1.6 (Phase 4 Hotfixes)
+- **Watchlist Safety Guard**: Disabled the delete/trash button for watchlist items if they have any active pending orders or triggers to prevent accidentally abandoning running orders without visibility.
+
 ## Release Notes v4.1.5 (Phase 4 Enhancements)
 - **Flexible Synthetic Strategies**: Added the ability to completely disable the Upside Strategy (Take Profit) when constructing synthetic ladders or trailing orders. Users can now build Downside-only protection orders for Binance.US and Webull without being forced to set an upside target.
 

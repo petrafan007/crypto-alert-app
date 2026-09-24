@@ -5664,25 +5664,30 @@ function Dashboard({ isLightMode }) {
                                       {(() => {
                                         const allPendingItems = getAllPendingItemsForCoin({ ...item, isWatchlist: true });
                                         const hasOrders = allPendingItems.length > 0;
-                                        if (!hasOrders) return null;
                                         return (
-                                          <button
-                                            type="button"
-                                            className="trade-action-btn cancel"
-                                            onClick={(e) => handleCancelButtonClick({ ...item, isWatchlist: true }, allPendingItems, e)}
-                                            title={`Cancel ${allPendingItems.length} active order(s)/trigger(s) for ${item.symbol}`}
-                                          >
-                                            Cancel
-                                          </button>
+                                          <>
+                                            {hasOrders && (
+                                              <button
+                                                type="button"
+                                                className="trade-action-btn cancel"
+                                                onClick={(e) => handleCancelButtonClick({ ...item, isWatchlist: true }, allPendingItems, e)}
+                                                title={`Cancel ${allPendingItems.length} active order(s)/trigger(s) for ${item.symbol}`}
+                                              >
+                                                Cancel
+                                              </button>
+                                            )}
+                                            <button
+                                              className="trade-action-btn delete"
+                                              disabled={hasOrders}
+                                              onClick={() => deleteWatchlistItem(item)}
+                                              title={hasOrders ? "Cannot delete symbol with active orders" : "Delete from watchlist"}
+                                              style={hasOrders ? { opacity: 0.38, cursor: 'not-allowed' } : {}}
+                                            >
+                                              🗑️
+                                            </button>
+                                          </>
                                         );
                                       })()}
-                                      <button
-                                        className="trade-action-btn delete"
-                                        onClick={() => deleteWatchlistItem(item)}
-                                        title="Delete from watchlist"
-                                      >
-                                        🗑️
-                                      </button>
                                     </div>
                                   )}
                                 </td>
