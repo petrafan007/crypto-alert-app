@@ -28,6 +28,7 @@ import { SiBinance } from 'react-icons/si';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import TableColumnModal from '../components/TableColumnModal';
 import CancelOrderConfirmModal from '../components/CancelOrderConfirmModal';
+import ReplaceOrderConfirmModal from '../components/ReplaceOrderConfirmModal';
 import WatchlistSymbolPicker from '../components/WatchlistSymbolPicker';
 import { getAssetDisplaySymbol, getAssetIdentity, isCashOrStableAsset } from '../utils/assetDisplay';
 import {
@@ -155,7 +156,7 @@ function Dashboard({ isLightMode }) {
   const watchlistScrollRef = useRef(null);
   const nextWatchlistFetchId = () => ++watchlistFetchIdRef.current;
   const nextPortfolioFetchId = () => ++portfolioFetchIdRef.current;
-  
+
   const applyPortfolioUpdate = (incoming, fetchId, pendingOrdersList) => {
     if (typeof fetchId === 'number' && fetchId < portfolioAppliedIdRef.current) {
       return;
@@ -163,11 +164,11 @@ function Dashboard({ isLightMode }) {
     if (typeof fetchId === 'number') {
       portfolioAppliedIdRef.current = fetchId;
     }
-    
+
     setPortfolio(prev => {
       const incomingMap = new Map();
       const portfolioRowKey = (item) => `${item?.source === 'webull' || item?.is_external ? 'webull' : 'binance'}:${item?.id || (item?.symbol || '').toUpperCase()}`;
-      
+
       incoming.forEach(c => {
         if (!c?.symbol || !String(c.symbol).trim()) return;
         incomingMap.set(portfolioRowKey(c), {
@@ -179,7 +180,7 @@ function Dashboard({ isLightMode }) {
 
       const prevMap = new Map();
       prev.forEach(p => prevMap.set(portfolioRowKey(p), p));
-      
+
       // Update or add incoming coins
       incomingMap.forEach((val, key) => {
         prevMap.set(key, { ...(prevMap.get(key) || {}), ...val });
@@ -521,6 +522,8 @@ function Dashboard({ isLightMode }) {
   const [columnModal, setColumnModal] = useState({ isOpen: false, tableType: 'portfolio' });
   const [cancelContextMenu, setCancelContextMenu] = useState({ isOpen: false, coin: null, x: 0, y: 0, orders: [] });
   const [cancelModalState, setCancelModalState] = useState({ isOpen: false, coin: null, order: null, loading: false, error: null });
+  const [replaceContextMenu, setReplaceContextMenu] = useState({ isOpen: false, coin: null, x: 0, y: 0, orders: [] });
+  const [replaceModalState, setReplaceModalState] = useState({ isOpen: false, coin: null, order: null, loading: false, error: null });
   const [draggedColKey, setDraggedColKey] = useState(null);
   const [dragOverColKey, setDragOverColKey] = useState(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -2547,6 +2550,98 @@ function Dashboard({ isLightMode }) {
     } catch (err) { }
   };
 
+  // Replace order handlers
+  const canReplaceOrder = (order) => {
+    const isAutoBuy = !!order.isAutoBuy || order.trigger_type === 'auto_buy';
+    const isAutoSell = !!order.isAutoSell || order.trigger_type === 'auto_sell';
+    const isLadder = String(order.order_id || '').startsWith('ladder_');
+    const isTrailing = String(order.order_id || '').startsWith('trail_');
+    if (isAutoBuy || isAutoSell || isLadder || isTrailing) return false;
+    const orderId = String(order.order_id || order.orderId || order.id || '');
+    if (orderId.startsWith('webull-')) return false;
+    const type = String(order.type || order.order_type || '').toUpperCase();
+    return type.includes('LIMIT');
+  };
+
+  const handleReplaceButtonClick = (coin, coinOrders, event) => {
+    event.stopPropagation();
+    if (!coinOrders || coinOrders.length === 0) return;
+    const replaceableOrders = coinOrders.filter(canReplaceOrder);
+    if (replaceableOrders.length === 0) return;
+
+    if (replaceableOrders.length === 1) {
+      setReplaceModalState({
+        isOpen: true,
+        coin,
+        order: replaceableOrders[0],
+        loading: false,
+        error: null
+      });
+    } else {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const menuWidth = 360;
+      const padding = 16;
+      let posX = rect.right - menuWidth;
+      if (posX + menuWidth > window.innerWidth - padding) posX = window.innerWidth - menuWidth - padding;
+      if (posX < padding) posX = padding;
+      const posY = rect.bottom + window.scrollY + 6;
+      setReplaceContextMenu({
+        isOpen: true,
+        coin,
+        x: Math.round(posX),
+        y: Math.round(posY),
+        orders: replaceableOrders
+      });
+    }
+  };
+
+  const handleSelectReplaceOrderFromMenu = (order, coin) => {
+    setReplaceContextMenu({ isOpen: false, coin: null, x: 0, y: 0, orders: [] });
+    setReplaceModalState({
+      isOpen: true,
+      coin,
+      order,
+      loading: false,
+      error: null
+    });
+  };
+
+  const handleConfirmReplaceOrder = async (order, twoFactorCode, newConfig) => {
+    setReplaceModalState(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const orderId = order.order_id || order.orderId || order.id;
+      const symbol = (order.symbol || replaceModalState.coin?.symbol || '').toUpperCase();
+
+      const payload = {
+        symbol,
+        new_price: newConfig.price,
+        new_quantity: newConfig.quantity
+      };
+      if (twoFactorCode) {
+        payload.two_factor_code = twoFactorCode;
+      }
+
+      const response = await axios.post(`/api/replace-order/${orderId}`, payload, { withCredentials: true });
+      if (response.data.success || response.status === 200) {
+        setReplaceModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
+        // Background refresh
+        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
+        axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => { });
+        return { success: true };
+      } else {
+        setReplaceModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to replace order' }));
+        return response.data;
+      }
+    } catch (err) {
+      console.error('Replace order error:', err);
+      const errMsg = err.response?.data?.error || err.message || 'Failed to replace order';
+      const requires2fa = err.response?.data?.requires_2fa;
+      setReplaceModalState(prev => ({ ...prev, loading: false, error: errMsg }));
+      if (requires2fa) return { requires_2fa: true };
+      throw err;
+    }
+  };
+
   // Cancel order handlers
   const handleCancelButtonClick = (coin, coinOrders, event) => {
     event.stopPropagation();
@@ -2711,12 +2806,15 @@ function Dashboard({ isLightMode }) {
       if (cancelContextMenu.isOpen) {
         setCancelContextMenu({ isOpen: false, coin: null, x: 0, y: 0, orders: [] });
       }
+      if (replaceContextMenu.isOpen) {
+        setReplaceContextMenu({ isOpen: false, coin: null, x: 0, y: 0, orders: [] });
+      }
     };
-    if (cancelContextMenu.isOpen) {
+    if (cancelContextMenu.isOpen || replaceContextMenu.isOpen) {
       document.addEventListener('click', handleOutsideClick);
       return () => document.removeEventListener('click', handleOutsideClick);
     }
-  }, [cancelContextMenu.isOpen]);
+  }, [cancelContextMenu.isOpen, replaceContextMenu.isOpen]);
 
   // Note functions
   const openNoteModal = (coin) => {
@@ -3028,33 +3126,62 @@ function Dashboard({ isLightMode }) {
             {isPortfolio && (() => {
               const allPendingItems = getAllPendingItemsForCoin(coin);
               const hasOrders = allPendingItems.length > 0;
+              const replaceableOrders = allPendingItems.filter(canReplaceOrder);
+              const hasReplaceable = replaceableOrders.length > 0;
               return (
-                <button
-                  onClick={(e) => {
-                    closeActionMenu();
-                    if (hasOrders) handleCancelButtonClick(coin, allPendingItems, e);
-                  }}
-                  disabled={!hasOrders}
-                  style={!hasOrders ? { opacity: 0.4, cursor: 'not-allowed' } : { color: '#ef4444' }}
-                >
-                  Cancel Active ({allPendingItems.length})
-                </button>
+                <>
+                  <button
+                    onClick={(e) => {
+                      closeActionMenu();
+                      if (hasOrders) handleCancelButtonClick(coin, allPendingItems, e);
+                    }}
+                    disabled={!hasOrders}
+                    style={!hasOrders ? { opacity: 0.4, cursor: 'not-allowed' } : { color: '#ef4444' }}
+                  >
+                    Cancel Active ({allPendingItems.length})
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      closeActionMenu();
+                      if (hasReplaceable) handleReplaceButtonClick(coin, allPendingItems, e);
+                    }}
+                    disabled={!hasReplaceable}
+                    style={!hasReplaceable ? { opacity: 0.4, cursor: 'not-allowed', display: 'none' } : { color: '#38bdf8' }}
+                  >
+                    Replace Active ({replaceableOrders.length})
+                  </button>
+                </>
               );
             })()}
             {isWatchlist && (() => {
               const watchlistItem = { ...item, isWatchlist: true };
               const allPendingItems = getAllPendingItemsForCoin(watchlistItem);
               const hasOrders = allPendingItems.length > 0;
+              const replaceableOrders = allPendingItems.filter(canReplaceOrder);
+              const hasReplaceable = replaceableOrders.length > 0;
               return (
-                <button
-                  onClick={(e) => {
-                    closeActionMenu();
-                    if (hasOrders) handleCancelButtonClick(watchlistItem, allPendingItems, e);
-                  }}
-                  disabled={!hasOrders}
-                >
-                  Cancel Active ({allPendingItems.length})
-                </button>
+                <>
+                  <button
+                    onClick={(e) => {
+                      closeActionMenu();
+                      if (hasOrders) handleCancelButtonClick(watchlistItem, allPendingItems, e);
+                    }}
+                    disabled={!hasOrders}
+                  >
+                    Cancel Active ({allPendingItems.length})
+                  </button>
+                  {hasReplaceable && (
+                    <button
+                      onClick={(e) => {
+                        closeActionMenu();
+                        if (hasReplaceable) handleReplaceButtonClick(watchlistItem, allPendingItems, e);
+                      }}
+                      style={{ color: '#38bdf8' }}
+                    >
+                      Replace Active ({replaceableOrders.length})
+                    </button>
+                  )}
+                </>
               );
             })()}
             <button
@@ -3222,6 +3349,18 @@ function Dashboard({ isLightMode }) {
         >
           <span>✖</span>Cancel{hasOrders ? ` (${allPendingItems.length})` : ''}
         </button>
+        {allPendingItems.some(canReplaceOrder) && (
+          <button
+            role="menuitem"
+            style={{ color: '#38bdf8' }}
+            onClick={(event) => {
+              closeActionMenu();
+              handleReplaceButtonClick(pendingSubject, allPendingItems, event);
+            }}
+          >
+            <span>🔄</span>Replace{` (${allPendingItems.filter(canReplaceOrder).length})`}
+          </button>
+        )}
         <button
           role="menuitem"
           onClick={() => {
@@ -5268,16 +5407,31 @@ function Dashboard({ isLightMode }) {
                                       {(() => {
                                         const allPendingItems = getAllPendingItemsForCoin(coin);
                                         const hasOrders = allPendingItems.length > 0;
+                                        const replaceableOrders = allPendingItems.filter(canReplaceOrder);
+                                        const hasReplaceable = replaceableOrders.length > 0;
                                         return (
-                                          <button
-                                            type="button"
-                                            className={`trade-action-btn cancel ${!hasOrders ? 'disabled-cancel' : ''}`}
-                                            onClick={(e) => hasOrders && handleCancelButtonClick(coin, allPendingItems, e)}
-                                            disabled={!hasOrders}
-                                            title={hasOrders ? `Cancel ${allPendingItems.length} active order(s)/trigger(s) for ${coin.symbol}` : 'No pending orders or active triggers to cancel'}
-                                          >
-                                            Cancel
-                                          </button>
+                                          <>
+                                            <button
+                                              type="button"
+                                              className={`trade-action-btn cancel ${!hasOrders ? 'disabled-cancel' : ''}`}
+                                              onClick={(e) => hasOrders && handleCancelButtonClick(coin, allPendingItems, e)}
+                                              disabled={!hasOrders}
+                                              title={hasOrders ? `Cancel ${allPendingItems.length} active order(s)/trigger(s) for ${coin.symbol}` : 'No pending orders or active triggers to cancel'}
+                                            >
+                                              Cancel
+                                            </button>
+                                            {hasReplaceable && (
+                                              <button
+                                                type="button"
+                                                className="trade-action-btn replace-action"
+                                                style={{ background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}
+                                                onClick={(e) => handleReplaceButtonClick(coin, allPendingItems, e)}
+                                                title={`Replace active order(s) for ${coin.symbol}`}
+                                              >
+                                                Replace
+                                              </button>
+                                            )}
+                                          </>
                                         );
                                       })()}
                                       <button
@@ -5664,6 +5818,8 @@ function Dashboard({ isLightMode }) {
                                       {(() => {
                                         const allPendingItems = getAllPendingItemsForCoin({ ...item, isWatchlist: true });
                                         const hasOrders = allPendingItems.length > 0;
+                                        const replaceableOrders = allPendingItems.filter(canReplaceOrder);
+                                        const hasReplaceable = replaceableOrders.length > 0;
                                         return (
                                           <>
                                             {hasOrders && (
@@ -5674,6 +5830,17 @@ function Dashboard({ isLightMode }) {
                                                 title={`Cancel ${allPendingItems.length} active order(s)/trigger(s) for ${item.symbol}`}
                                               >
                                                 Cancel
+                                              </button>
+                                            )}
+                                            {hasReplaceable && (
+                                              <button
+                                                type="button"
+                                                className="trade-action-btn replace-action"
+                                                style={{ background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}
+                                                onClick={(e) => handleReplaceButtonClick({ ...item, isWatchlist: true }, allPendingItems, e)}
+                                                title={`Replace active order(s) for ${item.symbol}`}
+                                              >
+                                                Replace
                                               </button>
                                             )}
                                             <button
@@ -6888,6 +7055,17 @@ function Dashboard({ isLightMode }) {
         error={cancelModalState.error}
       />
 
+      {/* Replace Order Confirmation Modal */}
+      <ReplaceOrderConfirmModal
+        isOpen={replaceModalState.isOpen}
+        onClose={() => setReplaceModalState({ isOpen: false, coin: null, order: null, loading: false, error: null })}
+        order={replaceModalState.order}
+        coin={replaceModalState.coin}
+        onConfirm={handleConfirmReplaceOrder}
+        loading={replaceModalState.loading}
+        error={replaceModalState.error}
+      />
+
       {/* Floating Cancel Orders Context Menu */}
       {cancelContextMenu.isOpen && cancelContextMenu.coin && (
         <div
@@ -6935,6 +7113,56 @@ function Dashboard({ isLightMode }) {
                           {price && `@ $${Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`}
                         </>
                       )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Floating Replace Orders Context Menu */}
+      {replaceContextMenu.isOpen && replaceContextMenu.coin && (
+        <div
+          className="cancel-orders-context-menu replace-context"
+          style={{
+            position: 'absolute',
+            left: `${replaceContextMenu.x}px`,
+            top: `${replaceContextMenu.y}px`,
+            zIndex: 2000
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="cancel-context-header">
+            <span>Replace Order ({replaceContextMenu.coin.symbol})</span>
+            <button
+              type="button"
+              className="cancel-context-close"
+              onClick={() => setReplaceContextMenu({ isOpen: false, coin: null, x: 0, y: 0, orders: [] })}
+            >
+              ✕
+            </button>
+          </div>
+          <div className="cancel-context-list">
+            {replaceContextMenu.orders.map((ord, idx) => {
+              const side = (ord.side || 'ORDER').toUpperCase();
+              const type = (ord.type || ord.order_type || 'LIMIT').replace(/_/g, ' ');
+              const qty = ord.quantity || ord.origQty;
+              const price = ord.price || ord.trigger_price;
+              return (
+                <button
+                  key={ord.order_id || ord.id || idx}
+                  type="button"
+                  className="cancel-context-item replace"
+                  onClick={() => handleSelectReplaceOrderFromMenu(ord, replaceContextMenu.coin)}
+                >
+                  <span className={`cancel-item-badge badge-${side.toLowerCase().replace(/_/g, '-')}`}>{side}</span>
+                  <div className="cancel-item-details">
+                    <div className="cancel-item-title">{type} ({ord.symbol || replaceContextMenu.coin.symbol})</div>
+                    <div className="cancel-item-sub">
+                      {qty && `${qty} `}
+                      {price && `@ $${Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`}
                     </div>
                   </div>
                 </button>

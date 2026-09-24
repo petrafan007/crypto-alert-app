@@ -28,8 +28,8 @@ from log import logger
 
 # Modular Service Imports
 from services.portfolio_service import (
-    compute_portfolio_total_value, _compute_portfolio_history_series, 
-    record_true_portfolio_value, sync_coins_from_transactions, 
+    compute_portfolio_total_value, _compute_portfolio_history_series,
+    record_true_portfolio_value, sync_coins_from_transactions,
     trigger_portfolio_snapshot, update_portfolio_from_real_order
 )
 from services.binance_service import (
@@ -106,18 +106,18 @@ def add_transaction():
     try:
         from trading_models import AllActivity
         data = request.get_json()
-        
+
         # Validate required fields
         required_fields = ['date', 'type', 'asset', 'amount']
         for field in required_fields:
             if field not in data or data[field] is None or data[field] == '':
                 return jsonify({"error": f"Missing required field: {field}"}), 400
-        
+
         # Generate unique transaction ID
         import uuid
         import time
         txid = f"manual_{int(time.time())}_{uuid.uuid4().hex[:8]}"
-        
+
         activity_date = _coerce_activity_datetime(data['date'])
 
         # Create new activity using ORM
@@ -138,18 +138,18 @@ def add_transaction():
             avg_entry=float(data.get('avg_entry', 0)) if data.get('avg_entry') else 0.0,
             exchange=data.get('exchange', 'manual')
         )
-        
+
         db.session.add(new_activity)
         db.session.commit()
-        
+
         logger.info(f"Added manual transaction: {new_activity.type} {new_activity.amount} {new_activity.asset}")
-        
+
         return jsonify({
             "success": True,
             "message": "Transaction added successfully",
             "txid": txid
         })
-        
+
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error adding transaction: {str(e)}")
@@ -203,7 +203,7 @@ def api_record_portfolio_value():
             "message": f"Error recording portfolio value: {str(e)}"
         }), 500
 
-    
+
 @portfolio_bp.route("/api/binance-price")
 @login_required
 def api_binance_price():
@@ -239,13 +239,13 @@ def api_staking_balance():
         if not cred or not ((cred.trading_api_key and cred.trading_api_secret) or (cred.api_key and cred.api_secret)):
             logger.warning("Binance API credentials not configured")
             return jsonify({'error': 'Binance.US API credentials are not configured.'}), 400
-        
+
         # Call Binance.US staking balance endpoint
         asset_param = request.args.get('asset')
         overview = build_staking_balance_view(cred, asset_param)
         logger.info(f"/api/staking/balance response summary: {overview.get('summary')}")
         return jsonify(overview), 502 if overview.get('error') else 200
-    
+
     except Exception as e:
         logger.error(f"Error in api_staking_balance: {e}", exc_info=True)
         return jsonify({
@@ -318,7 +318,7 @@ def api_true_portfolio_value_live():
         )
         result = {"total_value": total_value}
         return jsonify(result)
-        
+
     except Exception as e:
         logger.error(f"Error getting live portfolio value: {e}")
         # Fallback to stored data
@@ -344,7 +344,7 @@ def portfolio_page():
 @login_required
 def check_trade_permission():
     """Check if user's Binance API key has Spot Trading permissions.
-    
+
     Uses GET /api/v3/account which returns canTrade: true when trading is enabled.
     Per Binance.US docs: https://docs.binance.us/
     """
@@ -352,7 +352,7 @@ def check_trade_permission():
         username = current_user.username
         logger.debug(f"[TRADE_PERMISSION] Check requested for user: {username} (ID: {current_user.id})")
         cred = get_user_credentials(username)
-        
+
         if not cred or not cred.api_key or not cred.api_secret:
             logger.debug(f"[TRADE_PERMISSION] No API key configured for {username}")
             return jsonify({
@@ -360,16 +360,16 @@ def check_trade_permission():
                 "has_permission": False,
                 "message": "No Binance API key configured."
             }), 200
-        
+
         # IMPORTANT: /api/v3/account returns ACCOUNT capabilities, not API KEY restrictions!
         # canTrade=true just means the account TYPE supports trading, not that the API key has permission.
         # We need to test with an endpoint that requires trading permission to detect read-only keys.
-        
+
         try:
             # Verify which API key we're using
             api_key_suffix = cred.api_key[-15:] if len(cred.api_key) > 15 else cred.api_key
             pass
-            
+
             # IMPORTANT: /api/v3/openOrders doesn't respect API key restrictions (Binance bug)
             # Instead, try to place a TEST order which requires actual trading permission
             test_response = binance_us_api_call(
@@ -386,10 +386,10 @@ def check_trade_permission():
                     'price': '10000'  # Very low price, won't execute
                 }
             )
-            
+
             logger.debug(f"[TRADE_PERMISSION] Test order endpoint status: {test_response.status_code}")
             pass
-            
+
             if test_response.status_code == 200:
                 # Successfully accessed trading endpoint - has permission
                 logger.debug(f"[TRADE_PERMISSION] ✅ {username} HAS trading permission (test order succeeded)")
@@ -409,14 +409,14 @@ def check_trade_permission():
                     error_msg = error_data.get('msg', error_msg)
                 except:
                     pass
-                
+
                 logger.warning(f"[TRADE_PERMISSION] Test order returned error {test_response.status_code}: code={error_code}, msg={error_msg}")
 
-                # CRITICAL LOGIC: 
+                # CRITICAL LOGIC:
                 # Error -2015 is "Invalid API-key, IP, or permissions for action" --> PERMISSION DENIED
                 # Error -1013 is "Filter failure" --> PERMISSION GRANTED (but params bad)
                 # Error -1022 is "Signature validation failed" --> PERMISSION UNKNOWN (assume OK)
-                
+
                 if error_code == -2015:
                     logger.debug(f"[TRADE_PERMISSION] ❌ {username} DOES NOT have trading permission (error -2015)")
                     return jsonify({
@@ -433,7 +433,7 @@ def check_trade_permission():
                         "has_permission": True,
                         "message": f"Trading permission verified (ignoring {error_msg})"
                     }), 200
-                
+
         except Exception as api_err:
             logger.warning(f"Trade permission check failed: {api_err}")
             return jsonify({
@@ -441,7 +441,7 @@ def check_trade_permission():
                 "has_permission": False,
                 "message": f"API key error: {str(api_err)}"
             }), 200
-            
+
     except Exception as e:
         logger.error(f"Error checking trade permission: {e}")
         return jsonify({"has_api_key": False, "has_permission": False, "message": "Server error"}), 500
@@ -458,7 +458,7 @@ def api_place_order():
         order_type = data.get('order_type')  # MARKET, LIMIT
         quantity = data.get('quantity')
         price = data.get('price')  # Required for LIMIT orders
-        
+
         if not all([side, symbol, order_type, quantity]):
             return jsonify({'success': False, 'error': 'Missing required fields'})
 
@@ -466,18 +466,18 @@ def api_place_order():
         two_factor_error = require_live_trading_2fa(current_user.id, data, 'place this live Binance.US order')
         if two_factor_error:
             return jsonify(success=False, error=two_factor_error, requires_2fa=True), 403
-        
+
         # Get Binance credentials for the user
         creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
+
         if not creds:
             return jsonify({'success': False, 'error': 'Binance API credentials not configured'}), 401
-        
+
         api_key = decrypt_secret(creds.api_key)
         api_secret = decrypt_secret(creds.api_secret)
         if not api_key or not api_secret:
             return jsonify({'success': False, 'error': 'Binance API credentials not configured'}), 401
-        
+
         # Initialize Binance client
         from binance.client import Client
         client = Client(
@@ -485,7 +485,7 @@ def api_place_order():
             api_secret=api_secret,
             tld='us'  # Use Binance.US
         )
-        
+
         # Place order on Binance
         try:
             if order_type.upper() == 'MARKET':
@@ -502,7 +502,7 @@ def api_place_order():
             elif order_type.upper() == 'LIMIT':
                 if not price:
                     return jsonify({'success': False, 'error': 'Price required for limit orders'})
-                
+
                 if side.upper() == 'BUY':
                     order = client.order_limit_buy(
                         symbol=symbol,
@@ -517,13 +517,13 @@ def api_place_order():
                     )
             else:
                 return jsonify({'success': False, 'error': f'Unsupported order type: {order_type}'})
-            
+
             logger.info(f"Binance order placed successfully: {order['orderId']}")
-            
+
             # Log the transaction to the logs database
             try:
                 from trading_models import AllActivity
-                
+
                 # Extract base symbol from trading pair
                 if symbol.endswith('USD') and not symbol.endswith('USDT'):
                     base_symbol = symbol[:-3]
@@ -531,14 +531,14 @@ def api_place_order():
                     base_symbol = symbol[:-4]
                 else:
                     base_symbol = symbol
-                
+
                 # Calculate proceeds and fees from order response
                 executed_qty = float(order.get('executedQty', quantity))
                 fills = order.get('fills', [])
-                
+
                 total_commission = 0.0
                 avg_price = 0.0
-                
+
                 if fills:
                     total_price = sum(float(fill['price']) * float(fill['qty']) for fill in fills)
                     total_qty = sum(float(fill['qty']) for fill in fills)
@@ -546,9 +546,9 @@ def api_place_order():
                     total_commission = sum(float(fill['commission']) for fill in fills)
                 else:
                     avg_price = float(order.get('price', price or 0))
-                
+
                 proceeds = executed_qty * avg_price
-                
+
                 # Create new activity using ORM
                 new_activity = AllActivity(
                     date=datetime.utcnow(),
@@ -564,18 +564,18 @@ def api_place_order():
                     user_id=current_user.id,
                     exchange='binance'
                 )
-                
+
                 db.session.add(new_activity)
                 db.session.commit()
                 trigger_portfolio_snapshot(current_user.id, current_user.username)
                 logger.info(f"Transaction logged to database: {base_symbol} {side}")
-                
+
                 # Update the portfolio to reflect the trade
                 try:
                     # Get the executed quantity and price
                     executed_qty = float(order.get('executedQty', quantity))
                     avg_price = float(order.get('price', price or 0))
-                    
+
                     # Update the coins table
                     if side.upper() == 'BUY':
                         # For buys, add to the existing amount or create a new entry
@@ -599,7 +599,7 @@ def api_place_order():
                                 auto_hidden=False
                             )
                             db.session.add(coin)
-                        
+
                         # Update USDT balance (subtract cost)
                         total_cost = executed_qty * avg_price
                         usdt_coin = Coin.query.filter_by(user_id=current_user.id, symbol='USDT').first()
@@ -615,7 +615,7 @@ def api_place_order():
                                 db.session.delete(coin)
                             else:
                                 coin.amount = new_amount
-                            
+
                             # Update USDT balance (add proceeds)
                             total_proceeds = executed_qty * avg_price
                             usdt_coin = Coin.query.filter_by(user_id=current_user.id, symbol='USDT').first()
@@ -631,17 +631,17 @@ def api_place_order():
                                     is_manual=False
                                 )
                                 db.session.add(usdt_coin)
-                    
+
                     db.session.commit()
                     logger.info(f"Portfolio updated for {base_symbol} {side} order")
-                    
+
                 except Exception as update_error:
                     logger.error(f"Failed to update portfolio: {update_error}")
                     # Don't fail the entire request, just log the error
-                
+
             except Exception as log_e:
                 logger.error(f"Failed to log transaction: {log_e}")
-            
+
             try:
                 status = order.get('status', 'NEW')
                 executed_qty_val = float(order.get('executedQty', quantity or 0))
@@ -678,14 +678,14 @@ def api_place_order():
                 'message': f'Order placed successfully on Binance',
                 'portfolio_updated': True
             })
-            
+
         except Exception as binance_e:
             logger.error(f"Binance order failed: {binance_e}")
             return jsonify({
                 'success': False,
                 'error': f'Order placement failed: {str(binance_e)}'
             }), 500
-        
+
     except Exception as e:
         logger.error(f"Error placing order: {e}")
         return jsonify({'success': False, 'error': 'Internal server error'}), 500
@@ -700,13 +700,13 @@ def api_sync_portfolio():
         success, message = sync_portfolio_from_binance(current_user.id)
         if not success:
             return jsonify({'success': False, 'error': message}), 500
-            
+
         # Then update all coin prices
         update_all_coin_prices_from_binance(current_user.id)
-        
+
         logger.info(f"Manual portfolio sync completed for user {current_user.id}")
         return jsonify({
-            'success': True, 
+            'success': True,
             'message': message + ' and updated all prices'
         })
     except Exception as e:
@@ -819,7 +819,7 @@ def api_orders():
 
 
 @portfolio_bp.route('/api/transaction-history')
-@login_required  
+@login_required
 def api_transaction_history():
     """Get transaction history from Binance"""
     try:
@@ -841,7 +841,7 @@ def api_pending_orders():
         # Get Binance credentials from database
         # Get Binance credentials from database
         creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
+
         if not creds:
             logger.warning(f"No Binance credentials found for user {current_user.username}")
             return jsonify({
@@ -858,7 +858,7 @@ def api_pending_orders():
                 'message': 'No Binance credentials found',
                 'error_code': 'missing_binance_credentials'
             }), 400
-        
+
         # Initialize Binance client
         try:
             from binance.client import Client
@@ -871,11 +871,11 @@ def api_pending_orders():
         except Exception as e:
             logger.error(f"Failed to initialize Binance client: {e}\n{traceback.format_exc()}")
             return jsonify({'pending_orders': [], 'message': f'Failed to initialize Binance client: {str(e)}'}), 502
-        
+
         # Fetch all open orders (no symbol filter = get all)
         try:
             open_orders = client.get_open_orders()
-            
+
             # Parse and format orders for frontend
             pending_orders = []
             pending_buy_assets = {}
@@ -883,13 +883,13 @@ def api_pending_orders():
                 symbol = order.get('symbol', '')
                 # Extract asset from symbol (remove USDT or USD suffix)
                 asset = symbol.replace('USDT', '').replace('USD', '')
-                
+
                 order_type = order.get('type', 'LIMIT')
                 side = order.get('side', '')  # BUY or SELL
                 price = float(order.get('price', 0))
                 stop_price = float(order.get('stopPrice', 0)) if order.get('stopPrice') else None
                 quantity = float(order.get('origQty', 0))
-                
+
                 # Determine order direction text
                 if side == 'SELL':
                     if stop_price:
@@ -907,7 +907,7 @@ def api_pending_orders():
                     else:
                         direction = 'drops below'
                         trigger_price = price
-                
+
                 # Check if this is an OCO order (has both stop and limit)
                 is_oco = order.get('type') == 'STOP_LOSS_LIMIT' and order.get('stopPrice') and order.get('price')
                 quote_amount = quantity * (trigger_price or price or 0.0)
@@ -915,7 +915,7 @@ def api_pending_orders():
                 ref_price = trigger_price or price or 0.0
                 if asset_upper and side == 'BUY':
                     pending_buy_assets[asset_upper] = max(pending_buy_assets.get(asset_upper, 0.0), ref_price)
-                
+
                 pending_orders.append({
                     'order_id': order.get('orderId'),
                     'symbol': symbol,
@@ -935,7 +935,7 @@ def api_pending_orders():
                     'quantity_usdt': quote_amount,
                     'orderListId': order.get('orderListId', -1)
                 })
-            
+
             coin_updates = False
             # An unfilled BUY is a watch target, not a portfolio position. This
             # also captures BUY orders created directly on Binance.US.
@@ -1056,11 +1056,11 @@ def api_pending_orders():
 
             logger.info(f"Retrieved {len(pending_orders)} pending orders for user {current_user.username}")
             return jsonify({'pending_orders': pending_orders})
-            
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Error fetching pending orders: {e}\n{traceback.format_exc()}")
-            
+
             if "Too much request weight" in error_msg or "rate limit" in error_msg.lower():
                 return jsonify({
                     'pending_orders': [],
@@ -1075,7 +1075,7 @@ def api_pending_orders():
                 }), 400
             else:
                 return jsonify({'pending_orders': [], 'message': f'Error: {str(e)}'}), 502
-                
+
     except Exception as e:
         logger.error(f"Error in api_pending_orders: {e}\n{traceback.format_exc()}")
         return jsonify({'pending_orders': [], 'message': f'Internal error: {str(e)}'}), 500
@@ -1089,7 +1089,7 @@ def api_portfolio_analysis():
     try:
         # Get current portfolio data
         coins = Coin.query.filter_by(user_id=current_user.id, hidden=False).all()
-        
+
         if not coins:
             return jsonify({
                 'total_value': 0,
@@ -1098,29 +1098,29 @@ def api_portfolio_analysis():
                 'risk_level': 'Low',
                 'recommendations': ['No holdings found']
             })
-        
+
         total_value = 0
         holdings = []
-        
+
         for coin in coins:
             current_price = fetch_binance_price(coin.symbol)
             value = coin.amount * current_price
             total_value += value
-            
+
             holdings.append({
                 'symbol': coin.symbol,
                 'amount': coin.amount,
                 'value': value,
                 'price': current_price
             })
-        
+
         # Calculate diversification score
         if total_value > 0:
             weights = [h['value'] / total_value for h in holdings]
             diversification_score = min(100, int(100 * (1 - sum(w**2 for w in weights))))
         else:
             diversification_score = 0
-        
+
         # Determine risk level
         if total_value > 10000:
             risk_level = 'High'
@@ -1128,7 +1128,7 @@ def api_portfolio_analysis():
             risk_level = 'Medium'
         else:
             risk_level = 'Low'
-        
+
         # Generate recommendations
         recommendations = []
         if diversification_score < 50:
@@ -1137,7 +1137,7 @@ def api_portfolio_analysis():
             recommendations.append("Consider adding more assets to reduce concentration risk")
         if total_value > 10000:
             recommendations.append("Consider implementing stop-loss orders for risk management")
-        
+
         return jsonify({
             'total_value': total_value,
             'holdings_count': len(holdings),
@@ -1173,7 +1173,7 @@ def api_cancel_order(order_id):
             from services.ladder_order_service import cancel_ladder_order
             cancelled = cancel_ladder_order(ladder_id, current_user.id)
             return jsonify({'success': True, 'message': 'Ladder order cancelled successfully'})
-            
+
         if str_order_id.startswith('trail_'):
             trail_id = int(str_order_id.replace('trail_', ''))
             from services.trailing_order_service import cancel_trailing_order
@@ -1260,6 +1260,123 @@ def api_cancel_order(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@portfolio_bp.route('/api/replace-order/<order_id>', methods=['POST'])
+@login_required
+def api_replace_order(order_id):
+    """Replace an existing Binance or Webull order with new parameters."""
+    try:
+        data = request.get_json() or {}
+        symbol = (data.get('symbol') or '').upper()
+        new_price = data.get('new_price')
+        new_quantity = data.get('new_quantity')
+
+        if not symbol or new_price is None or new_quantity is None:
+            return jsonify({'error': 'Symbol, new_price, and new_quantity are required for order replacement'}), 400
+
+        from services.trading_2fa_service import require_live_trading_2fa
+        two_factor_error = require_live_trading_2fa(current_user.id, data, 'replace this live order')
+        if two_factor_error:
+            return jsonify(error=two_factor_error, requires_2fa=True), 403
+
+        str_order_id = str(order_id)
+        if str_order_id.startswith('ladder_') or str_order_id.startswith('trail_'):
+            return jsonify({'error': 'Replacement is not supported for synthetic ladder or trailing orders here'}), 400
+
+        # Determine if it's Webull or Binance
+        is_webull = str_order_id.startswith('webull-')
+
+        if is_webull:
+            return jsonify({'error': 'Webull replace order not yet implemented'}), 501
+
+        else:
+            # Binance replace logic
+            creds = Credential.query.filter_by(user_id=current_user.id).first()
+            if not creds or not creds.trading_api_key or not creds.trading_api_secret:
+                return jsonify({'error': 'No Binance trading credentials found'}), 400
+
+            from binance.client import Client
+            client = Client(
+                api_key=creds.trading_api_key,
+                api_secret=creds.trading_api_secret,
+                testnet=False,
+                tld='us'
+            )
+
+            # Fetch order info first to know side and type
+            try:
+                order_info = client.get_order(symbol=symbol, orderId=int(order_id))
+            except Exception as e:
+                return jsonify({'error': f'Could not fetch original order: {str(e)}'}), 400
+
+            side = order_info.get('side')
+            order_type = order_info.get('type')
+
+            # Cancel the existing order
+            try:
+                cancel_result = client.cancel_order(symbol=symbol, orderId=int(order_id))
+
+                try:
+                    order_record = RealOrder.query.filter(
+                        RealOrder.user_id == current_user.id,
+                        RealOrder.binance_order_id == int(order_id)
+                    ).first()
+                    if order_record:
+                        order_record.status = cancel_result.get('status', 'CANCELED')
+                        order_record.canceled_at = datetime.utcnow()
+                        order_record.updated_at = datetime.utcnow()
+                        db.session.commit()
+                except Exception as db_err:
+                    db.session.rollback()
+            except Exception as e:
+                return jsonify({'error': f'Failed to cancel original order: {str(e)}'}), 400
+
+            # Place the new order
+            try:
+                order_params = {
+                    'symbol': symbol,
+                    'side': side,
+                    'type': order_type,
+                    'quantity': float(new_quantity),
+                    'price': str(new_price)
+                }
+
+                if order_type == 'LIMIT':
+                    order_params['timeInForce'] = 'GTC'
+
+                new_order_result = client.create_order(**order_params)
+
+                # Save new order to database
+                new_order_record = RealOrder(
+                    user_id=current_user.id,
+                    binance_order_id=new_order_result['orderId'],
+                    symbol=symbol,
+                    side=side,
+                    type=order_type,
+                    price=float(new_price),
+                    quantity=float(new_quantity),
+                    status=new_order_result.get('status', 'NEW')
+                )
+                db.session.add(new_order_record)
+                db.session.commit()
+
+                return jsonify({
+                    'success': True,
+                    'message': 'Order replaced successfully',
+                    'order_id': new_order_result.get('orderId'),
+                    'symbol': symbol
+                })
+
+            except Exception as e:
+                return jsonify({'error': f'Failed to place replacement order: {str(e)}'}), 400
+
+    except Exception as e:
+        logger.error(f"Replace order error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+
+
+
 
 @portfolio_bp.route('/api/order-status/<order_id>')
 @login_required
@@ -1280,7 +1397,7 @@ def api_order_status(order_id):
                 'side': ladder.side,
                 'type': 'LADDER'
             })
-            
+
         if str_order_id.startswith('trail_'):
             trail_id = int(str_order_id.replace('trail_', ''))
             from trading_models import TrailingOrder
@@ -1297,13 +1414,13 @@ def api_order_status(order_id):
 
         # Get Binance credentials
         creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
+
         if not creds:
             return jsonify({
                 'error': 'No Binance credentials found',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         api_key = decrypt_secret(creds.api_key)
         api_secret = decrypt_secret(creds.api_secret)
         if not api_key or not api_secret:
@@ -1311,7 +1428,7 @@ def api_order_status(order_id):
                 'error': 'No Binance credentials found',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         # Initialize Binance client
         from binance.client import Client
         client = Client(
@@ -1320,12 +1437,12 @@ def api_order_status(order_id):
             testnet=False,
             tld='us'
         )
-        
+
         # Get symbol from query parameters
         symbol = request.args.get('symbol')
         if not symbol:
             return jsonify({'error': 'Symbol parameter is required'}), 400
-        
+
         # Get order status
         try:
             order = client.get_order(symbol=symbol, orderId=int(order_id))
@@ -1343,7 +1460,7 @@ def api_order_status(order_id):
         except Exception as e:
             logger.error(f"Failed to get Binance order status {order_id}: {e}")
             return jsonify({'error': f'Failed to get order status: {str(e)}'}), 400
-            
+
     except Exception as e:
         logger.error(f"Order status error: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -1360,7 +1477,7 @@ def get_trading_settings():
     """Get trading settings for current user"""
     try:
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
-        
+
         if not settings:
             # Create default settings
             settings = TradingSettings(
@@ -1371,7 +1488,7 @@ def get_trading_settings():
             )
             db.session.add(settings)
             db.session.commit()
-        
+
         return jsonify({
             'success': True,
             'settings': settings.to_dict()
@@ -1389,11 +1506,11 @@ def update_trading_settings():
     try:
         data = request.get_json()
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
-        
+
         if not settings:
             settings = TradingSettings(user_id=current_user.id)
             db.session.add(settings)
-        
+
         # Update settings
         if 'test_mode_enabled' in data:
             settings.test_mode_enabled = bool(data['test_mode_enabled'])
@@ -1411,10 +1528,10 @@ def update_trading_settings():
             settings.daily_loss_limit_usd = float(data['daily_loss_limit_usd'])
         if 'require_2fa' in data:
             settings.require_2fa = bool(data['require_2fa'])
-        
+
         settings.updated_at = datetime.utcnow()
         db.session.commit()
-        
+
         logger.info(f"Updated trading settings for user {current_user.id}")
         return jsonify({
             'success': True,
@@ -1430,7 +1547,7 @@ def update_trading_settings():
 @portfolio_bp.route('/api/trading/order-types', methods=['GET'])
 def get_trading_order_types():
     """Get canonical list of supported Binance.US spot order types and TimeInForce options.
-    
+
     Optional query param: ?symbol=XRPUSDT
     When provided, filters the canonical list to only include order types
     that Binance.US actually supports for that specific trading pair.
@@ -1512,11 +1629,11 @@ def get_trading_order_types():
                 'requires_time_in_force': False
             }
         ]
-        
+
         # If a symbol is provided, filter to only the order types Binance.US supports for it
         symbol = request.args.get('symbol', '').strip().upper()
         order_types = all_order_types
-        
+
         if symbol:
             try:
                 from binance.client import Client
@@ -1524,14 +1641,14 @@ def get_trading_order_types():
                 import os
                 from dotenv import load_dotenv
                 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'))
-                
+
                 api_key = os.getenv('BINANCE_API_KEY')
                 api_secret = os.getenv('BINANCE_API_SECRET')
-                
+
                 if api_key and api_secret:
                     client = Client(api_key=api_key, api_secret=api_secret, testnet=False, tld='us')
                     exchange_info = get_cached_exchange_info(client)
-                    
+
                     if exchange_info:
                         for sym_info in exchange_info.get('symbols', []):
                             if sym_info['symbol'] == symbol:
@@ -1546,7 +1663,7 @@ def get_trading_order_types():
                             logger.warning(f"Symbol {symbol} not found in exchange info, returning all order types")
             except Exception as filter_err:
                 logger.warning(f"Could not filter order types for {symbol}, returning all: {filter_err}")
-        
+
         # TimeInForce options for limit orders
         time_in_force_options = [
             {
@@ -1565,13 +1682,13 @@ def get_trading_order_types():
                 'description': 'Must fill entire order immediately or cancel'
             }
         ]
-        
+
         return jsonify({
             'success': True,
             'order_types': order_types,
             'time_in_force_options': time_in_force_options
         })
-        
+
     except Exception as e:
         logger.error(f"Error fetching order types: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1628,7 +1745,7 @@ def get_trading_klines(symbol):
         symbol = symbol.upper()
         interval = request.args.get('interval', '1d')  # 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1M
         limit = int(request.args.get('limit', 1000))  # Max 1000 per Binance API
-        
+
         # Check cache
         cache_key = f"{symbol}_{interval}_{limit}"
         now = time.time()
@@ -1643,16 +1760,16 @@ def get_trading_klines(symbol):
                     'klines': cached_data,
                     'cached': True
                 })
-        
+
         # Get Binance.US credentials (use portfolio API keys for read-only price data)
         creds = Credential.query.filter(
-            Credential._api_key.isnot(None), 
+            Credential._api_key.isnot(None),
             Credential._api_secret.isnot(None)
         ).first()
-        
+
         api_key = decrypt_secret(creds.api_key) if creds else None
         api_secret = decrypt_secret(creds.api_secret) if creds else None
-        
+
         if not api_key or not api_secret:
             # Fallback to yfinance if Binance credentials are not configured
             yf_klines = _fetch_yfinance_klines(symbol, interval, limit)
@@ -1670,7 +1787,7 @@ def get_trading_klines(symbol):
                 'error': 'No Binance.US credentials found.',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         # Initialize Binance client
         from binance.client import Client
         client = Client(
@@ -1679,7 +1796,7 @@ def get_trading_klines(symbol):
             testnet=False,
             tld='us'
         )
-        
+
         # Fetch klines from Binance.US
         candidate_symbols = [symbol]
         if not symbol.endswith('USDT') and not symbol.endswith('USD'):
@@ -1760,7 +1877,7 @@ def get_trading_klines(symbol):
                     'error_code': 'invalid_trading_credentials'
                 }), 400
             return jsonify({'success': False, 'error': f'Failed to fetch market data: {err_msg}'}), 502
-        
+
         # Transform to frontend-friendly format
         formatted_klines = []
         for k in klines:
@@ -1772,10 +1889,10 @@ def get_trading_klines(symbol):
                 'close': float(k[4]),
                 'volume': float(k[5])
             })
-        
+
         # Cache the result
         _KLINES_CACHE[cache_key] = (formatted_klines, now)
-        
+
         logger.info(f"Fetched {len(formatted_klines)} klines for {symbol} ({interval})")
         return jsonify({
             'success': True,
@@ -1784,7 +1901,7 @@ def get_trading_klines(symbol):
             'klines': formatted_klines,
             'cached': False
         })
-        
+
     except Exception as e:
         err_msg = str(e)
         logger.error(f"Error fetching klines for {symbol}: {err_msg}")
@@ -1809,20 +1926,20 @@ def get_trading_transactions(symbol):
         base_asset = symbol.replace('USDT', '').replace('USD', '').upper()
         transactions = []
         from trading_models import AllActivity
-        
+
         from flask import request
         all_coins = request.args.get('all_coins', 'false').lower() == 'true'
-        
+
         # Query all_activities using ORM
         query = AllActivity.query.filter(
             AllActivity.user_id == current_user.id,
             AllActivity.type.in_(['BUY', 'SELL']),
             AllActivity.exchange == 'binance'
         )
-        
+
         if not all_coins:
             query = query.filter(AllActivity.asset == base_asset)
-            
+
         rows = query.order_by(AllActivity.date.asc()).all()
 
         for row in rows:
@@ -1841,7 +1958,7 @@ def get_trading_transactions(symbol):
                         except Exception:
                             logger.warning(f"Unrecognized date format in all_activities: {date_text}")
                             continue
-                
+
                 timestamp = int(date_obj.timestamp())
 
                 price_value = None
@@ -1870,7 +1987,7 @@ def get_trading_transactions(symbol):
             'symbol': base_asset,
             'transactions': transactions
         })
-        
+
     except Exception as e:
         logger.error(f"Error fetching transactions for {symbol}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1883,18 +2000,18 @@ def get_symbol_info(symbol):
     """Get trading rules and filters for a specific symbol"""
     try:
         symbol = symbol.upper()
-        
+
         # Get Binance.US Trading credentials
         # Get Binance.US credentials
         creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
+
         if not creds:
             return jsonify({
                 'success': False,
                 'error': 'No Binance.US trading credentials found.',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         trading_api_key = decrypt_secret(creds.trading_api_key)
         trading_api_secret = decrypt_secret(creds.trading_api_secret)
         if not trading_api_key or not trading_api_secret:
@@ -1903,7 +2020,7 @@ def get_symbol_info(symbol):
                 'error': 'No Binance.US trading credentials found.',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         # Initialize Binance client
         from binance.client import Client
         client = Client(
@@ -1912,18 +2029,18 @@ def get_symbol_info(symbol):
             testnet=False,
             tld='us'
         )
-        
+
         # Get symbol filters
         filters = get_symbol_filters(client, symbol)
         if not filters:
             return jsonify({'success': False, 'error': f'Symbol {symbol} not found or not available for trading.'}), 404
-        
+
         return jsonify({
             'success': True,
             'symbol': symbol,
             'filters': filters
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting symbol info: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1937,18 +2054,18 @@ def place_test_order():
     import traceback
     try:
         data = request.get_json()
-        
+
         # Validate required fields
         required_fields = ['symbol', 'side', 'type']
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
-        
+
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
         if not has_quantity and not has_quote:
             return jsonify({'success': False, 'error': 'Missing required field: quantity'}), 400
-        
+
         symbol = data['symbol'].upper()
         base_asset = symbol.replace('USDT', '').replace('USD', '')
         side = data['side'].upper()  # BUY or SELL
@@ -1959,12 +2076,12 @@ def place_test_order():
         )
         price = _coerce_float(data.get('price'), 0.0) or 0.0
         quantity = quantity_input or 0.0
-        
+
         # Validate order type
         valid_order_types = ['MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER']
         if order_type not in valid_order_types:
             return jsonify({'success': False, 'error': f'Invalid order type. Must be one of: {", ".join(valid_order_types)}'}), 400
-        
+
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
         if not settings or not settings.test_mode_enabled:
             return jsonify(success=False, error='Enable Binance.US Test Mode before placing paper orders.'), 409
@@ -2003,39 +2120,39 @@ def place_test_order():
                 }), 400
         if quantity <= 0:
             return jsonify({'success': False, 'error': 'Quantity must be greater than zero.'}), 400
-        
+
         # Format quantity according to LOT_SIZE filter
         formatted_quantity = format_quantity(quantity, filters['stepSize'])
-        
+
         # Validate quantity is within bounds
         if formatted_quantity < filters['minQty']:
             return jsonify({
-                'success': False, 
+                'success': False,
                 'error': f'Quantity too small. Minimum quantity for {symbol} is {filters["minQty"]}. You entered {quantity} which rounds to {formatted_quantity}.'
             }), 400
-        
+
         if formatted_quantity > filters['maxQty']:
             return jsonify({
-                'success': False, 
+                'success': False,
                 'error': f'Quantity too large. Maximum quantity for {symbol} is {filters["maxQty"]}. You entered {quantity}.'
             }), 400
-        
+
         # Format price according to PRICE_FILTER
         if price > 0:
             formatted_price = format_price(price, filters['tickSize'])
             if formatted_price < filters['minPrice']:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Price too low. Minimum price for {symbol} is {filters["minPrice"]}. You entered {price}.'
                 }), 400
             if formatted_price > filters['maxPrice']:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Price too high. Maximum price for {symbol} is {filters["maxPrice"]}. You entered {price}.'
                 }), 400
         else:
             formatted_price = 0.0
-        
+
         # Validate order using Binance.US test endpoint
         try:
             test_params = {
@@ -2044,30 +2161,30 @@ def place_test_order():
                 'type': order_type,
                 'quantity': formatted_quantity
             }
-            
+
             # Add price for LIMIT orders
             if order_type in ['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER']:
                 if formatted_price <= 0:
                     return jsonify({'success': False, 'error': 'Price is required for LIMIT orders'}), 400
-                
+
                 # Check MIN_NOTIONAL (minimum order value)
                 order_value = formatted_quantity * formatted_price
                 if 'minNotional' in filters and order_value < filters['minNotional']:
                     return jsonify({
-                        'success': False, 
+                        'success': False,
                         'error': f'Order value too small. Minimum order value for {symbol} is ${filters["minNotional"]:.2f}. Your order value is ${order_value:.2f}. Please increase quantity or price.'
                     }), 400
-                
+
                 test_params['price'] = formatted_price
                 test_params['timeInForce'] = 'GTC'  # Good Till Cancel
-            
+
             # Add stopPrice for STOP orders
             if order_type in ['STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT', 'TAKE_PROFIT_LIMIT']:
                 stop_price_str = data.get('stopPrice', '0')
                 stop_price = float(stop_price_str) if stop_price_str and stop_price_str.strip() else 0.0
                 if stop_price <= 0:
                     return jsonify({'success': False, 'error': f'stopPrice is required for {order_type} orders'}), 400
-                
+
                 # Format stop price
                 formatted_stop_price = format_price(stop_price, filters['tickSize'])
                 test_params['stopPrice'] = formatted_stop_price
@@ -2103,67 +2220,67 @@ def place_test_order():
                 valid, collar_err = validate_order_price_collar(formatted_stop_price, side, current_market_price, filters, symbol)
                 if not valid:
                     return jsonify({'success': False, 'error': collar_err}), 400
-            
+
             # For MARKET orders, check MIN_NOTIONAL using current price
             if order_type == 'MARKET' and 'minNotional' in filters:
                 order_value = formatted_quantity * (current_market_price or 1.0)
                 if order_value < filters['minNotional']:
                     return jsonify({
-                        'success': False, 
+                        'success': False,
                         'error': f'Order value too small. Minimum order value for {symbol} is ${filters["minNotional"]:.2f}. Your order value is approximately ${order_value:.2f} at current market price. Please increase quantity.'
                     }), 400
-            
+
             # No signed test submission: real account balances must not constrain paper funds.
-            
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Binance order validation failed: {e}\n{traceback.format_exc()}")
-            
+
             # Parse Binance error for more specific messaging
             if 'PERCENT_PRICE' in error_msg:
                 mult_up = filters.get('multiplierUp', 5.0)
                 mult_down = filters.get('multiplierDown', 0.2)
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Price filter failure (PERCENT_PRICE): Binance.US restricts order prices to within {mult_down}x - {mult_up}x of current market price for {symbol}. Please adjust your price closer to market value.'
                 }), 400
             elif 'LOT_SIZE' in error_msg:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Invalid quantity. The quantity has too many decimal places or doesn\'t meet the step size requirement for {symbol}. Please adjust your order quantity.'
                 }), 400
             elif 'MIN_NOTIONAL' in error_msg or 'NOTIONAL' in error_msg:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Order value too small. The total order value (quantity × price) is below the minimum required for {symbol} (${filters.get("minNotional", 10):.2f}). Please increase your quantity.'
                 }), 400
             elif 'PRICE_FILTER' in error_msg:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Invalid price. The price has too many decimal places or is outside the allowed range for {symbol}. Please adjust your price.'
                 }), 400
             elif 'INSUFFICIENT_BALANCE' in error_msg or 'insufficient balance' in error_msg.lower():
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Insufficient balance. You don\'t have enough funds to place this order. Please reduce the quantity or add more funds.'
                 }), 400
             elif 'Invalid API-key' in error_msg or 'API-key' in error_msg:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': 'API key invalid or expired. Please check your Binance.US API credentials in Settings and ensure they have trading permissions enabled.'
                 }), 401
             elif 'IP' in error_msg and 'permissions' in error_msg.lower():
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': 'IP not whitelisted. Your current IP address is not authorized for API trading. Please add your IP to the whitelist in your Binance.US API settings.'
                 }), 403
             else:
                 # Generic error with full details
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Order validation failed: {error_msg}'
                 }), 400
-        
+
         # Get current market price for simulation
         try:
             ticker = client.get_symbol_ticker(symbol=symbol)
@@ -2171,7 +2288,7 @@ def place_test_order():
         except Exception as e:
             logger.error(f"Failed to get current price for {symbol}: {e}")
             current_price = formatted_price if formatted_price > 0 else 0
-        
+
         # Calculate fill price for simulation
         if order_type == 'MARKET':
             fill_price = current_price
@@ -2183,17 +2300,17 @@ def place_test_order():
                 fill_price = test_params['stopPrice']
             else:
                 fill_price = current_price
-        
+
         # Handle stopPrice for creating order record
         stop_price_for_record = None
         if 'stopPrice' in test_params:
             stop_price_for_record = test_params['stopPrice']
-        
+
         # Simulate the published US schedule; post-only orders use maker fees.
         from services.binance_fee_service import paper_rates
         fee_rate = paper_rates(symbol)['makerRate' if order_type == 'LIMIT_MAKER' else 'takerRate']
         simulated_commission = formatted_quantity * fill_price * fee_rate
-        
+
         # Create test order record with formatted values
         test_order = TestOrder(
             user_id=current_user.id,
@@ -2210,16 +2327,16 @@ def place_test_order():
             created_at=datetime.utcnow(),
             notes=f'Simulated commission: ${simulated_commission:.4f} ({fee_rate*100:.2f}% published Binance.US paper rate)'
         )
-        
+
         db.session.add(test_order)
-        
+
         # Apply the simulated fill and received-asset commission atomically.
         update_test_portfolio(current_user.id, symbol, side, formatted_quantity, fill_price, fee_rate)
-        
+
         db.session.commit()
-        
+
         logger.info(f"Test order placed successfully for user {current_user.id}: {symbol} {side} {formatted_quantity} @ {fill_price}")
-        
+
         return jsonify({
             'success': True,
             'order': test_order.to_dict(),
@@ -2231,7 +2348,7 @@ def place_test_order():
                 'original_price': price
             }
         })
-        
+
     except Exception as e:
         logger.error(f"Error placing test order: {e}\n{traceback.format_exc()}")
         db.session.rollback()
@@ -2247,11 +2364,11 @@ def get_trading_orders():
         # Check if user is in test mode
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
         test_mode = settings.test_mode_enabled if settings else True
-        
+
         # Get filter parameters
         limit = int(request.args.get('limit', 50))
         symbol = request.args.get('symbol')
-        
+
         if test_mode:
             # Get test orders
             query = TestOrder.query.filter_by(user_id=current_user.id)
@@ -2264,13 +2381,13 @@ def get_trading_orders():
             if symbol:
                 query = query.filter_by(symbol=symbol.upper())
             orders = query.order_by(RealOrder.created_at.desc()).limit(limit).all()
-        
+
         return jsonify({
             'success': True,
             'test_mode': test_mode,
             'orders': [order.to_dict() for order in orders]
         })
-        
+
     except Exception as e:
         logger.error(f"Error fetching trading orders: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2562,38 +2679,38 @@ def setup_2fa():
         import qrcode
         import io
         import base64
-        
+
         # Generate a new secret
         secret = pyotp.random_base32()
-        
+
         # Create provisioning URI for QR code
         totp = pyotp.TOTP(secret, digits=6, interval=30)
         provisioning_uri = totp.provisioning_uri(
             name=current_user.username,
             issuer_name='Crypto & Securities Dashboard Trading'
         )
-        
+
         # Generate QR code
         qr = qrcode.QRCode(version=1, box_size=10, border=5)
         qr.add_data(provisioning_uri)
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
-        
+
         # Convert to base64
         buffer = io.BytesIO()
         img.save(buffer, format='PNG')
         img_base64 = base64.b64encode(buffer.getvalue()).decode()
-        
+
         # Store secret temporarily (not confirmed until verified)
         session['pending_totp_secret'] = secret
-        
+
         return jsonify({
             'success': True,
             'secret': secret,
             'qr_code': f'data:image/png;base64,{img_base64}',
             'provisioning_uri': provisioning_uri
         })
-        
+
     except Exception as e:
         logger.error(f"Error setting up 2FA: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2607,39 +2724,39 @@ def verify_2fa_setup():
     try:
         data = request.get_json()
         code = data.get('code')
-        
+
         if not code:
             return jsonify({'success': False, 'error': 'Code is required'}), 400
-        
+
         # Get pending secret from session
         secret = session.get('pending_totp_secret')
         if not secret:
             return jsonify({'success': False, 'error': 'No pending 2FA setup found. Please start setup again.'}), 400
-        
+
         # Verify the same exact six-digit TOTP format used throughout the app.
         if not verify_totp_code(secret, code):
             return jsonify({'success': False, 'error': 'Invalid code. Please try again.'}), 400
-        
+
         # Save secret to database
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
         if not settings:
             settings = TradingSettings(user_id=current_user.id)
             db.session.add(settings)
-        
+
         settings.totp_secret = secret
         settings.require_2fa = True
         settings.updated_at = datetime.utcnow()
-        
+
         db.session.commit()
-        
+
         # Clear session
         session.pop('pending_totp_secret', None)
-        
+
         return jsonify({
             'success': True,
             'message': '2FA enabled successfully!'
         })
-        
+
     except Exception as e:
         logger.error(f"Error verifying 2FA setup: {e}")
         db.session.rollback()
@@ -2654,30 +2771,30 @@ def disable_2fa():
     try:
         data = request.get_json()
         code = data.get('code')
-        
+
         if not code:
             return jsonify({'success': False, 'error': 'Code is required to disable 2FA'}), 400
-        
+
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
         if not settings or not settings.totp_secret:
             return jsonify({'success': False, 'error': '2FA is not enabled'}), 400
-        
+
         # Verify code before disabling
         if not verify_totp_code(settings.totp_secret, code):
             return jsonify({'success': False, 'error': 'Invalid code. Please try again.'}), 400
-        
+
         # Disable 2FA
         settings.totp_secret = None
         settings.require_2fa = False
         settings.updated_at = datetime.utcnow()
-        
+
         db.session.commit()
-        
+
         return jsonify({
             'success': True,
             'message': '2FA disabled successfully'
         })
-        
+
     except Exception as e:
         logger.error(f"Error disabling 2FA: {e}")
         db.session.rollback()
@@ -2692,18 +2809,18 @@ def verify_2fa_code():
     try:
         data = request.get_json()
         code = data.get('code')
-        
+
         if not code:
             return jsonify({'success': False, 'error': 'Code is required'}), 400
-        
+
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
         if not settings or not settings.totp_secret:
             return jsonify({'success': False, 'error': 'Set up two-factor authentication in Settings before placing live orders.'}), 400
-        
+
         # Verify code
         if not verify_totp_code(settings.totp_secret, code):
             return jsonify({'success': False, 'error': 'Invalid or expired code. Please try again.'}), 400
-        
+
         # Generate a temporary token valid for 2 minutes
         import secrets
         token = secrets.token_urlsafe(32)
@@ -2711,13 +2828,13 @@ def verify_2fa_code():
             'user_id': current_user.id,
             'timestamp': time.time()
         }
-        
+
         return jsonify({
             'success': True,
             'token': token,
             'message': '2FA verified successfully'
         })
-        
+
     except Exception as e:
         logger.error(f"Error verifying 2FA code: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2755,9 +2872,9 @@ def get_test_portfolio():
         holdings = TestPortfolio.query.filter_by(user_id=current_user.id).filter(
             TestPortfolio.quantity > 0
         ).all()
-        
+
         logger.error(f"[TEST_PORTFOLIO] Found {len(holdings)} holdings for user {current_user.username}")
-        
+
         from services.synthetic_execution_service import binance_client
         client = binance_client(public=True)
         portfolio_data = []
@@ -2782,7 +2899,7 @@ def get_test_portfolio():
             'success': True,
             'holdings': portfolio_data
         })
-        
+
     except Exception as e:
         logger.error(f"Error fetching test portfolio: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2795,33 +2912,33 @@ def backfill_test_portfolio():
     """Backfill test portfolio with actual coin holdings from the coins table AND USDT from Binance"""
     try:
         from binance.client import Client
-        
+
         # Get all coins for the user
         user_coins = Coin.query.filter_by(user_id=current_user.id).all()
-        
+
         if not user_coins:
             return jsonify({
                 'success': False,
                 'error': 'No coins found in your portfolio to backfill'
             }), 400
-        
+
         backfilled_count = 0
-        
+
         # Backfill regular coins from coins table
         for coin in user_coins:
             # Skip if no amount or hidden
             if not coin.amount or coin.amount <= 0 or coin.hidden:
                 continue
-            
+
             # Check if already exists in test portfolio
             existing = TestPortfolio.query.filter_by(
                 user_id=current_user.id,
                 symbol=coin.symbol
             ).first()
-            
+
             # Use avg_entry or current price as the entry price
             entry_price = coin.avg_entry or coin.current or 0
-            
+
             if existing:
                 # Update existing
                 existing.quantity = coin.amount
@@ -2843,9 +2960,9 @@ def backfill_test_portfolio():
                 )
                 db.session.add(test_holding)
                 logger.info(f"Added test portfolio for {coin.symbol}: {coin.amount} @ ${test_holding.avg_entry_price}")
-            
+
             backfilled_count += 1
-        
+
         # Now fetch USDT balance from Binance
         try:
             # Get credentials for Binance API
@@ -2862,24 +2979,24 @@ def backfill_test_portfolio():
                     testnet=False,
                     tld='us'
                 )
-                
+
                 # Get account info to fetch USDT balance
                 account_info = client.get_account()
-                
+
                 # Find USDT balance
                 usdt_balance = 0.0
                 for balance in account_info['balances']:
                     if balance['asset'] == 'USDT':
                         usdt_balance = float(balance['free']) + float(balance['locked'])
                         break
-                
+
                 if usdt_balance > 0:
                     # Check if USDT already exists in test portfolio
                     existing_usdt = TestPortfolio.query.filter_by(
                         user_id=current_user.id,
                         symbol='USDT'
                     ).first()
-                    
+
                     if existing_usdt:
                         # Update existing USDT
                         existing_usdt.quantity = usdt_balance
@@ -2901,25 +3018,25 @@ def backfill_test_portfolio():
                         )
                         db.session.add(test_usdt)
                         logger.info(f"Added test portfolio USDT: ${usdt_balance:.2f}")
-                    
+
                     backfilled_count += 1
                 else:
                     logger.warning("No USDT balance found in Binance account")
             else:
                 logger.warning("No Binance API credentials found, skipping USDT backfill")
-                
+
         except Exception as e:
             logger.error(f"Error fetching USDT balance from Binance: {e}")
             # Continue without USDT if there's an error
-        
+
         db.session.commit()
-        
+
         return jsonify({
             'success': True,
             'message': f'Successfully backfilled {backfilled_count} holding(s) into test portfolio',
             'count': backfilled_count
         })
-        
+
     except Exception as e:
         logger.error(f"Error backfilling test portfolio: {e}\n{traceback.format_exc()}")
         db.session.rollback()
@@ -2934,19 +3051,19 @@ def get_test_orders():
     try:
         limit = int(request.args.get('limit', 100))
         symbol = request.args.get('symbol')
-        
+
         query = TestOrder.query.filter_by(user_id=current_user.id)
-        
+
         if symbol:
             query = query.filter_by(symbol=symbol.upper())
-        
+
         test_orders = query.order_by(TestOrder.created_at.desc()).limit(limit).all()
-        
+
         return jsonify({
             'success': True,
             'orders': [order.to_dict() for order in test_orders]
         })
-        
+
     except Exception as e:
         logger.error(f"Error fetching test orders: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2961,26 +3078,26 @@ def place_real_order():
     try:
         # Check trading settings
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
-        
+
         if not settings or settings.test_mode_enabled:
             return jsonify({
                 'success': False,
                 'error': 'Real trading is disabled. Please disable test mode in settings to place real orders.'
             }), 403
-        
+
         data = request.get_json()
-        
+
         # Validate required fields
         required_fields = ['symbol', 'side', 'type']
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
-        
+
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
         if not has_quantity and not has_quote:
             return jsonify({'success': False, 'error': 'Missing required field: quantity'}), 400
-        
+
         symbol = data['symbol'].upper()
         side = data['side'].upper()
         order_type = data['type'].upper()
@@ -2989,22 +3106,22 @@ def place_real_order():
         quote_amount = _coerce_float(
             data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount')
         )
-        
+
         from services.trading_2fa_service import require_live_trading_2fa
         two_factor_error = require_live_trading_2fa(current_user.id, data, 'place this live Binance.US order')
         if two_factor_error:
             return jsonify(success=False, error=two_factor_error, requires_2fa=True), 403
-        
+
         # Get Binance.US Trading credentials using SQLAlchemy ORM
         creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
+
         if not creds:
             return jsonify({
                 'success': False,
                 'error': 'No Binance.US trading credentials found. Please add them in Settings > Binance.US Trading API.',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         # Credential model properties auto-decrypt values
         trading_api_key = creds.trading_api_key
         trading_api_secret = creds.trading_api_secret
@@ -3014,7 +3131,7 @@ def place_real_order():
                 'error': 'No Binance.US trading credentials found. Please add them in Settings > Binance.US Trading API.',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         # Initialize Binance client
         from binance.client import Client
         client = Client(
@@ -3023,7 +3140,7 @@ def place_real_order():
             testnet=False,
             tld='us'
         )
-        
+
         # Get symbol filters and latest price data
         filters = get_symbol_filters(client, symbol)
         if not filters:
@@ -3055,34 +3172,34 @@ def place_real_order():
                 'success': False,
                 'error': 'Unable to determine order quantity. Please enter a value or wait for prices to refresh.'
             }), 400
-        
+
         # Format quantity according to LOT_SIZE filter
         formatted_quantity = format_quantity(quantity, filters['stepSize'])
-        
+
         # Validate quantity is within bounds
         if formatted_quantity < filters['minQty']:
             return jsonify({
-                'success': False, 
+                'success': False,
                 'error': f'Quantity too small. Minimum quantity for {symbol} is {filters["minQty"]}. You entered {quantity} which rounds to {formatted_quantity}.'
             }), 400
-        
+
         if formatted_quantity > filters['maxQty']:
             return jsonify({
-                'success': False, 
+                'success': False,
                 'error': f'Quantity too large. Maximum quantity for {symbol} is {filters["maxQty"]}. You entered {quantity}.'
             }), 400
-        
+
         # Format price according to PRICE_FILTER
         if price > 0:
             formatted_price = format_price(price, filters['tickSize'])
             if formatted_price < filters['minPrice']:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Price too low. Minimum price for {symbol} is {filters["minPrice"]}. You entered {price}.'
                 }), 400
             if formatted_price > filters['maxPrice']:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Price too high. Maximum price for {symbol} is {filters["maxPrice"]}. You entered {price}.'
                 }), 400
             data['price'] = str(formatted_price)
@@ -3177,14 +3294,14 @@ def place_real_order():
             if not reference_price_for_value or reference_price_for_value <= 0:
                 raise ValueError("Unable to determine current market price for valuation.")
             order_value_usd = formatted_quantity * reference_price_for_value
-            
+
             # Check MIN_NOTIONAL
             if 'minNotional' in filters and order_value_usd < filters['minNotional']:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': f'Order value too small. Minimum order value for {symbol} is ${filters["minNotional"]:.2f}. Your order value is ${order_value_usd:.2f}. Please increase quantity or price.'
                 }), 400
-            
+
             # Check max order size (if configured with a positive limit)
             max_limit = getattr(settings, 'max_order_size_usd', None)
             if max_limit is not None and float(max_limit) > 0:
@@ -3201,15 +3318,15 @@ def place_real_order():
         except Exception as e:
             logger.error(f"Failed to validate order size: {e}")
             return jsonify({'success': False, 'error': f'Failed to validate order: {str(e)}'}), 400
-        
+
         # Place REAL order on Binance.US
         try:
             logger.info(f"Placing real order with params: {{'symbol': '{symbol}', 'side': '{side}', 'type': '{order_type}', 'quantity': {formatted_quantity}, 'price': {formatted_price}, 'stopPrice': {formatted_stop_price}, 'order_value_usd': {order_value_usd}}}")
             order_params = build_order_config(order_type, side, formatted_quantity, data, symbol)
-            
+
             # PLACE THE REAL ORDER
             order_response = client.create_order(**order_params)
-            
+
             # Extract fill details
             executed_qty = float(order_response.get('executedQty', 0))
             executed_quote_qty = float(order_response.get('cummulativeQuoteQty') or order_response.get('cumulativeQuoteQty') or 0)
@@ -3310,7 +3427,7 @@ def place_real_order():
                 db.session.rollback()
 
             return jsonify(success_payload)
-            
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Failed to place real order: {error_msg}\n{traceback.format_exc()}")
@@ -3605,17 +3722,17 @@ def get_current_price(symbol):
     """Get current market price for a trading pair"""
     try:
         symbol = symbol.upper()
-        
+
         # Get Binance credentials using SQLAlchemy ORM
         creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
+
         if not creds:
             return jsonify({
                 'success': False,
                 'error': 'No Binance.US credentials found',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         # Credential model properties auto-decrypt values
         api_key = creds.api_key
         api_secret = creds.api_secret
@@ -3625,7 +3742,7 @@ def get_current_price(symbol):
                 'error': 'No Binance.US credentials found',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         from binance.client import Client
         client = Client(
             api_key=api_key,
@@ -3633,7 +3750,7 @@ def get_current_price(symbol):
             testnet=False,
             tld='us'
         )
-        
+
         # Get current price
         try:
             ticker = client.get_symbol_ticker(symbol=symbol)
@@ -3648,7 +3765,7 @@ def get_current_price(symbol):
                 }), 400
             return jsonify({'success': False, 'error': f'Failed to fetch price: {err_msg}'}), 502
         base_price = float(ticker['price'])
-        
+
         # Parse symbol to get base and quote assets
         if symbol.endswith('USD') and not symbol.endswith('USDT'):
             base_asset = symbol[:-3]
@@ -3659,7 +3776,7 @@ def get_current_price(symbol):
         else:
             base_asset = symbol
             quote_asset = 'USDT'
-        
+
         return jsonify({
             'success': True,
             'prices': {
@@ -3669,7 +3786,7 @@ def get_current_price(symbol):
                 'quote_asset': quote_asset
             }
         })
-        
+
     except Exception as e:
         err_msg = str(e)
         logger.error(f"Error fetching price for {symbol}: {err_msg}")
@@ -3687,13 +3804,13 @@ def get_current_price(symbol):
 @login_required
 def get_trading_balances(symbol):
     """Get user balances for trading pair assets
-    
+
     If test mode is enabled: fetch from test_portfolio table
     If test mode is disabled: fetch from Binance.US API
     """
     try:
         symbol = symbol.upper()
-        
+
         # Properly extract base and quote assets
         # For USDTUSD: base=USDT, quote=USD
         # For BTCUSD: base=BTC, quote=USD
@@ -3710,30 +3827,30 @@ def get_trading_balances(symbol):
             # Fallback
             base_asset = symbol
             quote_asset = 'USDT'
-        
+
         # Check if user is in test mode
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
         test_mode = settings.test_mode_enabled if settings else True
-        
+
         logger.info(f"[BALANCE] Fetching balances for {symbol} (base={base_asset}, quote={quote_asset}), test_mode={test_mode}")
-        
+
         if test_mode:
             # Get balances from test portfolio
             base_holding = TestPortfolio.query.filter_by(
                 user_id=current_user.id,
                 symbol=base_asset
             ).first()
-            
+
             quote_holding = TestPortfolio.query.filter_by(
                 user_id=current_user.id,
                 symbol=quote_asset
             ).first()
-            
+
             base_free = base_holding.quantity if base_holding else 0.0
             quote_free = quote_holding.quantity if quote_holding else 0.0
-            
+
             logger.info(f"[BALANCE] Test portfolio: {base_asset}={base_free:.8f}, {quote_asset}={quote_free:.8f}")
-            
+
             return jsonify({
                 'success': True,
                 'balances': {
@@ -3751,14 +3868,14 @@ def get_trading_balances(symbol):
         else:
             # Get actual balances from Binance.US API using SQLAlchemy ORM
             creds = Credential.query.filter_by(user_id=current_user.id).first()
-            
+
             if not creds:
                 return jsonify({
                     'success': False,
                     'error': 'No Binance.US API credentials configured',
                     'error_code': 'missing_trading_credentials'
                 }), 400
-            
+
             # Credential model properties auto-decrypt values
             # Try trading credentials first, fall back to portfolio credentials
             trading_api_key = creds.trading_api_key
@@ -3767,14 +3884,14 @@ def get_trading_balances(symbol):
             portfolio_api_secret = creds.api_secret
             api_key = trading_api_key or portfolio_api_key
             api_secret = trading_api_secret or portfolio_api_secret
-            
+
             if not api_key or not api_secret:
                 return jsonify({
                     'success': False,
                     'error': 'No Binance.US API credentials configured',
                     'error_code': 'missing_trading_credentials'
                 }), 400
-            
+
             from binance.client import Client
             client = Client(
                 api_key=api_key,
@@ -3782,7 +3899,7 @@ def get_trading_balances(symbol):
                 testnet=False,
                 tld='us'
             )
-            
+
             # Get account info directly from Binance.US
             try:
                 account = client.get_account()
@@ -3799,27 +3916,27 @@ def get_trading_balances(symbol):
                     'success': False,
                     'error': f'Failed to fetch balances: {err_msg}'
                 }), 502
-            
+
             # Extract only the relevant asset balances
             base_free = 0
             base_locked = 0
             quote_free = 0
             quote_locked = 0
-            
+
             for balance in account['balances']:
                 asset = balance['asset']
                 if asset in [base_asset, quote_asset]:
                     free_balance = float(balance['free'])
                     locked_balance = float(balance.get('locked', 0))
                     total_balance = free_balance + locked_balance
-                    
+
                     if asset == base_asset:
                         base_free = free_balance
                         base_locked = locked_balance
                     elif asset == quote_asset:
                         quote_free = free_balance
                         quote_locked = locked_balance
-                    
+
                     logger.info(f"[BALANCE] Real Binance: {asset}: free={free_balance:.8f}, locked={locked_balance:.8f}, total={total_balance:.8f}")
 
             # Compute active Auto-Buy allocations for quote_asset to protect reserved funds
@@ -3871,7 +3988,7 @@ def get_trading_balances(symbol):
                 logger.error(f"Error computing auto-buy reservations: {res_err}")
 
             quote_usable = max(0.0, round(quote_free - quote_reserved, 2))
-            
+
             return jsonify({
                 'success': True,
                 'balances': {
@@ -3889,7 +4006,7 @@ def get_trading_balances(symbol):
                 },
                 'test_mode': False
             })
-        
+
     except Exception as e:
         logger.error(f"Error fetching balances for {symbol}: {e}\n{traceback.format_exc()}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -3903,7 +4020,7 @@ def get_open_orders():
     try:
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
         open_orders = []
-        
+
         if settings and settings.test_mode_enabled:
             # Get open test orders
             test_orders = TestOrder.query.filter_by(
@@ -3915,7 +4032,7 @@ def get_open_orders():
         else:
             # Get real open orders from Binance using SQLAlchemy ORM
             creds = Credential.query.filter_by(user_id=current_user.id).first()
-            
+
             if creds and creds.trading_api_key and creds.trading_api_secret:
                 from binance.client import Client
                 client = Client(
@@ -4126,7 +4243,7 @@ def get_open_orders():
             'success': True,
             'orders': combined_orders
         })
-        
+
     except Exception as e:
         logger.error(f"Error fetching open orders: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -4140,36 +4257,36 @@ def place_test_oco_order():
     import traceback
     try:
         data = request.get_json()
-        
+
         # Validate required fields for OCO
         required_fields = ['symbol', 'side', 'price', 'stopPrice', 'stopLimitPrice']
         for field in required_fields:
             if field not in data or data[field] is None or data[field] == '':
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
-        
+
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
         if not has_quantity and not has_quote:
             return jsonify({'success': False, 'error': 'Missing required field: quantity'}), 400
-        
+
         symbol = data['symbol'].upper()
         side = data['side'].upper()  # BUY or SELL
         price = float(data['price'])
         stop_price = float(data['stopPrice'])
         stop_limit_price = float(data['stopLimitPrice'])
         stop_limit_time_in_force = data.get('stopLimitTimeInForce', 'GTC')
-        
+
         quantity = _coerce_float(data.get('quantity'), 0.0) or 0.0
         quote_amount = _coerce_float(
             data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount')
         )
         if quantity <= 0 and quote_amount and quote_amount > 0 and price > 0:
             quantity = quote_amount / price
-        
+
         # Validate prices
         if price <= 0 or stop_price <= 0 or stop_limit_price <= 0:
             return jsonify({'success': False, 'error': 'All prices must be greater than 0'}), 400
-        
+
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
         if not settings or not settings.test_mode_enabled:
             return jsonify(success=False, error='Enable Binance.US Test Mode before placing paper orders.'), 409
@@ -4180,22 +4297,22 @@ def place_test_oco_order():
         filters = get_symbol_filters(client, symbol)
         if not filters:
             return jsonify({'success': False, 'error': f'Unable to get trading filters for {symbol}'}), 400
-        
+
         # Format quantity according to LOT_SIZE filter
         formatted_quantity = format_quantity(quantity, filters['stepSize'])
-        
+
         if formatted_quantity < filters['minQty']:
             return jsonify({'success': False, 'error': f'Quantity {formatted_quantity} is below minimum {filters["minQty"]}'}), 400
-        
+
         if formatted_quantity > filters['maxQty']:
             return jsonify({'success': False, 'error': f'Quantity {formatted_quantity} exceeds maximum {filters["maxQty"]}'}), 400
-        
+
         # Update quantity and prices to formatted values
         quantity = formatted_quantity
         price = format_price(price, filters['tickSize'])
         stop_price = format_price(stop_price, filters['tickSize'])
         stop_limit_price = format_price(stop_limit_price, filters['tickSize'])
-        
+
         # Get current market price for simulation
         try:
             ticker = client.get_symbol_ticker(symbol=symbol)
@@ -4210,7 +4327,7 @@ def place_test_oco_order():
             valid, collar_err = validate_order_price_collar(p_val, side, current_price, filters, symbol)
             if not valid:
                 return jsonify({'success': False, 'error': f'{p_name}: {collar_err}'}), 400
-        
+
         # Validate price relationships
         if side == 'SELL':
             if not (price > current_price > stop_price):
@@ -4218,7 +4335,7 @@ def place_test_oco_order():
         else:  # BUY
             if not (price < current_price < stop_price):
                 return jsonify({'success': False, 'error': 'For BUY OCO: Limit Price < Market Price < Stop Price'}), 400
-        
+
         from services.binance_fee_service import paper_rates
         fee_rate = paper_rates(symbol)['takerRate']
         balances = {r.symbol: float(r.quantity or 0) for r in TestPortfolio.query.filter_by(user_id=current_user.id).all()}
@@ -4289,23 +4406,23 @@ def place_test_oco_order():
             status='CANCELED',  # Other leg cancelled in OCO
             created_at=datetime.utcnow()
         )
-        
+
         db.session.add(limit_order)
         db.session.add(stop_order)
-        
+
         # Update test portfolio (only for the filled leg)
         update_test_portfolio(current_user.id, symbol, side, quantity, price, fee_rate)
-        
+
         db.session.commit()
-        
+
         logger.info(f"Test OCO order placed for user {current_user.id}: {symbol} {side} {quantity}")
-        
+
         return jsonify({
             'success': True,
             'orders': [limit_order.to_dict(), stop_order.to_dict()],
             'message': 'Test OCO order validated and simulated successfully'
         })
-        
+
     except Exception as e:
         err_msg = str(e)
         logger.error(f"Error placing test OCO order: {err_msg}\n{traceback.format_exc()}")
@@ -4327,46 +4444,46 @@ def place_real_oco_order():
     import traceback
     try:
         data = request.get_json()
-        
+
         # Validate required fields
         required_fields = ['symbol', 'side', 'price', 'stopPrice', 'stopLimitPrice']
         for field in required_fields:
             if field not in data or data[field] is None or data[field] == '':
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
-        
+
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
         if not has_quantity and not has_quote:
             return jsonify({'success': False, 'error': 'Missing required field: quantity'}), 400
-        
+
         symbol = data['symbol'].upper()
         side = data['side'].upper()
         price = float(data['price'])
         stop_price = float(data['stopPrice'])
         stop_limit_price = float(data['stopLimitPrice'])
         stop_limit_time_in_force = data.get('stopLimitTimeInForce', 'GTC')
-        
+
         quantity = _coerce_float(data.get('quantity'), 0.0) or 0.0
         quote_amount = _coerce_float(
             data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount')
         )
         if quantity <= 0 and quote_amount and quote_amount > 0 and price > 0:
             quantity = quote_amount / price
-        
+
         # Validate prices
         if price <= 0 or stop_price <= 0 or stop_limit_price <= 0:
             return jsonify({'success': False, 'error': 'All prices must be greater than 0'}), 400
-        
+
         # Get Binance.US Trading credentials using SQLAlchemy ORM
         creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
+
         if not creds:
             return jsonify({
                 'success': False,
                 'error': 'No Binance.US trading credentials found.',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         # Credential model properties auto-decrypt values
         trading_api_key = creds.trading_api_key
         trading_api_secret = creds.trading_api_secret
@@ -4376,7 +4493,7 @@ def place_real_oco_order():
                 'error': 'No Binance.US trading credentials found.',
                 'error_code': 'missing_trading_credentials'
             }), 400
-        
+
         # Initialize Binance client
         from binance.client import Client
         client = Client(
@@ -4385,21 +4502,21 @@ def place_real_oco_order():
             testnet=False,
             tld='us'
         )
-        
+
         # Get symbol filters to format quantity properly
         filters = get_symbol_filters(client, symbol)
         if not filters:
             return jsonify({'success': False, 'error': f'Unable to get trading filters for {symbol}'}), 400
-        
+
         # Format quantity according to LOT_SIZE filter
         formatted_quantity = format_quantity(quantity, filters['stepSize'])
-        
+
         if formatted_quantity < filters['minQty']:
             return jsonify({'success': False, 'error': f'Quantity {formatted_quantity} is below minimum {filters["minQty"]}'}), 400
-        
+
         if formatted_quantity > filters['maxQty']:
             return jsonify({'success': False, 'error': f'Quantity {formatted_quantity} exceeds maximum {filters["maxQty"]}'}), 400
-        
+
         # Update quantity and prices to formatted values
         quantity = formatted_quantity
         price = format_price(price, filters['tickSize'])
@@ -4420,7 +4537,7 @@ def place_real_oco_order():
             valid, collar_err = validate_order_price_collar(p_val, side, current_price, filters, symbol)
             if not valid:
                 return jsonify({'success': False, 'error': f'{p_name}: {collar_err}'}), 400
-        
+
         # Balance validation before submitting OCO order
         if side == 'BUY':
             try:
@@ -4501,10 +4618,10 @@ def place_real_oco_order():
                 stopLimitPrice=stop_limit_price,
                 stopLimitTimeInForce=stop_limit_time_in_force
             )
-            
+
             # Save both legs of the OCO to database
             order_list_id = order_response['orderListId']
-            
+
             # Save both legs of the OCO to database - avoid invalid kwarg 'binance_order_list_id'
             for order_report in order_response.get('orderReports', []):
                 ro = RealOrder(
@@ -4524,19 +4641,19 @@ def place_real_oco_order():
                     updated_at=datetime.utcnow()
                 )
                 db.session.add(ro)
-            
+
             db.session.commit()
             trigger_portfolio_snapshot(current_user.id, current_user.username)
-            
+
             logger.info(f"Real OCO order placed for user {current_user.id}: {symbol} {side} {quantity}")
-            
+
             return jsonify({
                 'success': True,
                 'orderListId': order_list_id,
                 'orders': order_response['orderReports'],
                 'message': 'Real OCO order placed successfully'
             })
-            
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Failed to place real OCO order: {error_msg}\n{traceback.format_exc()}")
@@ -4597,7 +4714,7 @@ def api_sync_coins():
     """
     try:
         logger.info(f"Starting price sync for user {current_user.id}")
-        
+
         # Get existing coins from user's portfolio (including hidden ones for recovery)
         coins = Coin.query.filter_by(user_id=current_user.id).all()
         if not coins:
@@ -4605,18 +4722,18 @@ def api_sync_coins():
             success, message = sync_portfolio_from_binance(current_user.id)
             if success:
                 coins = Coin.query.filter_by(user_id=current_user.id).all()
-            
+
             if not coins:
                 return jsonify({
                     "success": False,
                     "error": "No coins in portfolio. Add some coins first, then sync prices."
                 })
-        
+
         symbols = list({c.symbol.upper() for c in coins})
         logger.info(f"Syncing price history for {len(symbols)} symbols: {symbols}")
-        
+
         synced_count = 0
-        
+
         # Update price history for each symbol
         for symbol in symbols:
             try:
@@ -4627,7 +4744,7 @@ def api_sync_coins():
                 except Exception as e:
                     logger.error(f"Error clearing price history for {symbol}: {e}")
                     db.session.rollback()
-                
+
                 # Use Binance only for price history
                 try:
                     ensure_price_history(symbol)  # Fetch/store 7 days of hourly history for this symbol
@@ -4635,16 +4752,16 @@ def api_sync_coins():
                     synced_count += 1
                 except Exception as e:
                     logger.warning(f"Binance price fetch failed for {symbol}: {e}")
-            
+
             except Exception as e:
                 logger.error(f"Error updating price history for {symbol}: {str(e)}")
                 continue
-        
+
         return jsonify({
             "success": True,
             "message": f"Successfully updated price history for {synced_count} of {len(symbols)} coins"
         })
-        
+
     except Exception as e:
         logger.error(f"Error in api_sync_coins: {str(e)}", exc_info=True)
         return jsonify({
@@ -4657,10 +4774,10 @@ def api_sync_coins():
 def unhide_all():
     data = request.get_json() or {}
     coin_ids = data.get('coin_ids', [])
-    
+
     if not coin_ids:
         return jsonify({"success": False, "error": "No coins selected"})
-    
+
     binance_ids = []
     webull_ids = []
     for cid in coin_ids:
@@ -4863,7 +4980,7 @@ def _build_tax_transactions(raw_transactions, accounting_method='FIFO'):
                     anniversary_date = acquisition_date.replace(year=acquisition_date.year + 1)
                 except ValueError:
                     anniversary_date = acquisition_date.replace(year=acquisition_date.year + 1, month=3, day=1)
-                
+
                 term = 'long_term' if tx_date > anniversary_date else 'short_term'
                 terms.add(term)
                 acquisition_dates.append((acquisition_date, holding_days))
@@ -4973,23 +5090,23 @@ def _build_webull_tax_report(user_id, accounting_method='FIFO'):
                 fee = round(filled_quantity * 0.55, 4)
             elif tx_type == 'SELL' and filled_quantity > 0 and filled_price > 0:
                 fee = max(0.01, round(filled_quantity * filled_price * 0.0000278, 2))
-        
+
         gross_value = filled_quantity * filled_price * multiplier if not is_unsupported_multiplier else 0.0
-        
+
         from trading_models import TaxCorrection
         corrections = {c.field: c.new_value for c in TaxCorrection.query.filter_by(user_id=user_id, source='webull', source_id=str(order.id)).all()}
-        
+
         try:
             adj_date = datetime.fromisoformat(corrections['date'].replace('Z', '')) if 'date' in corrections else (order.updated_at or order.created_at)
         except:
             adj_date = order.updated_at or order.created_at
-            
+
         adj_amount = float(corrections.get('amount', filled_quantity))
         adj_price = float(corrections.get('price_sold_at', filled_price))
         adj_fee = float(corrections.get('fee', fee))
-        
+
         gross_value = adj_amount * adj_price * multiplier if not is_unsupported_multiplier else 0.0
-        
+
         # QA-06 Canonical Lot Identity
         provider = 'webull'
         account_id = order.account_id or 'unknown'
@@ -5033,7 +5150,7 @@ def _build_webull_tax_report(user_id, accounting_method='FIFO'):
             adj_date = datetime.fromisoformat(corrections['date'].replace('Z', '')) if 'date' in corrections else activity.date
         except:
             adj_date = activity.date
-            
+
         raw_transactions.append({
             'id': activity.id,
             'date': adj_date,
@@ -5146,7 +5263,7 @@ def api_tax_report():
             return jsonify(_build_webull_tax_report(current_user.id, accounting_method=accounting_method))
         # Use actual Binance balances from coins table, not calculated transaction totals
         # sync_coins_from_transactions() overwrites correct balances with wrong calculated amounts
-        
+
         # Get all completed transactions using ORM
         activities = AllActivity.query.filter(
             AllActivity.user_id == current_user.id,
@@ -5156,7 +5273,7 @@ def api_tax_report():
             activity for activity in activities
             if str(activity.exchange or '').lower() != 'webull'
         ]
-        
+
         # Convert to list of dictionaries
         transactions = []
         for activity in activities:
@@ -5197,7 +5314,7 @@ def api_tax_report():
                 adj_date = datetime.fromisoformat(corrections['date'].replace('Z', '')) if 'date' in corrections else activity.date
             except:
                 adj_date = activity.date
-                
+
             tx_dict = {
                 'id': activity.id,
                 'date': adj_date,
@@ -5217,9 +5334,9 @@ def api_tax_report():
                 'exchange': activity.exchange or 'coinbase'
             }
             transactions.append(tx_dict)
-        
+
         tax_data, fifo_lots = _build_tax_transactions(transactions, accounting_method=accounting_method)
-        
+
         # Get actual current holdings from the coins table (which reflects real balances)
         current_coins = Coin.query.filter_by(user_id=current_user.id, hidden=False).all()
 
@@ -5264,7 +5381,7 @@ def api_tax_report():
         # Calculate summary statistics for the table/meta data
         valid_transactions = [t for t in tax_data if t['gain_loss'] is not None]
         sell_transactions = [t for t in valid_transactions if t['type'] == 'SELL']
-        
+
         # Calculate total gain/loss as: Current Holdings Value - (Manual Contributions + Total Fees)
         total_gain_loss = combined_holdings_value - (manual_invested + performance['total_fees_paid'])
 
@@ -5300,7 +5417,7 @@ def api_tax_report():
                 'end': max(t['date'] for t in tax_data) if tax_data else None
             }
         }
-        
+
         return jsonify({
             'transactions': tax_data,
             'summary': summary,
@@ -5308,7 +5425,7 @@ def api_tax_report():
             'fifo_lots': fifo_lots,
             'source': 'binance',
         })
-        
+
     except Exception as e:
         logger.error(f"Error generating tax report: {str(e)}")
         return jsonify({"error": "Failed to generate tax report"}), 500
@@ -5320,9 +5437,9 @@ def hide_coin():
     coin_id = data.get("coin_id") or data.get("id")  # Support both coin_id and id
     hidden = data.get("hidden", True)
     sym = data.get('symbol')
-    
+
     logger.info(f"Hide coin request: coin_id={coin_id}, symbol={sym}, hidden={hidden}, user_id={current_user.id}")
-    
+
     from models import WebullHolding
 
     # 1. Check if coin_id is a Webull holding reference
@@ -5433,7 +5550,7 @@ def api_watchlist():
         ticker_map = _get_binance_24h_tickers()
     except Exception:
         ticker_map = {}
-    
+
     # Use stored current prices for instant response
     watchlist_data = []
     for w in wl:
@@ -5445,7 +5562,7 @@ def api_watchlist():
         low_24h = float(ticker_info['lowPrice']) if ticker_info.get('lowPrice') else None
         volume_24h = float(ticker_info.get('quoteVolume') or ticker_info.get('volume') or 0.0) if (ticker_info.get('quoteVolume') or ticker_info.get('volume')) else None
         change_24h = float(ticker_info['priceChangePercent']) if ticker_info.get('priceChangePercent') else None
-        
+
         watchlist_data.append({
             "id": w.id,
             "symbol": w.symbol,
@@ -5489,7 +5606,7 @@ def api_watchlist():
 
     for item in WebullWatchlistItem.query.filter_by(user_id=current_user.id).order_by(WebullWatchlistItem.symbol.asc()).all():
         watchlist_data.append(_webull_watchlist_item_payload(item))
-    
+
     return jsonify(watchlist_data)
 
 @portfolio_bp.route("/api/watchlist-live")
@@ -5503,7 +5620,7 @@ def api_watchlist_live():
         ticker_map = _get_binance_24h_tickers()
     except Exception:
         ticker_map = {}
-    
+
     # Fetch current prices for all watchlist items
     watchlist_data = []
     for w in wl:
@@ -5517,7 +5634,7 @@ def api_watchlist_live():
         except Exception as e:
             logger.error(f"Failed to fetch price for {w.symbol}: {e}")
             current_price = w.current_price or 0.0
-        
+
         w_sym = (w.symbol or '').upper()
         w_news = news_cache.get(w.id) or news_cache.get(w_sym) or {}
         ticker_info = ticker_map.get(f"{w_sym}USDT") or ticker_map.get(f"{w_sym}USD") or {}
@@ -5580,12 +5697,12 @@ def api_watchlist_live():
             except Exception as exc:
                 logger.warning('Failed to refresh Webull watchlist item %s: %s', item.symbol, exc)
     watchlist_data.extend(_webull_watchlist_item_payload(item) for item in webull_items)
-    
+
     try:
         db.session.commit()
     except Exception as e:
         logger.error(f"Failed to commit watchlist price updates: {e}")
-    
+
     return jsonify(watchlist_data)
 
 @portfolio_bp.route("/api/watchlist/search-symbol")
@@ -5854,7 +5971,7 @@ def api_watchlist_add():
                 "cached_news_date": None
             }
         })
-    
+
     current_price = 0.0
     try:
         if asset_type == 'stock':
@@ -6114,10 +6231,10 @@ def api_stakeable_coins():
         if not cred or not cred.api_key or not cred.api_secret:
             logger.warning("Binance API credentials not configured")
             return jsonify([])
-        
+
         # Call Binance.US staking asset information endpoint
         response = binance_us_api_call(cred, '/sapi/v1/staking/asset', method='GET', use_trading_keys=True)
-        
+
         if response.status_code == 200:
             staking_assets = response.json()
             # Extract just the stakingAsset symbols
@@ -6127,7 +6244,7 @@ def api_stakeable_coins():
         else:
             logger.error(f"Binance.US staking API error: {response.status_code} - {response.text}")
             return jsonify([])
-    
+
     except Exception as e:
         logger.error(f"Error in api_stakeable_coins: {e}")
         return jsonify([])
@@ -6141,40 +6258,40 @@ def api_stake_asset():
     try:
         from models import StakedCoin
         data = request.get_json()
-        
+
         staking_asset = data.get('stakingAsset', '').upper()
         amount = float(data.get('amount', 0))
         auto_restake = data.get('autoRestake', True)
         twofa_token = data.get('twofa_token')
-        
+
         if not staking_asset or not __import__('math').isfinite(amount) or amount <= 0:
             return jsonify({"error": "Invalid staking asset or amount"}), 400
-        
+
         # Check if 2FA is required
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
         if settings and settings.require_2fa and settings.totp_enabled:
             if not twofa_token:
                 return jsonify({"error": "2FA verification required", "requires_2fa": True}), 403
-            
+
             # Verify 2FA token from session
             token_data = session.get(f'2fa_verified_{twofa_token}')
             if not token_data:
                 return jsonify({"error": "Invalid or expired 2FA token"}), 403
-            
+
             # Check if token is still valid (2 minutes)
             from datetime import datetime
             token_timestamp = token_data.get('timestamp', 0)
             if time.time() - token_timestamp > 120:
                 session.pop(f'2fa_verified_{twofa_token}', None)
                 return jsonify({"error": "2FA token expired. Please verify again."}), 403
-            
+
             # Verify user ID matches
             if token_data.get('user_id') != current_user.id:
                 return jsonify({"error": "Invalid 2FA token"}), 403
-            
+
             # Clear the token after use
             session.pop(f'2fa_verified_{twofa_token}', None)
-        
+
         # Get user credentials
         cred = get_user_credentials(current_user.username)
         if not cred or not ((cred.trading_api_key and cred.trading_api_secret) or (cred.api_key and cred.api_secret)):
@@ -6186,7 +6303,7 @@ def api_stake_asset():
                 "error": "Your Binance trading API key does not have Earn/Staking permissions enabled.",
                 "action": "Update the API key on Binance.US to allow Earn/Staking or create a new key with that permission."
             }), 403
-        
+
         # Validate exchange free balance, not an asynchronously synced portfolio amount.
         from services.staking_purchase_service import trading_client
         from services.staking_service import staking_catalog
@@ -6205,23 +6322,23 @@ def api_stake_asset():
             'amount': str(amount),
             'autoRestake': str(auto_restake).lower()
         }
-        
+
         try:
             logger.info(f"Calling Binance staking API for {current_user.username}: {params}")
             response = binance_us_api_call(cred, '/sapi/v1/staking/stake', method='POST', params_dict=params, use_trading_keys=True)
-            
+
             if response.status_code == 200:
                 result = response.json()
                 if result.get('success') is False or not (result.get('success') is True or result.get('code') == '000000'):
                     return jsonify({'error': 'Binance did not accept this staking request.'}), 502
-                
+
                 # Deduct from coins table
                 if coin:
                     coin.amount = max(0, (coin.amount or 0) - amount)
                     if coin.amount < 0.0001 and not getattr(coin, 'force_visible', False):
                         coin.hidden = True
                         coin.auto_hidden = True
-                
+
                 # Add to staked_coins table
                 staked_coin = StakedCoin(
                     user_id=current_user.id,
@@ -6235,7 +6352,7 @@ def api_stake_asset():
                     auto_restake=auto_restake,
                     status='pending'
                 )
-                
+
                 db.session.add(staked_coin)
                 db.session.commit()
                 trigger_portfolio_snapshot(current_user.id, current_user.username)
@@ -6255,7 +6372,7 @@ def api_stake_asset():
                         usd_value = None
 
                     from trading_models import StakingOrder
-                    
+
                     # Record staking transaction using ORM
                     new_staking_order = StakingOrder(
                         user_id=current_user.id,
@@ -6271,12 +6388,12 @@ def api_stake_asset():
                         usd_value=usd_value,
                         extra_metadata=json.dumps(metadata)
                     )
-                    
+
                     db.session.add(new_staking_order)
                     db.session.commit()
                 except Exception as log_err:
                     logger.error(f"Failed to insert staking_orders record: {log_err}", exc_info=True)
-                
+
                 logger.info(f"Successfully staked {amount} {staking_asset} for user {current_user.username}")
                 return jsonify({
                     "success": True,
@@ -6293,12 +6410,12 @@ def api_stake_asset():
             else:
                 logger.error(f"Binance staking API error: {response.status_code} - {response.text}")
                 return jsonify({"error": f"Staking failed: {response.text}"}), response.status_code
-        
+
         except Exception as e:
             db.session.rollback()
             logger.error(f"Binance staking API error: {e}", exc_info=True)
             return jsonify({"error": f"Staking failed: {str(e)}"}), 500
-    
+
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error in api_stake_asset: {e}", exc_info=True)
@@ -6313,11 +6430,11 @@ def api_unstake_asset():
     try:
         from models import StakedCoin
         data = request.get_json()
-        
+
         staked_coin_id = data.get('stakedCoinId')
         amount = float(data.get('amount', 0))
         twofa_token = data.get('twofa_token')
-        
+
         if not staked_coin_id or amount <= 0:
             return jsonify({"error": "Invalid staked coin ID or amount"}), 400
 
@@ -6326,52 +6443,52 @@ def api_unstake_asset():
         if settings and settings.require_2fa and settings.totp_enabled:
             if not twofa_token:
                 return jsonify({"error": "2FA verification required", "requires_2fa": True}), 403
-            
+
             # Verify 2FA token from session
             token_data = session.get(f'2fa_verified_{twofa_token}')
             if not token_data:
                 return jsonify({"error": "Invalid or expired 2FA token"}), 403
-            
+
             # Check if token is still valid (2 minutes)
             from datetime import datetime
             token_timestamp = token_data.get('timestamp', 0)
             if time.time() - token_timestamp > 120:
                 session.pop(f'2fa_verified_{twofa_token}', None)
                 return jsonify({"error": "2FA token expired. Please verify again."}), 403
-            
+
             # Verify user ID matches
             if token_data.get('user_id') != current_user.id:
                 return jsonify({"error": "Invalid 2FA token"}), 403
-            
+
             # Clear the token after use
             session.pop(f'2fa_verified_{twofa_token}', None)
-        
+
         # Get user credentials
         cred = get_user_credentials(current_user.username)
         if not cred or not cred.api_key or not cred.api_secret:
             return jsonify({"error": "Binance API credentials not configured"}), 400
-        
+
         # Find the staked coin
         staked_coin = StakedCoin.query.filter_by(id=staked_coin_id, user_id=current_user.id).first()
         if not staked_coin:
             return jsonify({"error": "Staked position not found"}), 404
-        
+
         if staked_coin.amount < amount:
             return jsonify({"error": f"Insufficient staked balance. Available: {staked_coin.amount}"}), 400
-        
+
         # Call Binance.US unstake API
         # POST /sapi/v1/staking/unstake
         params = {
             'stakingAsset': staked_coin.symbol,
             'amount': str(amount)
         }
-        
+
         try:
             response = binance_us_api_call(cred, '/sapi/v1/staking/unstake', method='POST', params_dict=params, use_trading_keys=True)
-            
+
             if response.status_code == 200:
                 result = response.json()
-                
+
                 # Calculate when unstaking completes
                 unstaking_hours = staked_coin.unstaking_period_hours or 168
                 available_at = datetime.utcnow() + timedelta(hours=unstaking_hours)
@@ -6385,7 +6502,7 @@ def api_unstake_asset():
                     # Partial unstake - keep existing record active but reduced
                     # Create a NEW record for the unstaking part
                     staked_coin.amount -= amount
-                    
+
                     new_unstaking_record = StakedCoin(
                         user_id=staked_coin.user_id,
                         symbol=staked_coin.symbol,
@@ -6418,10 +6535,10 @@ def api_unstake_asset():
                     db.session.add(new_order)
                 except Exception as order_err:
                     logger.warning(f"Failed to log local unstake order: {order_err}")
-                
+
                 db.session.commit()
                 trigger_portfolio_snapshot(current_user.id, current_user.username)
-                
+
                 logger.info(f"Successfully initiated unstake of {amount} {staked_coin.symbol} for user {current_user.username}")
                 return jsonify({
                     "success": True,
@@ -6431,12 +6548,12 @@ def api_unstake_asset():
             else:
                 logger.error(f"Binance unstaking API error: {response.status_code} - {response.text}")
                 return jsonify({"error": f"Unstaking failed: {response.text}"}), response.status_code
-        
+
         except Exception as e:
             db.session.rollback()
             logger.error(f"Binance unstaking API error: {e}", exc_info=True)
             return jsonify({"error": f"Unstaking failed: {str(e)}"}), 500
-    
+
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error in api_unstake_asset: {e}", exc_info=True)
@@ -6585,7 +6702,7 @@ def api_staking_history():
         if not cred or not ((cred.trading_api_key and cred.trading_api_secret) or (cred.api_key and cred.api_secret)):
             logger.warning("Binance API credentials not configured")
             return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
-        
+
         # Call Binance.US staking history endpoint
         # GET /sapi/v1/staking/history
         params = {}
@@ -6599,9 +6716,9 @@ def api_staking_history():
             params['page'] = request.args.get('page')
         if request.args.get('limit'):
             params['limit'] = request.args.get('limit')
-        
+
         response = binance_us_api_call(cred, '/sapi/v1/staking/history', method='GET', params_dict=params, use_trading_keys=True)
-        
+
         if response.status_code == 200:
             history_data = response.json()
             if isinstance(history_data, dict):
@@ -6613,7 +6730,7 @@ def api_staking_history():
             for entry in history_entries:
                 status_raw = str(entry.get('status', '')).upper()
                 entry_type_raw = str(entry.get('type', '')).lower()
-                
+
                 # Check for unstake/redeem FIRST to avoid mislabeling as stake
                 if 'unstake' in entry_type_raw or 'redeem' in entry_type_raw:
                     entry_type = 'unstake'
@@ -6637,7 +6754,7 @@ def api_staking_history():
         else:
             logger.error(f"Binance staking history API error: {response.status_code} - {response.text}")
             return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
-    
+
     except Exception as e:
         logger.error(f"Error in api_staking_history: {e}", exc_info=True)
         return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
@@ -6653,7 +6770,7 @@ def api_staking_rewards():
         if not cred or not ((cred.trading_api_key and cred.trading_api_secret) or (cred.api_key and cred.api_secret)):
             logger.warning("Binance API credentials not configured")
             return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
-        
+
         # Call Binance.US staking rewards history endpoint
         # GET /sapi/v1/staking/stakingRewardsHistory
         params = {}
@@ -6667,14 +6784,14 @@ def api_staking_rewards():
             params['page'] = request.args.get('page')
         if request.args.get('limit'):
             params['limit'] = request.args.get('limit')
-        
+
         response = binance_us_api_call(cred, '/sapi/v1/staking/stakingRewardsHistory', method='GET', params_dict=params, use_trading_keys=True)
-        
+
         if response.status_code == 200:
             result = response.json()
             # Response format: {"code":"000000","message":"success","data":[{...}],"total":1,"success":true}
             rewards_data = result.get('data', [])
-            
+
             # Convert string values to floats for frontend compatibility
             for r in rewards_data:
                 if 'usdValue' in r:
@@ -6687,13 +6804,13 @@ def api_staking_rewards():
                         r['amount'] = float(r['amount'])
                     except (ValueError, TypeError):
                         r['amount'] = 0.0
-                        
+
             logger.info(f"Retrieved {len(rewards_data)} staking reward records from Binance.US")
             return jsonify(rewards_data)
         else:
             logger.error(f"Binance staking rewards API error: {response.status_code} - {response.text}")
             return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
-    
+
     except Exception as e:
         logger.error(f"Error in api_staking_rewards: {e}", exc_info=True)
         return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
@@ -6718,14 +6835,14 @@ def update_tax_transaction(source, source_id):
     data = request.get_json()
     field = data.get('field')
     value = data.get('value')
-    
+
     if not field or value is None:
         return jsonify({'error': 'Missing field or value'}), 400
-        
+
     allowed_fields = {'date', 'asset', 'amount', 'price_sold_at', 'fee'}
     if field not in allowed_fields:
         return jsonify({'error': 'Field not editable'}), 400
-        
+
     if source == 'binance':
         from trading_models import AllActivity
         record = AllActivity.query.filter_by(id=source_id, user_id=current_user.id).first()
@@ -6737,14 +6854,14 @@ def update_tax_transaction(source, source_id):
             record = AllActivity.query.filter_by(id=source_id, user_id=current_user.id).first()
     else:
         return jsonify({'error': 'Unsupported source'}), 400
-        
+
     if not record:
         return jsonify({'error': 'Record not found'}), 404
-        
+
     override = TaxCorrection.query.filter_by(
         user_id=current_user.id, source=source, source_id=str(source_id), field=field
     ).first()
-    
+
     if not override:
         override = TaxCorrection(
             user_id=current_user.id,
@@ -6753,11 +6870,11 @@ def update_tax_transaction(source, source_id):
             field=field
         )
         db.session.add(override)
-        
+
     override.new_value = str(value)
     override.created_at = datetime.utcnow()
     db.session.commit()
-    
+
     return jsonify({'success': True})
 
 @portfolio_bp.route("/api/tax-report/export", methods=["GET"])
@@ -6795,13 +6912,13 @@ def export_tax_report_csv():
                 for activity in activities
                 if str(activity.exchange or '').lower() != 'webull'
             ], accounting_method=accounting_method)
-        
+
         output = io.StringIO()
         writer = csv.writer(output)
-        
+
         # Headers
         writer.writerow(['Date', 'Type', 'Asset', 'Amount', 'Price Traded At', 'Proceeds', 'Fee', 'Cost Basis', 'Gain/Loss', 'Description', 'Exchange', 'TxID'])
-        
+
         for act in transactions:
             writer.writerow([
                 act.get('date'),
@@ -6817,7 +6934,7 @@ def export_tax_report_csv():
                 act.get('exchange') or '',
                 act.get('txid') or ''
             ])
-            
+
         output.seek(0)
         return send_file(
             io.BytesIO(output.getvalue().encode('utf-8')),

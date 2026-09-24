@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.0.0
+**Version:** 4.2.0
 
 ## Recent Updates
+
+### v4.2.0
+- **Replace Order Capability:** Added the ability to replace pending limit orders (including Binance orders) natively without having to manually cancel and recreate them. The Replace button is now available next to the Cancel button across the portfolio grid, watchlist, and their respective context menus. A confirmation modal provides 2FA security validation before execution.
 
 ### v4.0.0
 - **Jev decision engine:** Added TypeSafe Jev through Vercel AI Gateway as an independent experimental evaluation subsystem. Configure the provider, model and encrypted/masked Vercel key under **Settings → AI Providers & Models**, with dedicated Save and Test Connection controls.
