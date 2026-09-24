@@ -1166,6 +1166,20 @@ def api_cancel_order(order_id):
         if two_factor_error:
             return jsonify(error=two_factor_error, requires_2fa=True), 403
 
+        # Intercept synthetic orders that are grouped in the UI
+        str_order_id = str(order_id)
+        if str_order_id.startswith('ladder_'):
+            ladder_id = int(str_order_id.replace('ladder_', ''))
+            from services.ladder_order_service import cancel_ladder_order
+            cancelled = cancel_ladder_order(ladder_id, current_user.id)
+            return jsonify({'success': True, 'message': 'Ladder order cancelled successfully'})
+            
+        if str_order_id.startswith('trail_'):
+            trail_id = int(str_order_id.replace('trail_', ''))
+            from services.trailing_order_service import cancel_trailing_order
+            cancelled = cancel_trailing_order(trail_id, current_user.id)
+            return jsonify({'success': True, 'message': 'Trailing order cancelled successfully'})
+
         # Use SQLAlchemy ORM instead of direct SQLite
         creds = Credential.query.filter_by(user_id=current_user.id).first()
 
@@ -1252,7 +1266,35 @@ def api_cancel_order(order_id):
 def api_order_status(order_id):
     """Get detailed status of a specific Binance order"""
     try:
-        # Get Binance credentials
+        str_order_id = str(order_id)
+        if str_order_id.startswith('ladder_'):
+            ladder_id = int(str_order_id.replace('ladder_', ''))
+            from trading_models import LadderOrder
+            ladder = LadderOrder.query.filter_by(id=ladder_id, user_id=current_user.id).first()
+            if not ladder:
+                return jsonify({'error': 'Ladder order not found'}), 404
+            return jsonify({
+                'order_id': order_id,
+                'symbol': ladder.symbol,
+                'status': ladder.status,
+                'side': ladder.side,
+                'type': 'LADDER'
+            })
+            
+        if str_order_id.startswith('trail_'):
+            trail_id = int(str_order_id.replace('trail_', ''))
+            from trading_models import TrailingOrder
+            trail = TrailingOrder.query.filter_by(id=trail_id, user_id=current_user.id).first()
+            if not trail:
+                return jsonify({'error': 'Trailing order not found'}), 404
+            return jsonify({
+                'order_id': order_id,
+                'symbol': trail.symbol,
+                'status': trail.status,
+                'side': trail.side,
+                'type': 'TRAILING'
+            })
+
         # Get Binance credentials
         creds = Credential.query.filter_by(user_id=current_user.id).first()
         
