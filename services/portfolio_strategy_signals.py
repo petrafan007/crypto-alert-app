@@ -30,6 +30,19 @@ def utc(value):
     return utc(datetime.fromisoformat(str(value).replace('Z', '+00:00')))
 
 
+@lru_cache(maxsize=24)
+def _year_session_bounds(year):
+    """Build each exchange year once instead of rebuilding holidays per bar."""
+    import pandas_market_calendars as calendars
+    schedule = calendars.get_calendar('NYSE').schedule(start_date=f'{year}-01-01', end_date=f'{year}-12-31')
+    return {index.date(): (row.market_open.to_pydatetime(), row.market_close.to_pydatetime())
+            for index, row in schedule.iterrows()}
+
+
+@lru_cache(maxsize=4096)
+def session_bounds(day):
+    return _year_session_bounds(day.year).get(day)
+
 from services.market_calendar_service import is_regular_market_hours
 
 def in_session(now):
