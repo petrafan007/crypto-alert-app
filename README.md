@@ -3406,7 +3406,8 @@ Historical changelog entries retain the product name used when they were origina
   - Plumbed user FIFO/LIFO choices reliably end-to-end.
 - **Frontend Quality of Life**: Added full Error Boundary reset flows, stabilized Trading View widget caching, and optimized dashboard UI layout.
 
-## Release Notes v4.1.2 (Phase 4 Audit Fixes + Hotfix)
+## Release Notes v4.1.3 (Phase 4 Audit Fixes + Hotfixes)
+- **AI Service Hardening**: Fixed a `NameError` crash where `amount_value` was referenced instead of `amount` in `call_ai_with_web_search`, causing sentiment refreshes to fail.
 - **AI Service Hardening**: Retired unsupported AI endpoints (now returning 410 Gone), fixed token substitution KeyError vulnerabilities in custom prompts, and repaired RSI generation edge cases on monotonic windows.
 - **Resilient Staking Dashboard**: Rebuilt staking summaries to pull accurate allocations without relying on hardcoded defaults.
 - **Frontend Quality of Life**: Refactored the Quick Trade Widget to honor dynamic balance constraints and carry state securely between views.

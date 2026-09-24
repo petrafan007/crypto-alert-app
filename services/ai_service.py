@@ -1318,7 +1318,7 @@ def _call_generative_with_web_search(
             )
         
         # Safely render prompts strictly replacing expected placeholders
-        stage3_system = stage3_template.replace('{symbol}', str(symbol_value)).replace('{datetime}', str(current_datetime)).replace('{amount}', str(amount_value))
+        stage3_system = stage3_template.replace('{symbol}', str(symbol_value)).replace('{datetime}', str(current_datetime)).replace('{amount}', str(amount))
 
         if prompt_type in ['copilot', 'manual']:
             # Mandatory role/mode rules are appended even when the user keeps a
