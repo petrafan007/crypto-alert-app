@@ -2061,6 +2061,15 @@ def place_test_order():
             if field not in data or not data[field]:
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
 
+        replacing_order_id = data.get('replacing_order_id')
+        if replacing_order_id:
+            try:
+                # Cancel the old test order first
+                from services.binance_test_trading_service import cancel_test_order
+                cancel_test_order(replacing_order_id, current_user.id)
+            except Exception as e:
+                logger.warning(f"Could not cancel existing test order {replacing_order_id} during replacement: {e}")
+
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
         if not has_quantity and not has_quote:
@@ -3092,6 +3101,15 @@ def place_real_order():
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+
+        replacing_order_id = data.get('replacing_order_id')
+        if replacing_order_id:
+            try:
+                # Cancel the old order first
+                from services.binance_service import cancel_binance_order
+                cancel_binance_order(replacing_order_id, current_user.id)
+            except Exception as e:
+                logger.warning(f"Could not cancel existing order {replacing_order_id} during replacement: {e}")
 
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))

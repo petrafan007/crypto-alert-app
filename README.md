@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.2.1
+**Version:** 4.3.0
 
 ## Recent Updates
+
+### v4.3.0
+- **Advanced Replace Order Modal:** Upgraded the Replace Order modal to natively embed the full Trading and WebullTrading interfaces. This provides the complete suite of order options, fractional calculations, maximum asset allocations, dynamic percentages, and precise asset-specific validation within the replace flow, completely replacing the previous simplified modal.
 
 ### v4.2.1
 - **Replace Order Enhancements:** The Replace Order modal now displays the real-time market price of the asset being replaced. Additionally, adjusting either the price or the quantity automatically scales the other field to maintain the same total order value.

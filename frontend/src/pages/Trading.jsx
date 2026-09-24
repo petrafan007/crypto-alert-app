@@ -762,6 +762,21 @@ const Trading = ({ isLightMode = false }) => {
     mode: 'percentage'
   });
 
+  // Embedded mode initialization
+  useEffect(() => {
+    if (isEmbeddedReplaceMode && embeddedOrder) {
+      setSelectedPair(embeddedOrder.symbol || embeddedCoin?.symbol || '');
+      setOrderForm(prev => ({
+        ...prev,
+        side: embeddedOrder.side?.toUpperCase() || 'BUY',
+        type: embeddedOrder.type || embeddedOrder.order_type || 'LIMIT',
+        price: embeddedOrder.price || embeddedOrder.trigger_price || '',
+        quantity: embeddedOrder.quantity || embeddedOrder.origQty || embeddedOrder.amount || ''
+      }));
+    }
+  }, [isEmbeddedReplaceMode, embeddedOrder, embeddedCoin]);
+
+
   const handleOpenPercentModal = (targetField = 'stopPrice') => {
     setPercentModal({
       isOpen: true,
@@ -2240,7 +2255,7 @@ const Trading = ({ isLightMode = false }) => {
           onClick={() => setActiveTab('order')}
         >
           <span className="tab-icon">📝</span>
-          <span className="tab-text">Place Order</span>
+          <span className="tab-text">{isEmbeddedReplaceMode ? 'Replace Order' : 'Place Order'}</span>
         </button>
         <button
           className={`tab-button ${activeTab === 'open_orders' ? 'active' : ''}`}

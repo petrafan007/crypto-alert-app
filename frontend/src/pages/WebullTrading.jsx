@@ -1021,7 +1021,7 @@ const holdingMatchesOptionContract = (holding, { accountId, underlyingSymbol, op
     && Math.abs(holdingStrike - selectedStrike) <= OPTION_STRIKE_EPSILON;
 };
 
-export default function WebullTrading({ isLightMode = false }) {
+export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceMode = false, embeddedOrder = null, embeddedCoin = null, onEmbeddedClose = null, onEmbeddedSuccess = null}) {
   const navigate = useNavigate();
   const location = useLocation();
   const searchRef = useRef(location.search);
@@ -1225,6 +1225,25 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventUnderlyingPrice, setEventUnderlyingPrice] = useState(0);
   const [eventUnderlyingPriceHistory, setEventUnderlyingPriceHistory] = useState([]);
   const [eventUnderlyingHistorySource, setEventUnderlyingHistorySource] = useState('');
+
+  // Embedded mode initialization
+  useEffect(() => {
+    if (isEmbeddedReplaceMode && embeddedOrder) {
+      setSelectedSymbol(embeddedOrder.symbol || embeddedCoin?.symbol || '');
+      setSelectedInstrumentType(
+        embeddedOrder.type === 'OPTION' ? 'OPTION' :
+        embeddedOrder.instrument_type || (embeddedCoin?.type === 'Options' ? 'OPTION' : embeddedCoin?.type === 'Crypto' ? 'CRYPTO' : 'EQUITY')
+      );
+      setOrderForm(prev => ({
+        ...prev,
+        side: embeddedOrder.side?.toUpperCase() || 'BUY',
+        type: embeddedOrder.type || embeddedOrder.order_type || 'LIMIT',
+        price: embeddedOrder.price || embeddedOrder.trigger_price || '',
+        quantity: embeddedOrder.quantity || embeddedOrder.origQty || embeddedOrder.amount || ''
+      }));
+    }
+  }, [isEmbeddedReplaceMode, embeddedOrder, embeddedCoin]);
+
   const eventMarketRequestRef = useRef(0);
   const eventMarketAbortControllerRef = useRef(null);
   const eventMetadataRequestRef = useRef(0);
@@ -2008,7 +2027,7 @@ export default function WebullTrading({ isLightMode = false }) {
       const urlAccountId = urlParams.get('account_id')?.trim();
       const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
       const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
-      const urlReplaceOrderId = urlParams.get('replace_order_id')?.trim();
+      const urlReplaceOrderId = urlParams.get('replacing_order_id')?.trim();
       const urlQuantity = urlParams.get('quantity')?.trim();
       const urlPrice = urlParams.get('price')?.trim();
       const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION', 'FUTURES', 'EVENT'].includes(urlInstrumentType) ? urlInstrumentType : null;
@@ -4111,7 +4130,7 @@ export default function WebullTrading({ isLightMode = false }) {
         }
       }
 
-      const response = await axios.post('/api/webull/orders/place', payload, { withCredentials: true });
+      const response = await axios.post('/api/webull/orders/place', { ...payload, replacing_order_id: isEmbeddedReplaceMode ? embeddedOrder?.order_id : null }, { withCredentials: true });
       if (response.data?.success) {
         const orderStatus = response.data?.status || response.data?.order?.status;
         const isFilled = orderStatus === 'Filled';
@@ -4264,7 +4283,7 @@ export default function WebullTrading({ isLightMode = false }) {
           entrust_type: 'QTY',
         })),
       };
-      const response = await axios.post('/api/webull/orders/place', payload, { withCredentials: true });
+      const response = await axios.post('/api/webull/orders/place', { ...payload, replacing_order_id: isEmbeddedReplaceMode ? embeddedOrder?.order_id : null }, { withCredentials: true });
       if (response.data?.success) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Webull combo order submitted successfully!' });
         if (isTestMode) {
