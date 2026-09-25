@@ -135,8 +135,32 @@ function Dashboard({ isLightMode }) {
   const MINIMUM_PORTFOLIO_AMOUNT = 0.0001;
   const { isLoggingOut, user } = useAuth();
   const navigate = useNavigate();
-  const [totalValue, setTotalValue] = useState(null);
-  const [accountTotals, setAccountTotals] = useState({ all: 0, binance: 0, webull: 0 });
+  const [totalValue, setTotalValue] = useState(() => {
+    try {
+      const saved = localStorage.getItem('dashboard_totalValue');
+      return saved ? Number(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [accountTotals, setAccountTotals] = useState(() => {
+    try {
+      const saved = localStorage.getItem('dashboard_accountTotals');
+      return saved ? JSON.parse(saved) : { all: 0, binance: 0, webull: 0 };
+    } catch (e) {
+      return { all: 0, binance: 0, webull: 0 };
+    }
+  });
+
+  useEffect(() => {
+    if (totalValue !== null) {
+      try { localStorage.setItem('dashboard_totalValue', totalValue); } catch (e) {}
+    }
+  }, [totalValue]);
+
+  useEffect(() => {
+    try { localStorage.setItem('dashboard_accountTotals', JSON.stringify(accountTotals)); } catch (e) {}
+  }, [accountTotals]);
   const [accountScope, setAccountScope] = useState(() => localStorage.getItem('dashboard_account_scope') || 'all');
   const [portfolio, setPortfolio] = useState([]);
   const [optimisticHiddenCoins, setOptimisticHiddenCoins] = useState(new Set());
