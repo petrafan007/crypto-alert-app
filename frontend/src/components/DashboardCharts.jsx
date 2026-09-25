@@ -63,13 +63,29 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
           existing.avg_entry = existing.cost_basis / existing.amount;
         }
       });
-    return [...groups.values()];
-  }, [portfolio]);
+    const arr = [...groups.values()];
+    const sum = arr.reduce((acc, c) => acc + Number(c.current_value || 0), 0);
+    const authTotal = Number(authoritativeTotalValue) || 0;
+    
+    // If the authoritative total is significantly higher than the sum of visible assets
+    // (e.g. because coins are hidden, or fiat balances aren't in the portfolio array),
+    // add an "Other Assets" slice so the math adds up and the user isn't confused.
+    if (authTotal > sum && (authTotal - sum) > 1) {
+      arr.push({
+        symbol: 'Other Assets',
+        display_symbol: 'Other / Hidden',
+        current_value: authTotal - sum,
+        amount: 0,
+        asset_key: 'Other_Assets_Calculated'
+      });
+    }
+    return arr;
+  }, [portfolio, authoritativeTotalValue]);
 
   // Center total matches the rendered portfolio holdings.
   const totalValue = useMemo(() => {
     const sum = filtered.reduce((acc, c) => acc + Number(c.current_value || 0), 0);
-    return sum > 0 ? sum : (Number(authoritativeTotalValue) || 0);
+    return Number(authoritativeTotalValue) > 0 ? Number(authoritativeTotalValue) : sum;
   }, [filtered, authoritativeTotalValue]);
 
   const formattedTotal = useMemo(() => (

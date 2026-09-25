@@ -72,6 +72,20 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
   console.log('Trading component rendering...');
   const location = useLocation();
   const navigate = useNavigate();
+  const orderHeaderRef = useRef(null);
+  
+  useEffect(() => {
+    // If navigating directly to a symbol (e.g., from Dashboard), auto-scroll down to order form
+    if (location.state?.tradePrefill || new URLSearchParams(location.search).get('symbol')) {
+      const timer = setTimeout(() => {
+        if (orderHeaderRef.current) {
+          const top = orderHeaderRef.current.getBoundingClientRect().top + window.scrollY;
+          window.scrollTo({ top: top - 80, behavior: 'smooth' });
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state, location.search]);
 
   // Trading Settings - Default to real live trading mode
   const [settings, setSettings] = useState({
@@ -2347,7 +2361,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
             )}
 
             {/* Redesigned Order Placement Header Cards */}
-            <div className="trading-order-header-cards">
+            <div className="trading-order-header-cards" ref={orderHeaderRef}>
               <div className="trading-asset-card">
                 <CryptoIcon symbol={baseAsset} size={32} />
                 <div className="trading-asset-card-details">
