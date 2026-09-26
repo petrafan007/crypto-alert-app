@@ -52,17 +52,33 @@ def fetch_rss_feeds(symbol: str, max_results=5) -> List[Dict]:
             
     return results
 
+import time
+
+_cc_news_cache = {}
+_CC_CACHE_TTL = 8 * 3600  # 8 hours = max 3 calls per day (90/month)
+
 def fetch_cryptocompare_news(symbol: str, api_key: str = None, max_results=5) -> List[Dict]:
-    """Fetch news from CryptoCompare API"""
+    """Fetch news from CryptoCompare API with 8-hour caching to respect Coindesk free limits"""
     try:
         url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN"
-        headers = {}
-        if api_key:
-            headers['authorization'] = f"Apikey {api_key}"
+        
+        current_time = time.time()
+        # Check cache
+        if 'data' in _cc_news_cache and current_time - _cc_news_cache.get('timestamp', 0) < _CC_CACHE_TTL:
+            data = _cc_news_cache['data']
+        else:
+            headers = {}
+            if api_key:
+                headers['authorization'] = f"Apikey {api_key}"
+                
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+            data = resp.json().get('Data', [])
             
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.raise_for_status()
-        data = resp.json().get('Data', [])
+            # Update cache
+            _cc_news_cache['data'] = data
+            _cc_news_cache['timestamp'] = current_time
+
         
         results = []
         symbol_lower = symbol.lower()
