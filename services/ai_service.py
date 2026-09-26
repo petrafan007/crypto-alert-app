@@ -466,7 +466,7 @@ def _web_search(query, max_results=2, username=None, freshness="pd", system_call
             from services.financial_feed_service import fetch_financial_feeds
             words = query.split()
             symbol = words[0] if words else 'crypto'
-            rss_results = fetch_financial_feeds(symbol, cred, max_results=max_results)
+            rss_results = fetch_financial_feeds(symbol, cred, max_results=max_results, system_caller=system_caller)
             if rss_results:
                 return rss_results
         except Exception as e:

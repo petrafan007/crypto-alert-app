@@ -104,12 +104,12 @@ def fetch_cryptocompare_news(symbol: str, api_key: str = None, max_results=5) ->
         logger.warning(f"Failed to fetch CryptoCompare news for {symbol}: {e}")
         return []
 
-def fetch_financial_feeds(symbol: str, cred=None, max_results=5) -> List[Dict]:
+def fetch_financial_feeds(symbol: str, cred=None, max_results=5, system_caller=None) -> List[Dict]:
     """Unified entrypoint to fetch news from RSS and Crypto APIs"""
     results = []
     
-    # Try CryptoCompare first for crypto tickers
-    api_key = cred.cryptocompare_api_key if cred else None
+    # Try CryptoCompare first for crypto tickers, BUT ONLY for the quant engine to save API limits
+    api_key = cred.cryptocompare_api_key if (cred and system_caller in ['quant_engine', 'sentiment']) else None
     cc_news = fetch_cryptocompare_news(symbol, api_key, max_results=max_results)
     results.extend(cc_news)
     
