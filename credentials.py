@@ -438,6 +438,22 @@ class Credential(db.Model):
     def brave_search_api_key_fallback(self, value):
         self._brave_search_api_key_fallback = normalize_secret_for_storage(value)
 
+    @property
+    def coingecko_api_key(self):
+        return decrypt_secret(self._coingecko_api_key)
+
+    @coingecko_api_key.setter
+    def coingecko_api_key(self, value):
+        self._coingecko_api_key = normalize_secret_for_storage(value)
+
+    @property
+    def cryptocompare_api_key(self):
+        return decrypt_secret(self._cryptocompare_api_key)
+
+    @cryptocompare_api_key.setter
+    def cryptocompare_api_key(self, value):
+        self._cryptocompare_api_key = normalize_secret_for_storage(value)
+
     __table_args__ = (
         db.Index('ix_credentials_user_id', 'user_id'),
     )

@@ -4,6 +4,7 @@ SECRET_FIELDS = frozenset({
     'ai_gateway_key', 'api_key', 'api_secret', 'trading_api_key', 'trading_api_secret',
     'telegram_token', 'telegram_chat_id', 'news_api', 'news_api_key',
     'brave_search_api_key', 'brave_search_api_key_fallback',
+    'coingecko_api_key', 'cryptocompare_api_key',
     'webull_app_key', 'webull_app_secret', 'webull_access_token',
     'credentials_encryption_key',
 } | {f'{provider}_key{suffix}' for provider in
