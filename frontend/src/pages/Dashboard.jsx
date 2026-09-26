@@ -1870,6 +1870,11 @@ function Dashboard({ isLightMode }) {
             ? portfolioResponse.data.portfolio
             : [];
 
+          if (portfolioResponse.data.account_totals) {
+            setAccountTotals(portfolioResponse.data.account_totals);
+            setTotalValue(portfolioResponse.data.account_totals.all);
+          }
+
           const withFlags = rawPortfolio
             .filter(c => {
               if (!c || !c.symbol || !String(c.symbol).trim()) return false;
@@ -1996,6 +2001,11 @@ function Dashboard({ isLightMode }) {
             const pendingOrdersList = ordersResponse.status === 'fulfilled' ? (ordersResponse.value.data.pending_orders || []) : [];
             const pFetchId = nextPortfolioFetchId();
             applyPortfolioUpdate(livePortfolioResponse.value.data.portfolio, pFetchId, pendingOrdersList);
+            
+            if (livePortfolioResponse.value.data.account_totals) {
+              setAccountTotals(livePortfolioResponse.value.data.account_totals);
+              setTotalValue(livePortfolioResponse.value.data.account_totals.all);
+            }
           }
         }
 

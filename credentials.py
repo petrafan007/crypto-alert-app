@@ -97,6 +97,11 @@ class Credential(db.Model):
     _news_api = db.Column("news_api", db.String)
     _brave_search_api_key = db.Column("brave_search_api_key", db.String)  # Brave Search API Key
     _brave_search_api_key_fallback = db.Column("brave_search_api_key_fallback", db.String)  # Fallback Brave Search API Key
+    _coingecko_api_key = db.Column("coingecko_api_key", db.String)
+    _cryptocompare_api_key = db.Column("cryptocompare_api_key", db.String)
+    searxng_url = db.Column("searxng_url", db.String, default="http://localhost:8080")
+    copilot_search_provider = db.Column("copilot_search_provider", db.String, default="brave")
+    quant_search_provider = db.Column("quant_search_provider", db.String, default="rss_only")
     
     # Secondary (Fallback) AI Keys
     _openai_key_fallback = db.Column("openai_key_fallback", db.String)

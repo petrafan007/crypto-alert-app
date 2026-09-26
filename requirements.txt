@@ -23,3 +23,4 @@ paho-mqtt>=1.6.1,<2  # MQTT client for Webull Data Streaming API
 webull-openapi-python-sdk>=3.0.0  # Webull OpenAPI SDK (unified v3 trading protocol)
 XlsxWriter==3.2.9
 pandas-market-calendars>=5,<6  # US session holidays and early closes for quantitative workers
+feedparser==6.0.11

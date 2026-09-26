@@ -67,6 +67,10 @@ fi
 if [ -f "migrations/migrate_v1_56.py" ]; then
     python3 migrations/migrate_v1_56.py | tee -a "$LOG_FILE"
 fi
+if [ -f "migrations/migrate_v1_57.py" ]; then
+    python3 migrations/migrate_v1_57.py | tee -a "$LOG_FILE"
+fi
+
 if [ -f "update_db_prompts.py" ]; then
     python3 update_db_prompts.py | tee -a "$LOG_FILE"
 fi

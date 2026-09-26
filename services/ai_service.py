@@ -397,13 +397,13 @@ def is_user_analysis_window_active(start_str, end_str):
     try:
         now_et = get_eastern_now()
         current_minutes = now_et.hour * 60 + now_et.minute
-        
+
         start_parts = [int(p) for p in (start_str or '08:00').split(':')]
         end_parts = [int(p) for p in (end_str or '23:59').split(':')]
-        
+
         start_min = start_parts[0] * 60 + start_parts[1]
         end_min = end_parts[0] * 60 + end_parts[1]
-        
+
         if start_min <= end_min:
             return start_min <= current_minutes <= end_min
         else:
@@ -438,26 +438,74 @@ def validated_search_queries(text, symbol):
     return result[:2] or [f'{symbol} latest market news today']
 
 
-def web_search(query, max_results=2, username=None, freshness="pd"):
+def web_search(query, max_results=2, username=None, freshness="pd", system_caller="copilot"):
     from services.provider_resilience import cached_search
-    return cached_search(username, 'web search', (query, max_results, freshness),
-                         lambda: _web_search(query, max_results, username, freshness))
+    return cached_search(username, 'web search', (query, max_results, freshness, system_caller),
+                         lambda: _web_search(query, max_results, username, freshness, system_caller))
 
 
-def _web_search(query, max_results=2, username=None, freshness="pd"):
+def _web_search(query, max_results=2, username=None, freshness="pd", system_caller="copilot"):
     """
-    Search actual sources through Brave, DuckDuckGo and Google News RSS.
+    Search actual sources through Brave, DuckDuckGo, SearXNG, or RSS Crypto APIs.
     freshness parameter options: 'pd' (past 24h / 12-24h window), 'pw' (past week), 'pm' (past month), 'py' (past year).
     """
     from services.provider_resilience import checked_get, checked_post
-    # 1. Try Brave Search API if credentials exist
-    if username:
+    try:
+        cred = get_user_credentials(username) if username else None
+    except Exception as e:
+        logger.error(f"Error accessing credentials: {e}")
+        cred = None
+
+    copilot_provider = getattr(cred, 'copilot_search_provider', 'brave') if cred else 'brave'
+    quant_provider = getattr(cred, 'quant_search_provider', 'rss_only') if cred else 'rss_only'
+
+    provider = quant_provider if system_caller in ['quant_engine', 'sentiment'] else copilot_provider
+
+    if provider == 'rss_only':
         try:
-            cred = get_user_credentials(username)
+            from services.financial_feed_service import fetch_financial_feeds
+            words = query.split()
+            symbol = words[0] if words else 'crypto'
+            rss_results = fetch_financial_feeds(symbol, cred, max_results=max_results)
+            if rss_results:
+                return rss_results
+        except Exception as e:
+            logger.warning(f"RSS/Crypto API fetch failed: {e}")
+            return []
+
+    if provider == 'searxng':
+        searxng_url = getattr(cred, 'searxng_url', 'http://localhost:8080') if cred else 'http://localhost:8080'
+        try:
+            logger.info(f"Attempting SearXNG for query: {query}")
+            params = {'q': query, 'format': 'json'}
+            if freshness == 'pd': params['time_range'] = 'day'
+            elif freshness == 'pw': params['time_range'] = 'week'
+            elif freshness == 'pm': params['time_range'] = 'month'
+            elif freshness == 'py': params['time_range'] = 'year'
+
+            resp = checked_get('SearXNG', username, '', f"{searxng_url.rstrip('/')}/search", params=params, timeout=12)
+            if resp.status_code == 200:
+                data = resp.json()
+                results = []
+                for item in data.get('results', [])[:max_results]:
+                    results.append({
+                        'title': item.get('title', ''),
+                        'snippet': item.get('content', '')[:300],
+                        'url': item.get('url', ''),
+                        'source': f"SearXNG ({item.get('engine', 'unknown')})"
+                    })
+                if results:
+                    return results
+        except Exception as e:
+            logger.warning(f"SearXNG error: {e}")
+
+    # Fallback to Brave Search API
+    if provider in ['brave', 'duckduckgo'] or not provider:
+        try:
             if cred:
                 brave_api_key = cred.brave_search_api_key
                 brave_api_key_fallback = cred.brave_search_api_key_fallback
-                
+
                 for key_name, api_key in [('primary', brave_api_key), ('fallback', brave_api_key_fallback)]:
                     if not api_key or not api_key.strip():
                         continue
@@ -671,17 +719,17 @@ class AIResponseWrapper:
         self.search_status = search_status or "Brave Search"
         self.failover_history = failover_history or []
         self.choices = [self._Choice(self.text)]
-    
+
     class _Choice:
         def __init__(self, text):
             self.message = self._Message(text)
             self.text = text
-        
+
         class _Message:
             def __init__(self, text):
                 self.content = text
                 self.role = "assistant"
-    
+
     def __str__(self):
         return self.text
 
@@ -807,7 +855,7 @@ def _call_generative_with_web_search(
                 raise AIRequestDeferred(
                     f'Quantitative audit {audit_pending.id} has exclusive AI access; automated request deferred.'
                 )
-        
+
         user_ai_settings = get_user_ai_settings(username)
         if prompt_type in ('copilot', 'manual') and not bool(user_ai_settings.get('ai_enabled', True)):
             raise PermissionError('AI is disabled. Enable AI in Settings to use Copilot.')
@@ -823,7 +871,7 @@ def _call_generative_with_web_search(
         cred = get_user_credentials(username)
         if not cred:
             raise ValueError(f"No credentials found for user: {username}")
-        
+
         # Fail over only through the tiers the user explicitly configured.
         # Provider keys outside this chain are never used implicitly.
         if custom_tier_configs:
@@ -1089,7 +1137,7 @@ def _call_generative_with_web_search(
                     timeout=audit_timeout if is_portfolio_audit else provider_timeout(75),
                     reasoning_level=ai_reasoning_level,
                 )
-            
+
             else:
                 raise ValueError(f"Unsupported AI provider: {provider}")
 
@@ -1193,7 +1241,7 @@ def _call_generative_with_web_search(
         search_summaries = []
         grounding_items = []
         search_sources = set()
-        
+
         freshness_filter = "pd"
         lower_msg = original_user_message.lower()
         if "this week" in lower_msg or "past week" in lower_msg or "last week" in lower_msg:
@@ -1202,7 +1250,7 @@ def _call_generative_with_web_search(
             freshness_filter = "pm"
         elif "this year" in lower_msg or "past year" in lower_msg or "last year" in lower_msg:
             freshness_filter = "py"
-            
+
         if prompt_type in ['copilot', 'manual'] and '=== GENERAL MARKET QUESTION (' in original_user_message:
             _, freshness_filter = copilot_market_queries(
                 original_user_message,
@@ -1316,7 +1364,7 @@ def _call_generative_with_web_search(
                 "cash, equity, ETF, option, futures, crypto, and event-contract row. Preserve account and "
                 "trading-mode boundaries, and never describe Test or Quantitative paper holdings as live assets."
             )
-        
+
         # Safely render prompts strictly replacing expected placeholders
         stage3_system = stage3_template.replace('{symbol}', str(symbol_value)).replace('{datetime}', str(current_datetime)).replace('{amount}', str(amount))
 
@@ -1394,7 +1442,7 @@ def _call_generative_with_web_search(
             model=locals().get('model'),
             error=err_str,
         )
-        
+
         # Check if another tier is configured and available
         next_tier_index = tier_index + 1
         if 'tier_configs' in locals() and next_tier_index < len(tier_configs):
@@ -1422,7 +1470,7 @@ def _call_generative_with_web_search(
                     deadline_monotonic=deadline_monotonic,
                     evidence_observer=evidence_observer,
                 )
-        
+
         # All tiers exhausted
         if isinstance(e, IncompleteAuditError):
             raise
@@ -1533,10 +1581,10 @@ def parse_sentiment_json(response_text, is_watchlist=False):
             'sell': 'Consider Selling'
         }
         default_phrase = "Hold"
-    
+
     phrase = None
     reason = None
-    
+
     clean_text = (response_text or '').strip()
 
     # Strip markdown code fences if present
@@ -1544,7 +1592,7 @@ def parse_sentiment_json(response_text, is_watchlist=False):
         match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', clean_text)
         if match:
             clean_text = match.group(1).strip()
-            
+
     # Try finding JSON object {...} or array [...]
     json_match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', clean_text)
     if json_match:
@@ -1562,7 +1610,7 @@ def parse_sentiment_json(response_text, is_watchlist=False):
                     elif any(x in k_lower for x in ['item 2', 'item2', 'reason', 'explanation', 'description', 'summary', 'analysis', 'rationale', 'item_2']):
                         if v_str:
                             reason = v_str
-                
+
                 # If phrase not identified by key name, scan values
                 if not phrase:
                     for v in parsed.values():
@@ -1587,7 +1635,7 @@ def parse_sentiment_json(response_text, is_watchlist=False):
                             len(candidate) > 15):
                             reason = candidate
                             break
-                            
+
             elif isinstance(parsed, list) and len(parsed) >= 2:
                 p_cand = str(parsed[0]).strip()
                 if p_cand.lower() in valid_phrases:
@@ -1600,7 +1648,7 @@ def parse_sentiment_json(response_text, is_watchlist=False):
     else:
         # No JSON found — AI did not follow the required JSON format
         logger.warning(f"Sentiment AI response contained no JSON. Raw response: {repr(clean_text[:300])}")
-            
+
     # Fallback: scan raw text for a sentiment phrase if JSON parse missed it
     if not phrase:
         scan_keys = list(valid_phrases.keys())
@@ -1610,7 +1658,7 @@ def parse_sentiment_json(response_text, is_watchlist=False):
             if re.search(r'\b' + re.escape(p_key) + r'\b', clean_text, re.IGNORECASE):
                 phrase = valid_phrases[p_key]
                 break
-                
+
     # Fallback: extract reason from remaining text after removing the phrase
     if not reason and phrase:
         remainder = re.sub(re.escape(phrase), '', clean_text, flags=re.IGNORECASE)
@@ -1618,7 +1666,7 @@ def parse_sentiment_json(response_text, is_watchlist=False):
         remainder = re.sub(r'\s+', ' ', remainder).strip()
         if len(remainder) > 15 and remainder.lower() not in ['recommendation', 'sentiment', 'action', 'signal']:
             reason = remainder
-            
+
     final_phrase = phrase or default_phrase
     if not reason or reason.strip().lower() in ['recommendation', 'sentiment', 'action', 'signal', 'none', 'null', 'n/a']:
         reason = f"Maintains {final_phrase} stance based on current market dynamics and technical signals."
@@ -1708,7 +1756,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
         settings = get_user_ai_settings(username)
         notifications_enabled = settings.get('ai_notifications_enabled', True)
         ai_prompts_obj = get_user_ai_prompts(user_id)
-        
+
         if is_watchlist:
             sentiment_pre_prompt = (getattr(ai_prompts_obj, 'watchlist_sentiment_prompt_pre', None) or "").strip()
             sentiment_post_prompt = (getattr(ai_prompts_obj, 'watchlist_sentiment_prompt_post', None) or "").strip()
@@ -1734,7 +1782,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             return err_sentiment, err_reason
 
         current_datetime = format_eastern_datetime(None, "%B %d, %Y at %I:%M %p EDT")
-        
+
         # Mark coin as Checking now... in DB so any live queries show real-time progress.
         try:
             persist_sentiment_analysis_status(
@@ -2028,32 +2076,32 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
 def get_last_scheduled_time(anchor_time_str, freq_hours_int, now_utc=None):
     if now_utc is None:
         now_utc = datetime.now(timezone.utc)
-    
+
     try:
         h, m = map(int, anchor_time_str.split(':'))
     except Exception:
         h, m = 8, 0
-    
+
     import pytz
     eastern = pytz.timezone('US/Eastern')
     now_est = now_utc.astimezone(eastern)
-    
+
     start_of_day = now_est.replace(hour=h, minute=m, second=0, microsecond=0)
-    
+
     if freq_hours_int <= 0:
         freq_hours_int = 24
-        
+
     yesterday_anchor = start_of_day - timedelta(days=1)
     last_scheduled_est = yesterday_anchor
     current_step = yesterday_anchor
-    
+
     max_steps = 100
     steps = 0
     while current_step <= now_est and steps < max_steps:
         last_scheduled_est = current_step
         current_step += timedelta(hours=freq_hours_int)
         steps += 1
-        
+
     return last_scheduled_est.astimezone(pytz.utc)
 
 def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None):
@@ -2079,7 +2127,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
         if not is_ai_enabled(username) and not force:
             logger.info(f"Skipping portfolio sentiment analysis for {username} - AI disabled")
             return 0
-        
+
         settings = get_user_ai_settings(username)
         if not force:
             start_str = settings.get('ai_analysis_window_start', '08:00')
@@ -2149,7 +2197,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
                     continue
 
             logger.info(f"Analyzing portfolio sentiment for {sym} (User: {username})...")
-            
+
             try:
                 analyze_single_symbol_sentiment(
                     user_id=user_id,
@@ -2217,7 +2265,7 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
         if not is_ai_enabled(username) and not force:
             logger.info(f"Skipping watchlist sentiment analysis for {username} - AI disabled")
             return 0
-        
+
         settings = get_user_ai_settings(username)
         if not force:
             start_str = settings.get('ai_analysis_window_start', '08:00')
@@ -2288,7 +2336,7 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
                     continue
 
             logger.info(f"Analyzing watchlist sentiment for {sym} (User: {username})...")
-            
+
             try:
                 analyze_single_symbol_sentiment(
                     user_id=user_id,

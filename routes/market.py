@@ -399,7 +399,26 @@ def api_coin_data_live():
         # here made an account-correct position appear as zero shares even
         # though it was present on the Portfolio table.
         portfolio.extend(get_webull_portfolio_rows(current_user.id))
-        return jsonify({"portfolio": portfolio})
+        
+        # Calculate authoritative totals directly in coin-data-live
+        from services.portfolio_service import compute_portfolio_total_value
+        from services.webull_import_service import get_webull_total_value
+        try:
+            all_accounts = float(compute_portfolio_total_value(
+                current_user.id, username=getattr(current_user, 'username', None)
+            ) or 0.0)
+            webull = float(get_webull_total_value(current_user.id) or 0.0)
+            binance = max(0.0, all_accounts - webull)
+            account_totals = {
+                'all': round(all_accounts, 2),
+                'binance': round(binance, 2),
+                'webull': round(webull, 2),
+            }
+        except Exception as e:
+            logger.error(f"Error calculating account totals in coin-data-live: {e}")
+            account_totals = None
+
+        return jsonify({"portfolio": portfolio, "account_totals": account_totals})
 
     except Exception as e:
         logger.error(f"Error in api_coin_data_live: {e}")
@@ -569,8 +588,26 @@ def api_coin_data():
         # Webull snapshots are deliberately appended as read-only, exchange-sourced
         # rows. They never become Coin records or Binance trade candidates.
         portfolio.extend(get_webull_portfolio_rows(current_user.id))
-        # logger.error(f"[DEBUG] Final portfolio response: {[c['symbol'] for c in portfolio]}")
-        return jsonify({"portfolio": portfolio})
+        
+        # Calculate authoritative totals directly in coin-data to prevent UI flicker
+        from services.portfolio_service import compute_portfolio_total_value
+        from services.webull_import_service import get_webull_total_value
+        try:
+            all_accounts = float(compute_portfolio_total_value(
+                current_user.id, username=getattr(current_user, 'username', None)
+            ) or 0.0)
+            webull = float(get_webull_total_value(current_user.id) or 0.0)
+            binance = max(0.0, all_accounts - webull)
+            account_totals = {
+                'all': round(all_accounts, 2),
+                'binance': round(binance, 2),
+                'webull': round(webull, 2),
+            }
+        except Exception as e:
+            logger.error(f"Error calculating account totals in coin-data: {e}")
+            account_totals = None
+
+        return jsonify({"portfolio": portfolio, "account_totals": account_totals})
     except Exception as e:
         logger.error(f"api_coin_data error: {str(e)}")
         logger.error(f"Exception type: {type(e)}")

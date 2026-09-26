@@ -1741,7 +1741,17 @@ def api_settings():
                     cred.brave_search_api_key = data['brave_search_api_key']
                 if 'brave_search_api_key_fallback' in data:
                     cred.brave_search_api_key_fallback = data['brave_search_api_key_fallback']
-                
+                if 'coingecko_api_key' in data:
+                    cred.coingecko_api_key = data['coingecko_api_key']
+                if 'cryptocompare_api_key' in data:
+                    cred.cryptocompare_api_key = data['cryptocompare_api_key']
+                if 'searxng_url' in data:
+                    cred.searxng_url = data['searxng_url']
+                if 'copilot_search_provider' in data:
+                    cred.copilot_search_provider = data['copilot_search_provider']
+                if 'quant_search_provider' in data:
+                    cred.quant_search_provider = data['quant_search_provider']
+
                 # Check for Default Prompt Migration if AI is being enabled/configured
                 # If we have an AI provider set, ensure prompts exist
                 # Check for Default Prompt Migration if AI is being enabled/configured
@@ -1862,7 +1872,12 @@ def api_settings():
             "news_api": cred.news_api,
             "brave_search_api_key": getattr(cred, 'brave_search_api_key', None),
             "brave_search_api_key_fallback": getattr(cred, 'brave_search_api_key_fallback', None),
-            
+            "coingecko_api_key": getattr(cred, 'coingecko_api_key', None),
+            "cryptocompare_api_key": getattr(cred, 'cryptocompare_api_key', None),
+            "searxng_url": getattr(cred, 'searxng_url', 'http://localhost:8080'),
+            "copilot_search_provider": getattr(cred, 'copilot_search_provider', 'brave'),
+            "quant_search_provider": getattr(cred, 'quant_search_provider', 'rss_only'),
+
             # Encryption status
             "credentials_encryption_key": "", # Never return the key
             "credentials_encryption_key_configured": bool(encryption_active),

@@ -1,6 +1,15 @@
 version: '3.9'
 
 services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+
   sentinel-node:
     image: ghcr.io/sentinel-official/dvpn-node:latest
     container_name: sentinel-node

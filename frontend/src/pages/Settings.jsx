@@ -1779,7 +1779,7 @@ export default function Settings({ isLightMode }) {
               <h2 style={{ margin: 0, color: isLightMode ? '#2d3748' : '#fff', fontSize: '1.25rem', fontWeight: 'bold' }}>
                 Confirm Application Upgrade
               </h2>
-              <button 
+              <button
                 onClick={() => setShowUpgradeModal(false)}
                 style={{
                   background: 'transparent',
@@ -3219,6 +3219,81 @@ export default function Settings({ isLightMode }) {
 
         <div className="settings-form-help" style={{ marginTop: '12px', fontStyle: 'italic' }}>
           💡 Combined limit: 4,000 searches/month before falling back to DuckDuckGo
+        </div>
+
+        {/* Smart Search Allocation */}
+        <div className="settings-page-section" style={{ marginTop: '32px' }}>
+          <h3>🚦 Smart Search Allocation & Local Routing</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="settings-form-group">
+              <label>Copilot Provider (General Chat)</label>
+              <select
+                value={settings.copilot_search_provider || 'brave'}
+                onChange={(e) => handleInputChange('copilot_search_provider', e.target.value)}
+                className="settings-select"
+              >
+                <option value="brave">Brave Search API</option>
+                <option value="searxng">SearXNG (Local)</option>
+                <option value="duckduckgo">DuckDuckGo (Fallback Scraper)</option>
+                <option value="rss_only">Financial Feeds (RSS/APIs)</option>
+              </select>
+            </div>
+
+            <div className="settings-form-group">
+              <label>Quant Engine Provider (Background Tasks)</label>
+              <select
+                value={settings.quant_search_provider || 'rss_only'}
+                onChange={(e) => handleInputChange('quant_search_provider', e.target.value)}
+                className="settings-select"
+              >
+                <option value="rss_only">Financial Feeds (RSS/APIs)</option>
+                <option value="searxng">SearXNG (Local)</option>
+                <option value="brave">Brave Search API</option>
+                <option value="duckduckgo">DuckDuckGo (Fallback Scraper)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '16px', marginTop: '16px' }}>
+            <div className="settings-form-group">
+              <label>SearXNG Local Instance URL</label>
+              <input
+                type="text"
+                value={settings.searxng_url || 'http://localhost:8080'}
+                onChange={(e) => handleInputChange('searxng_url', e.target.value)}
+                placeholder="http://localhost:8080"
+              />
+              <div className="settings-form-help">
+                Required only if using SearXNG. Ensure Docker container is running on the specified host/port.
+              </div>
+            </div>
+          </div>
+
+          <h4 style={{ marginTop: '24px', marginBottom: '8px' }}>Financial Feeds (RSS/APIs) Configuration</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="settings-form-group">
+              <label>CryptoCompare API Key</label>
+              <input
+                type="password"
+                value={settings.cryptocompare_api_key || ''}
+                onChange={(e) => handleInputChange('cryptocompare_api_key', e.target.value)}
+                placeholder="Optional API Key..."
+              />
+            </div>
+
+            <div className="settings-form-group">
+              <label>CoinGecko API Key</label>
+              <input
+                type="password"
+                value={settings.coingecko_api_key || ''}
+                onChange={(e) => handleInputChange('coingecko_api_key', e.target.value)}
+                placeholder="Optional API Key..."
+              />
+            </div>
+          </div>
+          <div className="settings-form-help" style={{ marginTop: '12px' }}>
+            These keys help power the &quot;Financial Feeds&quot; search provider used primarily by the Quant Engine. They augment standard free RSS feeds.
+          </div>
         </div>
         </div>
       )}

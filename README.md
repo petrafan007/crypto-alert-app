@@ -1,8 +1,21 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.3.4
+**Version:** 4.4.0
 
 ## Recent Updates
+
+### v4.4.0
+- **Smart Search Allocation:** Redesigned AI data fetching to eliminate `DATA_LIMITED` outages on consumer scrapers like DuckDuckGo and Brave. The system now natively prioritizes high-bandwidth financial RSS feeds and CryptoCompare APIs for background Quant monitoring, saving standard web searches exclusively for interactive Copilot chatting.
+- **Local SearXNG Integration:** Power users can now run a local, privacy-respecting SearXNG instance alongside the app to aggregate multiple web scrapers securely, completely sidestepping commercial API quotas. SearXNG routing is configurable via Settings.
+- **Zero-Flicker Dashboard Loading:** Eliminated the "super low balance" flicker that occasionally occurred upon first loading the dashboard. The application now aggregates accurate portfolio and account-level totals directly within the initial data fetch, guaranteeing that the true net value is painted perfectly on the very first frame.
+
+
+### v4.3.6
+- **Portfolio Total UI Jump Fix:** Resolved an issue where the allocations chart and total portfolio value would briefly display a lower amount (calculated only from visible assets) before "popping" to the correct true total. The true total value and account totals are now aggressively cached in local storage, ensuring the dashboard loads instantly with the correct balance while waiting for the background API verification.
+
+### v4.3.5
+- **Allocations Chart Accuracy:** Fixed an issue where the allocations pie chart on the Dashboard displayed a total value that omitted hidden coins or untracked fiat balances, causing a discrepancy with the true portfolio total. The chart will now display the accurate true total and append an "Other / Hidden" slice to make the chart mathematically sound.
+- **Trading Auto-Scroll:** When navigating to the Trading page by clicking an asset on the dashboard, the page will now automatically scroll past the large chart directly to the order execution panel.
 
 ### v4.3.4
 - **Compact Replace Modal:** Redesigned the Replace Order modal to aggressively condense margins, padding, and UI elements. The entire replacement form (for Binance, Webull, and synthetic orders) now fits neatly into a single view without any scrolling required.
