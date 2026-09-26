@@ -3272,7 +3272,7 @@ export default function Settings({ isLightMode }) {
           <h4 style={{ marginTop: '24px', marginBottom: '8px' }}>Financial Feeds (RSS/APIs) Configuration</h4>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             <div className="settings-form-group">
-              <label>CryptoCompare API Key</label>
+              <label>CoinDesk API Key</label>
               <input
                 type="password"
                 value={settings.cryptocompare_api_key || ''}
