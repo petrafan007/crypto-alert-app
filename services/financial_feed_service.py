@@ -59,6 +59,9 @@ _CC_CACHE_TTL = 8 * 3600  # 8 hours = max 3 calls per day (90/month)
 
 def fetch_cryptocompare_news(symbol: str, api_key: str = None, max_results=5) -> List[Dict]:
     """Fetch news from CryptoCompare API with 8-hour caching to respect Coindesk free limits"""
+    if not api_key:
+        return []
+    
     try:
         url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN"
         
