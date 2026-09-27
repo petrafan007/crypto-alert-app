@@ -47,7 +47,7 @@ from services.webull_import_service import get_webull_order_rows, get_webull_tot
 from services.asset_identity import display_symbol, is_etf_asset
 from services.order_history_sync_service import get_binance_order_rows
 from services.notification_service import notify_order_fill, create_system_notification, send_telegram_message
-from services.common import _coerce_float, format_price, format_quantity
+from services.common import _coerce_float, format_price, format_quantity, normalize_price_str
 from credential_security import decrypt_secret
 from transaction_utils import recalculate_asset_activity
 
@@ -4630,10 +4630,10 @@ def place_real_oco_order():
             order_response = client.create_oco_order(
                 symbol=symbol,
                 side=side,
-                quantity=quantity,
-                price=price,
-                stopPrice=stop_price,
-                stopLimitPrice=stop_limit_price,
+                quantity=normalize_price_str(quantity, filters.get('stepSize')),
+                price=normalize_price_str(price, filters.get('tickSize')),
+                stopPrice=normalize_price_str(stop_price, filters.get('tickSize')),
+                stopLimitPrice=normalize_price_str(stop_limit_price, filters.get('tickSize')),
                 stopLimitTimeInForce=stop_limit_time_in_force
             )
 
