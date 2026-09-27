@@ -57,46 +57,65 @@ import time
 _cc_news_cache = {}
 _CC_CACHE_TTL = 8 * 3600  # 8 hours = max 3 calls per day (90/month)
 
-def fetch_cryptocompare_news(symbol: str, api_key: str = None, max_results=5) -> List[Dict]:
-    """Fetch news from CryptoCompare API with 8-hour caching to respect Coindesk free limits"""
+def fetch_cryptocurrency_cv_news(symbol: str, max_results=5) -> List[Dict]:
+    """Fetch keyless news from Cryptocurrency.cv aggregator"""
+    try:
+        url = "https://cryptocurrency.cv/api/news"
+        resp = requests.get(url, timeout=10)
+        
+        # If their API doesn't have a direct /news endpoint yet, we fallback to RSS
+        if resp.status_code != 200:
+            return []
+            
+        data = resp.json().get('data', [])
+        results = []
+        symbol_lower = symbol.lower()
+        base_symbol = symbol_lower.replace('usd', '').replace('usdt', '')
+        
+        for item in data:
+            title = item.get('title', '').lower()
+            summary = item.get('summary', '').lower()
+            if base_symbol in title or base_symbol in summary:
+                results.append({
+                    'title': item.get('title', ''),
+                    'url': item.get('url', ''),
+                    'snippet': item.get('summary', '')[:200],
+                    'source': 'Cryptocurrency.cv'
+                })
+            if len(results) >= max_results:
+                break
+        return results
+    except Exception as e:
+        logger.warning(f"Failed to fetch Cryptocurrency.cv news: {e}")
+        return []
+
+def fetch_coinstats_news(symbol: str, api_key: str = None, max_results=5) -> List[Dict]:
+    """Fetch curated news from CoinStats API"""
     if not api_key:
         return []
     
     try:
-        url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN"
+        url = f"https://openapiv1.coinstats.app/news/type/latest?limit={max_results * 5}"
+        headers = {'X-API-KEY': api_key}
         
-        current_time = time.time()
-        # Check cache
-        if 'data' in _cc_news_cache and current_time - _cc_news_cache.get('timestamp', 0) < _CC_CACHE_TTL:
-            data = _cc_news_cache['data']
-        else:
-            headers = {}
-            if api_key:
-                headers['authorization'] = f"Apikey {api_key}"
-                
-            resp = requests.get(url, headers=headers, timeout=10)
-            resp.raise_for_status()
-            data = resp.json().get('Data', [])
-            
-            # Update cache
-            _cc_news_cache['data'] = data
-            _cc_news_cache['timestamp'] = current_time
-
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
         
         results = []
         symbol_lower = symbol.lower()
         base_symbol = symbol_lower.replace('usd', '').replace('usdt', '')
         
         for item in data:
-            categories = item.get('categories', '').lower()
             title = item.get('title', '').lower()
+            description = item.get('description', '').lower()
             
-            if base_symbol in categories or base_symbol in title:
+            if base_symbol in title or base_symbol in description:
                 results.append({
                     'title': item.get('title', ''),
-                    'url': item.get('url', ''),
-                    'snippet': item.get('body', '')[:200],
-                    'source': f"CryptoCompare ({item.get('source_info', {}).get('name', 'News')})"
+                    'url': item.get('link', ''),
+                    'snippet': item.get('description', '')[:200],
+                    'source': f"CoinStats ({item.get('source', 'News')})"
                 })
                 
             if len(results) >= max_results:
@@ -104,17 +123,22 @@ def fetch_cryptocompare_news(symbol: str, api_key: str = None, max_results=5) ->
                 
         return results
     except Exception as e:
-        logger.warning(f"Failed to fetch CryptoCompare news for {symbol}: {e}")
+        logger.warning(f"Failed to fetch CoinStats news for {symbol}: {e}")
         return []
 
 def fetch_financial_feeds(symbol: str, cred=None, max_results=5, system_caller=None) -> List[Dict]:
     """Unified entrypoint to fetch news from RSS and Crypto APIs"""
     results = []
     
-    # Try CryptoCompare first for crypto tickers, BUT ONLY for the quant engine to save API limits
-    api_key = cred.cryptocompare_api_key if (cred and system_caller in ['quant_engine', 'sentiment']) else None
-    cc_news = fetch_cryptocompare_news(symbol, api_key, max_results=max_results)
-    results.extend(cc_news)
+    # Try Cryptocurrency.cv first (Free, Keyless)
+    cv_news = fetch_cryptocurrency_cv_news(symbol, max_results=max_results)
+    results.extend(cv_news)
+    
+    # Try CoinStats if we have an API key and the caller is the quant engine
+    if len(results) < max_results:
+        api_key = cred.coinstats_api_key if (cred and system_caller in ['quant_engine', 'sentiment']) else None
+        cs_news = fetch_coinstats_news(symbol, api_key, max_results=max_results - len(results))
+        results.extend(cs_news)
     
     # If not enough results, backfill with RSS
     if len(results) < max_results:

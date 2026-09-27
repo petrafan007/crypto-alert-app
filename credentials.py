@@ -447,11 +447,11 @@ class Credential(db.Model):
         self._coingecko_api_key = normalize_secret_for_storage(value)
 
     @property
-    def cryptocompare_api_key(self):
+    def coinstats_api_key(self):
         return decrypt_secret(self._cryptocompare_api_key)
 
-    @cryptocompare_api_key.setter
-    def cryptocompare_api_key(self, value):
+    @coinstats_api_key.setter
+    def coinstats_api_key(self, value):
         self._cryptocompare_api_key = normalize_secret_for_storage(value)
 
     __table_args__ = (

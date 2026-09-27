@@ -1743,8 +1743,8 @@ def api_settings():
                     cred.brave_search_api_key_fallback = data['brave_search_api_key_fallback']
                 if 'coingecko_api_key' in data:
                     cred.coingecko_api_key = data['coingecko_api_key']
-                if 'cryptocompare_api_key' in data:
-                    cred.cryptocompare_api_key = data['cryptocompare_api_key']
+                if 'coinstats_api_key' in data:
+                    cred.coinstats_api_key = data['coinstats_api_key']
                 if 'searxng_url' in data:
                     cred.searxng_url = data['searxng_url']
                 if 'copilot_search_provider' in data:
@@ -1873,7 +1873,7 @@ def api_settings():
             "brave_search_api_key": getattr(cred, 'brave_search_api_key', None),
             "brave_search_api_key_fallback": getattr(cred, 'brave_search_api_key_fallback', None),
             "coingecko_api_key": getattr(cred, 'coingecko_api_key', None),
-            "cryptocompare_api_key": getattr(cred, 'cryptocompare_api_key', None),
+            "coinstats_api_key": getattr(cred, 'coinstats_api_key', None),
             "searxng_url": getattr(cred, 'searxng_url', 'http://localhost:8080'),
             "copilot_search_provider": getattr(cred, 'copilot_search_provider', 'brave'),
             "quant_search_provider": getattr(cred, 'quant_search_provider', 'rss_only'),

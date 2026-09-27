@@ -3272,11 +3272,11 @@ export default function Settings({ isLightMode }) {
           <h4 style={{ marginTop: '24px', marginBottom: '8px' }}>Financial Feeds (RSS/APIs) Configuration</h4>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             <div className="settings-form-group">
-              <label>CoinDesk API Key</label>
+              <label>CoinStats API Key</label>
               <input
                 type="password"
-                value={settings.cryptocompare_api_key || ''}
-                onChange={(e) => handleInputChange('cryptocompare_api_key', e.target.value)}
+                value={settings.coinstats_api_key || ''}
+                onChange={(e) => handleInputChange('coinstats_api_key', e.target.value)}
                 placeholder="Optional API Key..."
               />
             </div>
