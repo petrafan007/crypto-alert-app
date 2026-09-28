@@ -1227,20 +1227,25 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
   const [eventUnderlyingHistorySource, setEventUnderlyingHistorySource] = useState('');
 
   // Embedded mode initialization
+  const initializedEmbeddedOrderIdRef = useRef(null);
   useEffect(() => {
     if (isEmbeddedReplaceMode && embeddedOrder) {
-      setSelectedSymbol(embeddedOrder.symbol || embeddedCoin?.symbol || '');
-      setSelectedInstrumentType(
-        embeddedOrder.type === 'OPTION' ? 'OPTION' :
-        embeddedOrder.instrument_type || (embeddedCoin?.type === 'Options' ? 'OPTION' : embeddedCoin?.type === 'Crypto' ? 'CRYPTO' : 'EQUITY')
-      );
-      setOrderForm(prev => ({
-        ...prev,
-        side: embeddedOrder.side?.toUpperCase() || 'BUY',
-        type: embeddedOrder.type || embeddedOrder.order_type || 'LIMIT',
-        price: embeddedOrder.price || embeddedOrder.trigger_price || '',
-        quantity: embeddedOrder.quantity || embeddedOrder.origQty || embeddedOrder.amount || ''
-      }));
+      const currentOrderId = embeddedOrder.orderId || embeddedOrder.clientOrderId || embeddedOrder.id || embeddedOrder.order_id || 'unknown';
+      if (initializedEmbeddedOrderIdRef.current !== currentOrderId) {
+        initializedEmbeddedOrderIdRef.current = currentOrderId;
+        setSelectedSymbol(embeddedOrder.symbol || embeddedCoin?.symbol || '');
+        setSelectedInstrumentType(
+          embeddedOrder.type === 'OPTION' ? 'OPTION' :
+          embeddedOrder.instrument_type || (embeddedCoin?.type === 'Options' ? 'OPTION' : embeddedCoin?.type === 'Crypto' ? 'CRYPTO' : 'EQUITY')
+        );
+        setOrderForm(prev => ({
+          ...prev,
+          side: embeddedOrder.side?.toUpperCase() || 'BUY',
+          type: embeddedOrder.type || embeddedOrder.order_type || 'LIMIT',
+          price: embeddedOrder.price || embeddedOrder.trigger_price || '',
+          quantity: embeddedOrder.quantity || embeddedOrder.origQty || embeddedOrder.amount || ''
+        }));
+      }
     }
   }, [isEmbeddedReplaceMode, embeddedOrder, embeddedCoin]);
 

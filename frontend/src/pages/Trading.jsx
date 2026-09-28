@@ -777,16 +777,21 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
   });
 
   // Embedded mode initialization
+  const initializedEmbeddedOrderIdRef = useRef(null);
   useEffect(() => {
     if (isEmbeddedReplaceMode && embeddedOrder) {
-      setOrderForm(prev => ({
-        ...prev,
-        symbol: embeddedOrder.symbol || embeddedCoin?.symbol || prev.symbol,
-        side: embeddedOrder.side?.toUpperCase() || 'BUY',
-        type: embeddedOrder.type || embeddedOrder.order_type || 'LIMIT',
-        price: embeddedOrder.price || embeddedOrder.trigger_price || '',
-        quantity: embeddedOrder.quantity || embeddedOrder.origQty || embeddedOrder.amount || ''
-      }));
+      const currentOrderId = embeddedOrder.orderId || embeddedOrder.clientOrderId || embeddedOrder.id || embeddedOrder.order_id || 'unknown';
+      if (initializedEmbeddedOrderIdRef.current !== currentOrderId) {
+        initializedEmbeddedOrderIdRef.current = currentOrderId;
+        setOrderForm(prev => ({
+          ...prev,
+          symbol: embeddedOrder.symbol || embeddedCoin?.symbol || prev.symbol,
+          side: embeddedOrder.side?.toUpperCase() || 'BUY',
+          type: embeddedOrder.type || embeddedOrder.order_type || 'LIMIT',
+          price: embeddedOrder.price || embeddedOrder.trigger_price || '',
+          quantity: embeddedOrder.quantity || embeddedOrder.origQty || embeddedOrder.amount || ''
+        }));
+      }
     }
   }, [isEmbeddedReplaceMode, embeddedOrder, embeddedCoin]);
 

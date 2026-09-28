@@ -4,6 +4,9 @@
 
 ## Recent Updates
 
+### v4.4.9
+- **Trading UX Resiliency**: Fixed a UI issue in the "Replace Pending Order" modal where the order side (Buy/Sell) would unexpectedly revert to the original order's side during periodic background refreshes. Users can now freely switch sides without interruption.
+
 ### v4.4.8
 - **Event Strategy Degraded Resilience**: Fixed an aggressive degraded trigger where a single missing executable quote (`MISSING_QUOTE`) across any evaluated contract inappropriately triggered a `DATA_LIMITED` status for the entire Event Module. Missing quote faults are now only escalated if they impact all evaluated event contracts, restoring expected operational behavior during normal thin-liquidity windows.
 - **Binance Portfolio Sync Resilience**: Resolved a missing dependency error (`sync_binance_account() missing 3 required positional arguments`) by restoring proper client initialization logic within the background portfolio synchronizer, preventing silent failures when updating account balances.
