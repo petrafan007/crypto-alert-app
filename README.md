@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.4.11
+**Version:** 4.4.12
 
 ## Recent Updates
+
+### v4.4.12
+* **Fix**: Cleaned up stuck synthetic orders that failed to cancel due to UI/backend mismatch.
+* **Fix**: Resolved `trailingOrders` UI crashes in `WebullTrading.jsx`.
+* **Feature**: Implemented accurate badge counts for synthetic orders in `Orders.jsx`, `Trading.jsx`, and `WebullTrading.jsx`.
+* **Fix**: Patched ladder order logic incorrectly matching upside and downside conditions for evaluation.
 
 ### v4.4.11
 - **Status & UI Logic for Entry Ladders**: Fixed an issue where completed Downside limit ladders for Buy orders were erroneously marked as `STOPPED_OUT`. The active Synthetic Orders table now correctly displays "Breakout entry" and "Buy the dip" instead of incorrectly indicating exit-bracket text for entry ladders.
