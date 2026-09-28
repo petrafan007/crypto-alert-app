@@ -128,9 +128,9 @@ def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Con
 
         execution.positive(target_px, 'Rung target')
         execution.positive(qty, 'Rung quantity')
-        favorable = target_px > ref_price if clean_side == 'SELL' else target_px < ref_price
-        if favorable != (rung_type == 'TAKE_PROFIT') or target_px == ref_price:
-            raise ValueError('Rung targets must be on the correct side of the current price.')
+        is_upside = target_px > ref_price
+        if is_upside != (rung_type == 'TAKE_PROFIT') or target_px == ref_price:
+            raise ValueError('Rung targets must be on the correct side of the current price (Upside > current, Downside < current).')
         estimated_usd = round(qty * target_px, 2)
 
         calculated_rungs.append({
@@ -211,7 +211,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
 
     if clean_downside_mode == 'SINGLE':
         sl_price = execution.positive(downside_target_price or stop_loss_trigger_price, 'Stop price')
-        if (sl_price >= current_price if clean_side == 'SELL' else sl_price <= current_price):
+        if sl_price >= current_price:
             raise ValueError('The protection stop must be on the adverse side of the current price.')
     if stop_loss_action not in {'SELL_ALL', 'SELL_REMAINDER', 'MARKET_SELL_ALL', 'CANCEL_REMAINING'}:
         raise ValueError('Choose market execution or cancel remaining orders for the stop action.')
@@ -225,7 +225,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         all_rungs_data.extend(upside_rungs_data)
     elif clean_upside_mode == 'SINGLE':
         tgt_px = execution.positive(upside_target_price, 'Target price')
-        if (tgt_px <= current_price if clean_side == 'SELL' else tgt_px >= current_price):
+        if tgt_px <= current_price:
             raise ValueError('The target must be on the favorable side of the current price.')
         offset_pct = round(((tgt_px - current_price) / current_price) * 100.0, 2)
         all_rungs_data.append({

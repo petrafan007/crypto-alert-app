@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.4.1
+**Version:** 4.4.10
 
 ## Recent Updates
+
+### v4.4.10
+- **Scale-in & Breakout Entry ladders:** Fixed a core logic inversion that assumed ladder orders were strictly exit brackets. Ladders for "Buy" orders are now accurately labeled and mathematically computed as "Breakout Entry" (Upside Strategy) and "Buy the Dip" (Downside Strategy).
 
 ### v4.4.9
 - **Trading UX Resiliency**: Fixed a UI issue in the "Replace Pending Order" modal where the order side (Buy/Sell) would unexpectedly revert to the original order's side during periodic background refreshes. Users can now freely switch sides without interruption.

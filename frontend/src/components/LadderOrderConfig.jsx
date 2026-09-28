@@ -9,23 +9,23 @@ export const UPSIDE_PRESETS = {
     name: 'Conservative',
     label: '🛡️ Conservative',
     descSell: '3 rungs: +2%, +4%, +6%',
-    descBuy: '3 rungs: -2%, -4%, -6%',
+    descBuy: '3 rungs: +2%, +4%, +6%',
     rungsSell: [
       { price_offset_pct: 2.0, percentage_of_total: 33.33 },
       { price_offset_pct: 4.0, percentage_of_total: 33.33 },
       { price_offset_pct: 6.0, percentage_of_total: 33.34 }
     ],
     rungsBuy: [
-      { price_offset_pct: -2.0, percentage_of_total: 33.33 },
-      { price_offset_pct: -4.0, percentage_of_total: 33.33 },
-      { price_offset_pct: -6.0, percentage_of_total: 33.34 }
+      { price_offset_pct: 2.0, percentage_of_total: 33.33 },
+      { price_offset_pct: 4.0, percentage_of_total: 33.33 },
+      { price_offset_pct: 6.0, percentage_of_total: 33.34 }
     ]
   },
   AGGRESSIVE: {
     name: 'Aggressive',
     label: '🚀 Aggressive',
     descSell: '4 rungs: +5%, +10%, +15%, +20%',
-    descBuy: '4 rungs: -5%, -10%, -15%, -20%',
+    descBuy: '4 rungs: +5%, +10%, +15%, +20%',
     rungsSell: [
       { price_offset_pct: 5.0, percentage_of_total: 25.0 },
       { price_offset_pct: 10.0, percentage_of_total: 25.0 },
@@ -33,10 +33,10 @@ export const UPSIDE_PRESETS = {
       { price_offset_pct: 20.0, percentage_of_total: 25.0 }
     ],
     rungsBuy: [
-      { price_offset_pct: -5.0, percentage_of_total: 25.0 },
-      { price_offset_pct: -10.0, percentage_of_total: 25.0 },
-      { price_offset_pct: -15.0, percentage_of_total: 25.0 },
-      { price_offset_pct: -20.0, percentage_of_total: 25.0 }
+      { price_offset_pct: 5.0, percentage_of_total: 25.0 },
+      { price_offset_pct: 10.0, percentage_of_total: 25.0 },
+      { price_offset_pct: 15.0, percentage_of_total: 25.0 },
+      { price_offset_pct: 20.0, percentage_of_total: 25.0 }
     ]
   },
   CUSTOM: {
@@ -52,32 +52,32 @@ export const DOWNSIDE_PRESETS = {
     name: 'Tight',
     label: '🛡️ Tight',
     descSell: '3 rungs: -1.5%, -3.0%, -4.5%',
-    descBuy: '3 rungs: +1.5%, +3.0%, +4.5%',
+    descBuy: '3 rungs: -1.5%, -3.0%, -4.5%',
     rungsSell: [
       { price_offset_pct: -1.5, percentage_of_total: 33.33 },
       { price_offset_pct: -3.0, percentage_of_total: 33.33 },
       { price_offset_pct: -4.5, percentage_of_total: 33.34 }
     ],
     rungsBuy: [
-      { price_offset_pct: 1.5, percentage_of_total: 33.33 },
-      { price_offset_pct: 3.0, percentage_of_total: 33.33 },
-      { price_offset_pct: 4.5, percentage_of_total: 33.34 }
+      { price_offset_pct: -1.5, percentage_of_total: 33.33 },
+      { price_offset_pct: -3.0, percentage_of_total: 33.33 },
+      { price_offset_pct: -4.5, percentage_of_total: 33.34 }
     ]
   },
   MODERATE: {
     name: 'Moderate',
     label: '🛑 Moderate',
     descSell: '3 rungs: -3%, -5%, -8%',
-    descBuy: '3 rungs: +3%, +5%, +8%',
+    descBuy: '3 rungs: -3%, -5%, -8%',
     rungsSell: [
       { price_offset_pct: -3.0, percentage_of_total: 30.0 },
       { price_offset_pct: -5.0, percentage_of_total: 30.0 },
       { price_offset_pct: -8.0, percentage_of_total: 40.0 }
     ],
     rungsBuy: [
-      { price_offset_pct: 3.0, percentage_of_total: 30.0 },
-      { price_offset_pct: 5.0, percentage_of_total: 30.0 },
-      { price_offset_pct: 8.0, percentage_of_total: 40.0 }
+      { price_offset_pct: -3.0, percentage_of_total: 30.0 },
+      { price_offset_pct: -5.0, percentage_of_total: 30.0 },
+      { price_offset_pct: -8.0, percentage_of_total: 40.0 }
     ]
   },
   CUSTOM: {
@@ -402,7 +402,7 @@ const LadderOrderConfig = ({
                 onChange={(e) => updateConfig({ hasUpsideProtection: e.target.checked })}
                 style={{ width: '15px', height: '15px', accentColor: 'var(--syn-positive)', cursor: 'pointer' }}
               />
-              <span>🟢 UPSIDE STRATEGY (TAKE PROFIT)</span>
+              <span>🟢 {isSell ? 'UPSIDE STRATEGY (TAKE PROFIT)' : 'UPSIDE STRATEGY (BREAKOUT ENTRY)'}</span>
             </label>
             <span style={{ fontSize: '11px', fontWeight: '600', color: hasUpside ? 'var(--syn-positive)' : 'var(--syn-muted)' }}>
               {hasUpside ? 'Active' : 'Disabled (Off)'}
@@ -634,7 +634,7 @@ const LadderOrderConfig = ({
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--syn-text)' }}>
-                    📋 Profit Rungs ({upsideRungs.length})
+                    📋 {isSell ? 'Profit Rungs' : 'Breakout Rungs'} ({upsideRungs.length})
                   </span>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button
@@ -877,7 +877,7 @@ const LadderOrderConfig = ({
                 onChange={(e) => updateConfig({ hasDownsideProtection: e.target.checked })}
                 style={{ width: '15px', height: '15px', accentColor: 'var(--syn-negative)', cursor: 'pointer' }}
               />
-              <span>🔴 DOWNSIDE STRATEGY (STOP LOSS)</span>
+              <span>🔴 {isSell ? 'DOWNSIDE STRATEGY (STOP LOSS)' : 'DOWNSIDE STRATEGY (BUY THE DIP)'}</span>
             </label>
             <span style={{ fontSize: '11px', fontWeight: '600', color: hasDownside ? 'var(--syn-negative)' : 'var(--syn-muted)' }}>
               {hasDownside ? 'Active' : 'Disabled (Off)'}
@@ -1122,7 +1122,7 @@ const LadderOrderConfig = ({
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--syn-text)' }}>
-                        📋 Stop Rungs ({downsideRungs.length})
+                        📋 {isSell ? 'Stop Rungs' : 'Scale-in Rungs'} ({downsideRungs.length})
                       </span>
                       <div style={{ display: 'flex', gap: '6px' }}>
                         <button

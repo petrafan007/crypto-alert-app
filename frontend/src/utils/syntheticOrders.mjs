@@ -50,7 +50,7 @@ export function buildSyntheticReview(config, { side = 'SELL', quantity = 0, curr
   const branches = ['upside', 'downside'].map(prefix => {
     const mode = payload[`${prefix}_mode`];
     const label = prefix === 'upside' ? 'Upside strategy' : 'Downside strategy';
-    const direction = (prefix === 'upside') === sell ? 'rises to or above' : 'falls to or below';
+    const direction = prefix === 'upside' ? 'rises to or above' : 'falls to or below';
     let rows = [], explanation = '';
     if (mode === 'NONE') return { prefix, mode, label, explanation: 'Disabled. This side will not submit an order.', rows };
     if (mode === 'TRAILING') {
