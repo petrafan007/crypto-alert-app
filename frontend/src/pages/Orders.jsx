@@ -805,6 +805,11 @@ export default function Orders() {
         </button>
         <button className={`tab-button ${['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) ? 'active' : ''}`} onClick={() => selectTab('synthetic_orders')}>
           ⚡ <span className="tab-text">Synthetic Orders</span>
+          {((trailingOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0) + (ladderOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0) > 0) && (
+            <span className="tab-badge" style={{ background: '#38bdf8' }}>
+              {(trailingOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0) + (ladderOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0)}
+            </span>
+          )}
         </button>
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => selectTab('history')}>
           📜 <span className="tab-text">Order History</span>

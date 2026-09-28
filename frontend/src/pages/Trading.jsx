@@ -2299,9 +2299,9 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
           >
             <span className="tab-icon">⚡</span>
             <span className="tab-text">Synthetic Orders</span>
-            {((trailingOrders?.filter(o => o.status === 'ACTIVE').length || 0) + (ladderOrders?.filter(o => o.status === 'ACTIVE').length || 0) > 0) && (
+            {((trailingOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0) + (ladderOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0) > 0) && (
               <span className="tab-badge" style={{ background: '#38bdf8' }}>
-                {(trailingOrders?.filter(o => o.status === 'ACTIVE').length || 0) + (ladderOrders?.filter(o => o.status === 'ACTIVE').length || 0)}
+                {(trailingOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0) + (ladderOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0)}
               </span>
             )}
           </button>

@@ -445,15 +445,14 @@ def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
                 candidates = [None]
         elif mode == 'SINGLE':
             target = getattr(ladder, f'{prefix}_target_price') or (ladder.stop_loss_trigger_price if prefix == 'downside' else None)
-            favorable = (price >= target if ladder.side == 'SELL' else price <= target) if target else False
-            hit = bool(target) and (favorable if prefix == 'upside' else (price <= target if ladder.side == 'SELL' else price >= target))
+            hit = bool(target) and (price >= target if prefix == 'upside' else price <= target)
             if hit:
                 candidates = [next((r for r in ladder.rungs if (r.rung_type or 'TAKE_PROFIT') == leg and r.status == 'PENDING'), None)]
         elif mode == 'LADDER':
             for rung in ladder.rungs:
                 if rung.status != 'PENDING' or (rung.rung_type or 'TAKE_PROFIT') != leg:
                     continue
-                hit = (price >= rung.target_price if ladder.side == 'SELL' else price <= rung.target_price) if prefix == 'upside' else (price <= rung.target_price if ladder.side == 'SELL' else price >= rung.target_price)
+                hit = price >= rung.target_price if prefix == 'upside' else price <= rung.target_price
                 if hit:
                     candidates.append(rung)
         for rung in candidates:
