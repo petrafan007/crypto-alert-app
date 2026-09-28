@@ -23,7 +23,7 @@ function Strategy({ order }) {
       const activation = order[`${prefix}_activation_price`];
       const active = !activation || (order.side === 'SELL' ? watermark >= activation : watermark <= activation);
       return <div key={prefix}>
-        <strong>{prefix === 'upside' ? (order.side === 'BUY' ? 'Dip entry' : 'Profit target') : (order.side === 'BUY' ? 'Rebound protection' : 'Downside protection')}: </strong>
+        <strong>{prefix === 'upside' ? (order.side === 'BUY' ? 'Breakout entry' : 'Profit target') : (order.side === 'BUY' ? 'Buy the dip' : 'Downside protection')}: </strong>
         {mode === 'NONE' ? 'Off' : mode === 'SINGLE' ? money(order[`${prefix}_target_price`], currency) : mode === 'LADDER' ? `${rungs.length} steps` : `Trail ${trailLabel(order[`${prefix}_trail_value`], order[`${prefix}_trail_type`], currency)}`}
         {mode === 'TRAILING' && <><small>{active ? 'Activated' : 'Waiting for activation'}{activation ? ` · ${money(activation, currency)}` : ''}</small>
           <small>Stop: {money(order[`${prefix}_current_stop_price`], currency)} · {order.side === 'BUY' ? 'Trough' : 'Peak'}: {money(watermark, currency)}</small></>}

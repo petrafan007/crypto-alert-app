@@ -143,7 +143,7 @@ export function syntheticOrderTooltip(pending, asset = '') {
   if (standalone) lines.push(trail(''));
   else for (const prefix of ['upside', 'downside']) {
     const mode = order[prefix + '_mode'] || (prefix === 'upside' ? 'LADDER' : 'NONE');
-    const label = prefix === 'upside' ? (order.side === 'BUY' ? 'Dip entry' : 'Profit') : 'Protection';
+    const label = prefix === 'upside' ? (order.side === 'BUY' ? 'Breakout entry' : 'Profit') : (order.side === 'BUY' ? 'Dip entry' : 'Protection');
     const direction = (prefix === 'upside') === (order.side === 'SELL') ? '≥' : '≤';
     if (mode === 'NONE') lines.push(`${label}: off`);
     else if (mode === 'TRAILING') lines.push(`${label}: ${trail(prefix + '_')}`);

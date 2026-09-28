@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.4.10
+**Version:** 4.4.11
 
 ## Recent Updates
+
+### v4.4.11
+- **Status & UI Logic for Entry Ladders**: Fixed an issue where completed Downside limit ladders for Buy orders were erroneously marked as `STOPPED_OUT`. The active Synthetic Orders table now correctly displays "Breakout entry" and "Buy the dip" instead of incorrectly indicating exit-bracket text for entry ladders.
 
 ### v4.4.10
 - **Scale-in & Breakout Entry ladders:** Fixed a core logic inversion that assumed ladder orders were strictly exit brackets. Ladders for "Buy" orders are now accurately labeled and mathematically computed as "Breakout Entry" (Upside Strategy) and "Buy the Dip" (Downside Strategy).

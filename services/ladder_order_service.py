@@ -392,7 +392,7 @@ def _sync_parent(ladder, rows):
     if pending:
         ladder.status = 'CANCEL_PENDING' if ladder.cancel_requested else 'SUBMITTED'
     elif filled >= ladder.total_quantity - 1e-10:
-        ladder.status = 'STOPPED_OUT' if rows and rows[-1].leg == 'STOP_LOSS' else 'COMPLETED'
+        ladder.status = 'STOPPED_OUT' if (ladder.side == 'SELL' and rows and rows[-1].leg == 'STOP_LOSS') else 'COMPLETED'
     elif ladder.cancel_requested:
         ladder.status = 'CANCELLED'
     elif any(r.status in {'FAILED', 'CANCELLED'} for r in rows):
