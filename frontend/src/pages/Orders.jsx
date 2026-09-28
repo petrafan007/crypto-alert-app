@@ -406,6 +406,7 @@ export default function Orders() {
   const [workflowError, setWorkflowError] = useState({ marketAnalysis: '', portfolioReview: '' });
   const [history, setHistory] = useState([]);
   const [openOrders, setOpenOrders] = useState([]);
+  const [activeSyntheticCount, setActiveSyntheticCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [cancellingId, setCancellingId] = useState(null);
@@ -450,6 +451,15 @@ export default function Orders() {
 
   const loadOpenOrders = async () => {
     const requestId = ++openOrdersRequestId.current;
+    
+    // Fetch synthetic order count
+    axios.get('/api/trading/trailing-orders').then(r => {
+      const trails = r.data.orders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0;
+      axios.get('/api/trading/ladder-orders').then(r2 => {
+        const ladders = r2.data.orders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0;
+        setActiveSyntheticCount(trails + ladders);
+      }).catch(() => {});
+    }).catch(() => {});
     loadScheduledOrders();
     setWebullOpenLoading(true);
     setWebullOpenProgress({ complete: 0, total: 0 });
@@ -805,9 +815,9 @@ export default function Orders() {
         </button>
         <button className={`tab-button ${['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) ? 'active' : ''}`} onClick={() => selectTab('synthetic_orders')}>
           ⚡ <span className="tab-text">Synthetic Orders</span>
-          {((trailingOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0) + (ladderOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0) > 0) && (
+          {activeSyntheticCount > 0 && (
             <span className="tab-badge" style={{ background: '#38bdf8' }}>
-              {(trailingOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0) + (ladderOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length || 0)}
+              {activeSyntheticCount}
             </span>
           )}
         </button>
