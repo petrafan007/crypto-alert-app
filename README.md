@@ -4,6 +4,10 @@
 
 ## Recent Updates
 
+### v4.4.8
+- **Event Strategy Degraded Resilience**: Fixed an aggressive degraded trigger where a single missing executable quote (`MISSING_QUOTE`) across any evaluated contract inappropriately triggered a `DATA_LIMITED` status for the entire Event Module. Missing quote faults are now only escalated if they impact all evaluated event contracts, restoring expected operational behavior during normal thin-liquidity windows.
+- **Binance Portfolio Sync Resilience**: Resolved a missing dependency error (`sync_binance_account() missing 3 required positional arguments`) by restoring proper client initialization logic within the background portfolio synchronizer, preventing silent failures when updating account balances.
+
 ### v4.4.1
 - **Jev OpenRouter Support:** Added OpenRouter as a supported transport for the Jev Decision Engine, allowing users to evaluate models using OpenRouter API keys while retaining Vercel AI Gateway support. Jev Configuration has also been relocated to the bottom of the AI Providers settings tab.
 

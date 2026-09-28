@@ -116,12 +116,17 @@ def readiness(user_id, event_cfg, now):
     if not decisions:
         return 'DATA_LIMITED', 'Last completed Event scan produced no contract observations.'
     recent = [row for row in decisions if -5 <= (now - row.created_at).total_seconds() <= DECISION_TTL_SECONDS]
-    unavailable = {'AI_PROVIDER_ERROR', 'AI_RESPONSE_INVALID', 'AI_BUDGET_EXHAUSTED',
-                   'MODEL_UNAVAILABLE', 'STALE_QUOTE', 'MISSING_QUOTE', 'CROSSED_QUOTE', 'DATA_ERROR'}
+    unavailable_any = {'AI_PROVIDER_ERROR', 'AI_RESPONSE_INVALID', 'AI_BUDGET_EXHAUSTED', 'MODEL_UNAVAILABLE', 'DATA_ERROR'}
+    unavailable_all = {'STALE_QUOTE', 'MISSING_QUOTE', 'CROSSED_QUOTE'}
     from services.event_inference import SCOPE_EXCLUSIONS
     actionable = [row for row in decisions if not SCOPE_EXCLUSIONS.intersection(engine.loads(row.reason_codes, []))]
-    faults = sorted(set().union(*(unavailable.intersection(engine.loads(row.reason_codes, [])) for row in actionable)))
+    faults = set().union(*(unavailable_any.intersection(engine.loads(row.reason_codes, [])) for row in actionable))
+    if actionable:
+        common_feed_faults = set.intersection(*(unavailable_all.intersection(engine.loads(row.reason_codes, [])) or set() for row in actionable))
+        faults.update(common_feed_faults)
+
     if faults:
+        faults = sorted(faults)
         labels = {'AI_PROVIDER_ERROR': 'AI provider error', 'AI_RESPONSE_INVALID': 'invalid AI response',
                   'AI_BUDGET_EXHAUSTED': 'AI request budget exhausted', 'MODEL_UNAVAILABLE': 'forecast unavailable',
                   'STALE_QUOTE': 'stale quote', 'MISSING_QUOTE': 'missing executable quote', 'CROSSED_QUOTE': 'crossed quote',

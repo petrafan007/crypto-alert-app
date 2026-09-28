@@ -723,5 +723,24 @@ def update_coins_from_binance_balances(user_id, balances, client=None):
 
     except Exception as e:
         logger.error(f"Error updating coins from Binance balances: {e}")
-sync_portfolio_from_binance = sync_binance_account
+def sync_portfolio_from_binance(user_id):
+    from models import BinanceCredential, User
+    from binance.client import Client
+    cred = BinanceCredential.query.filter_by(user_id=user_id).first()
+    if not cred or not cred.api_key:
+        return False, "No valid Binance API keys found"
+    try:
+        user = User.query.get(user_id)
+        client = Client(
+            api_key=cred.api_key,
+            api_secret=cred.api_secret,
+            testnet=False,
+            tld='us',
+            requests_params={'timeout': 30}
+        )
+        sync_binance_account(user_id, user.username, client, cred)
+        return True, "Synced successfully"
+    except Exception as e:
+        return False, str(e)
+
 update_all_coin_prices_from_binance = lambda: None
