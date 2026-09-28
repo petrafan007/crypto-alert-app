@@ -1,10 +1,10 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.4.12
+**Version:** 4.4.14
 
 ## Recent Updates
 
-### v4.4.12
+### v4.4.14
 * **Fix**: Cleaned up stuck synthetic orders that failed to cancel due to UI/backend mismatch.
 * **Fix**: Resolved `trailingOrders` UI crashes in `WebullTrading.jsx`.
 * **Feature**: Implemented accurate badge counts for synthetic orders in `Orders.jsx`, `Trading.jsx`, and `WebullTrading.jsx`.
