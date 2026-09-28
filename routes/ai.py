@@ -829,6 +829,8 @@ def api_ai_settings():
             # Handle API keys separately
             if 'ai_gateway_key' in data:
                 cred.ai_gateway_key = data['ai_gateway_key']
+            if 'openrouter_api_key' in data:
+                cred.openrouter_api_key = data['openrouter_api_key']
             if 'openai_key' in data:
                 cred.openai_key = data.pop('openai_key')
             if 'zai_key' in data:
@@ -3405,8 +3407,8 @@ def test_jev_connection():
         config = settings_for(db.session.get(UserSetting, current_user.id))
         config.update(validate_settings(payload))
         credential = Credential.query.filter_by(user_id=current_user.id).first()
-        key = saved_or_supplied(payload.get('ai_gateway_key', '********'), credential, 'ai_gateway_key')
-        result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds']).evaluate(
+        key = saved_or_supplied(payload.get('openrouter_api_key', '********') if config.get('jev_transport') == 'openrouter' else payload.get('ai_gateway_key', '********'), credential, 'openrouter_api_key' if config.get('jev_transport') == 'openrouter' else 'ai_gateway_key')
+        result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds'], transport=config.get('jev_transport', 'vercel')).evaluate(
             state={'connection_test': True},
             questions={'connected': {'type': 'boolean', 'instructions': 'Is connection_test true?'}})
         return jsonify(success=True, model=result.model, latency_ms=result.latency_ms,

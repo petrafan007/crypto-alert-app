@@ -3,7 +3,7 @@ import axios from 'axios';
 import JevTelemetry from './JevTelemetry';
 
 export const JEV_DEFAULTS = {
-  ai_gateway_key: '', jev_enabled: false, jev_transport: 'vercel', jev_model: 'typesafe-ai/jev',
+  ai_gateway_key: '', openrouter_api_key: '', jev_enabled: false, jev_transport: 'vercel', jev_model: 'typesafe-ai/jev',
   jev_endpoint: 'https://ai-gateway.vercel.sh/v1/evaluate', jev_timeout_seconds: 3,
   jev_confidence_threshold: 0.8, jev_conflict_threshold: 0.5, jev_sentiment_mode: 'off',
   jev_generative_fallback_enabled: true, jev_quant_shadow_enabled: false,
@@ -20,7 +20,8 @@ export default function JevSettings({ settings, onChange }) {
     try {
       const { data } = await axios.post(action === 'save' ? '/api/settings' : '/api/jev/test-connection', payload());
       if (action === 'save') {
-        onChange('ai_gateway_key', data.ai_gateway_key || '');
+        if (data.ai_gateway_key !== undefined) onChange('ai_gateway_key', data.ai_gateway_key || '');
+        if (data.openrouter_api_key !== undefined) onChange('openrouter_api_key', data.openrouter_api_key || '');
         setMessage('Jev settings saved. Sentiment also requires the main AI toggle to be enabled.');
       } else setMessage(`${data.message} Model: ${data.model}. Latency: ${data.latency_ms} ms.`);
       setRefresh(n => n + 1);
@@ -36,16 +37,26 @@ export default function JevSettings({ settings, onChange }) {
     <p>Evaluate news and quantitative setups with TypeSafe Jev through Vercel AI Gateway.</p>
     {toggle('jev_enabled', 'Enable Jev')}
     <div className="settings-form-group"><label htmlFor="jev-provider">Provider</label>
-      <select id="jev-provider" value={value('jev_transport')} onChange={e => onChange('jev_transport', e.target.value)}><option value="vercel">Vercel AI Gateway</option></select>
+      <select id="jev-provider" value={value('jev_transport')} onChange={e => onChange('jev_transport', e.target.value)}>
+        <option value="vercel">Vercel AI Gateway</option>
+        <option value="openrouter">OpenRouter</option>
+      </select>
     </div>
     <div className="settings-form-group"><label htmlFor="jev-model">Model</label>
       <input id="jev-model" value={value('jev_model')} onChange={e => onChange('jev_model', e.target.value)} list="jev-models" />
       <datalist id="jev-models"><option value="typesafe-ai/jev">Jev — TypeSafe AI</option></datalist>
     </div>
-    <div className="settings-form-group"><label htmlFor="jev-key">Vercel AI Gateway API key</label>
-      <input id="jev-key" type="password" autoComplete="new-password" value={value('ai_gateway_key')} onChange={e => onChange('ai_gateway_key', e.target.value)} placeholder="Enter your Vercel AI Gateway key" />
-      <p className="settings-form-help">Encrypted when saved. The mask preserves your saved key; clear the field and save to remove it.</p>
-    </div>
+    {value('jev_transport') === 'vercel' ? (
+      <div className="settings-form-group"><label htmlFor="jev-key">Vercel AI Gateway API key</label>
+        <input id="jev-key" type="password" autoComplete="new-password" value={value('ai_gateway_key')} onChange={e => onChange('ai_gateway_key', e.target.value)} placeholder="Enter your Vercel AI Gateway key" />
+        <p className="settings-form-help">Encrypted when saved. The mask preserves your saved key; clear the field and save to remove it.</p>
+      </div>
+    ) : (
+      <div className="settings-form-group"><label htmlFor="jev-or-key">OpenRouter API key</label>
+        <input id="jev-or-key" type="password" autoComplete="new-password" value={value('openrouter_api_key')} onChange={e => onChange('openrouter_api_key', e.target.value)} placeholder="Enter your OpenRouter API key" />
+        <p className="settings-form-help">Encrypted when saved. The mask preserves your saved key; clear the field and save to remove it.</p>
+      </div>
+    )}
     <div className="settings-form-group"><label htmlFor="jev-sentiment">Sentiment mode</label>
       <select id="jev-sentiment" value={value('jev_sentiment_mode')} onChange={e => onChange('jev_sentiment_mode', e.target.value)}>
         <option value="off">Off</option><option value="shadow">Shadow — compare with current sentiment</option><option value="first">Jev-first — use accepted Jev sentiment</option>

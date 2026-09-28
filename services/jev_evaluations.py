@@ -103,7 +103,7 @@ def process_evaluation(evaluation_id):
         return get_evaluation(evaluation_id)
     try:
         questions = build_sentiment_questions() if row.use_case == 'sentiment' else build_crypto_quant_questions()
-        result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds']).evaluate(
+        result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds'], transport=config.get('jev_transport', 'vercel')).evaluate(
             state=json.loads(row.state_json), questions=questions)
         values = dict(status='success', answers_json=canonical(result.answers),
             probabilities_json=canonical({k: v.get('probabilities', v.get('probability')) for k, v in result.answers.items()}),

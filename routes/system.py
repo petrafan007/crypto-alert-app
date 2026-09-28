@@ -1686,6 +1686,8 @@ def api_settings():
                 # We do NOT update them here to prevent overwriting with stale frontend data
                 if 'ai_gateway_key' in data:
                     cred.ai_gateway_key = data['ai_gateway_key']
+                if 'openrouter_api_key' in data:
+                    cred.openrouter_api_key = data['openrouter_api_key']
                 if 'openai_key' in data:
                     cred.openai_key = data['openai_key']
                 if 'zai_key' in data:
@@ -1837,7 +1839,8 @@ def api_settings():
             # Legacy fields maintained for frontend compatibility if needed, but values redirected
             "trading_api_key": getattr(cred, 'trading_api_key', None),
             "trading_api_secret": getattr(cred, 'trading_api_secret', None),
-            "ai_gateway_key": "********" if cred._ai_gateway_key else "",
+            "ai_gateway_key": "********" if getattr(cred, '_ai_gateway_key', None) else "",
+            "openrouter_api_key": "********" if getattr(cred, '_openrouter_api_key', None) else "",
             "openai_key": cred.openai_key,
             "zai_key": getattr(cred, 'zai_key', None),
             "perplexity_key": getattr(cred, 'perplexity_key', None),

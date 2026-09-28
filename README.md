@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.4.0
+**Version:** 4.4.1
 
 ## Recent Updates
+
+### v4.4.1
+- **Jev OpenRouter Support:** Added OpenRouter as a supported transport for the Jev Decision Engine, allowing users to evaluate models using OpenRouter API keys while retaining Vercel AI Gateway support. Jev Configuration has also been relocated to the bottom of the AI Providers settings tab.
 
 ### v4.4.0
 - **Smart Search Allocation:** Redesigned AI data fetching to eliminate `DATA_LIMITED` outages on consumer scrapers like DuckDuckGo and Brave. The system now natively prioritizes high-bandwidth financial RSS feeds and CryptoCompare APIs for background Quant monitoring, saving standard web searches exclusively for interactive Copilot chatting.

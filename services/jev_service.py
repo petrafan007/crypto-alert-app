@@ -70,11 +70,12 @@ class JevClient:
     _failures = {}
     _lock = threading.Lock()
 
-    def __init__(self, api_key, endpoint=DEFAULT_ENDPOINT, model='typesafe-ai/jev', timeout_seconds=3.0):
+    def __init__(self, api_key, endpoint=DEFAULT_ENDPOINT, model='typesafe-ai/jev', timeout_seconds=3.0, transport='vercel'):
         self.key = api_key
         self.endpoint = validate_endpoint(endpoint)
         self.model = model
         self.timeout = timeout_seconds
+        self.transport = transport
 
     def evaluate(self, *, state, questions, model=None, timeout_seconds=None):
         started = time.monotonic()
@@ -95,37 +96,70 @@ class JevClient:
                 code = 'timeout'
                 break
             try:
-                response = requests.post(self.endpoint,
-                    headers={'Authorization': f'Bearer {self.key}', 'Content-Type': 'application/json'},
-                    json={'model': model or self.model, 'state': state, 'questions': questions,
-                          'providerOptions': {'gateway': {'zeroDataRetention': True}}},
+                import json
+                if self.transport == 'openrouter':
+                    prompt = json.dumps({'state': state, 'questions': questions})
+                    request_json = {
+                        'model': model or self.model,
+                        'messages': [{'role': 'user', 'content': prompt}],
+                        'response_format': {'type': 'json_object'}
+                    }
+                    headers = {
+                        'Authorization': f'Bearer {self.key}',
+                        'Content-Type': 'application/json',
+                        'HTTP-Referer': 'https://csdapp.online',
+                        'X-Title': 'Crypto Dashboard'
+                    }
+                else:
+                    request_json = {
+                        'model': model or self.model, 'state': state, 'questions': questions,
+                        'providerOptions': {'gateway': {'zeroDataRetention': True}}
+                    }
+                    headers = {'Authorization': f'Bearer {self.key}', 'Content-Type': 'application/json'}
+                
+                response = requests.post(self.endpoint, headers=headers, json=request_json,
                     timeout=(remaining/2, remaining/2), allow_redirects=False)
                 status = response.status_code
                 if status == 200:
                     try:
                         payload = response.json()
-                        answers = validate_answers(payload, questions)
-                        metadata = payload.get('providerMetadata') or {}
-                        gateway = metadata.get('gateway') or {}
-                        confidence = (metadata.get('typesafe') or {}).get('confidence') or {}
-                        if not isinstance(confidence, dict):
-                            raise JevError('invalid_response')
-                        for value in confidence.values():
-                            number(value)
-                        cost = Decimal(str(gateway['cost'])) if gateway.get('cost') is not None else None
-                        if cost is not None and (not cost.is_finite() or cost < 0):
-                            raise JevError('invalid_response')
+                        import json
+                        if self.transport == 'openrouter':
+                            try:
+                                content = payload['choices'][0]['message']['content']
+                                parsed_payload = json.loads(content)
+                            except (KeyError, IndexError, json.JSONDecodeError):
+                                raise JevError('invalid_response')
+                            answers = validate_answers(parsed_payload, questions)
+                            metadata = {}
+                            gateway = {}
+                            confidence = {}
+                            usage = payload.get('usage', {})
+                            cost = None
+                        else:
+                            answers = validate_answers(payload, questions)
+                            metadata = payload.get('providerMetadata') or {}
+                            gateway = metadata.get('gateway') or {}
+                            confidence = (metadata.get('typesafe') or {}).get('confidence') or {}
+                            if not isinstance(confidence, dict):
+                                raise JevError('invalid_response')
+                            for value in confidence.values():
+                                number(value)
+                            cost = Decimal(str(gateway['cost'])) if gateway.get('cost') is not None else None
+                            if cost is not None and (not cost.is_finite() or cost < 0):
+                                raise JevError('invalid_response')
+                            usage = payload.get('usage')
+                        
                         actual_model = payload.get('model', model or self.model)
                         if not isinstance(actual_model, str) or len(actual_model) > 100:
                             raise JevError('invalid_response')
-                        usage = payload.get('usage')
                         if usage is not None and not isinstance(usage, dict):
                             raise JevError('invalid_response')
                     except (ValueError, TypeError, AttributeError, InvalidOperation):
                         raise JevError('invalid_response') from None
                     with self._lock:
                         type(self)._failures.pop(bucket, None)
-                    return JevEvaluationResult(answers, payload, actual_model, 'typesafe-ai', 'vercel', latency(), usage, cost, confidence)
+                    return JevEvaluationResult(answers, payload, actual_model, 'typesafe-ai', self.transport, latency(), usage, cost, confidence)
                 code = 'auth' if status in (401, 403) else f'http_{status}'
                 if status not in (408, 429, 500, 502, 503, 504):
                     break

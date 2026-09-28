@@ -2564,7 +2564,6 @@ export default function Settings({ isLightMode }) {
       {/* AI Providers & Models Tab */}
       {activeTab === 'ai-providers' && (
         <div className="settings-grid">
-          <JevSettings settings={settings} onChange={handleInputChange} />
           {/* Row 2, Left: Primary AI Integration */}
           <div className="settings-page-section">
             <h3>Primary AI Integration</h3>
@@ -3134,6 +3133,7 @@ export default function Settings({ isLightMode }) {
             )}
           </div>
         </div>
+        <JevSettings settings={settings} onChange={handleInputChange} />
         </div>
       )}
 
