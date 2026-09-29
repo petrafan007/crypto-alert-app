@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.4.17
+**Version:** 4.4.18
 
 ## Recent Updates
+
+### v4.4.18
+* **Eliminated Rogue Crash-Loop Service**: Discovered and permanently eliminated an orphaned user-level systemd service (`~/.config/systemd/user/crypto-dashboard.service`) that was restarting `main.py` every 10 seconds, port-colliding with gunicorn, and repeatedly calling `_kill_idle_transactions()` which killed active database connections for legitimate background workers, sentiment analysis, and order tracking.
+* **Database Session & Migration Safety**: Removed eager idle-session termination on startup in `database.py` (reserved strictly for migration lock-timeout fallback) and added automatic `db.session.rollback()` guards across authentication and market routes to prevent connection poisoning.
+* **Instant Dashboard Loading & Resilience**: Parallelized initial database portfolio and pending order queries in `Dashboard.jsx`, cached Binance.US stakeable coins in-memory (10m TTL) with graceful fallbacks to resolve Axios 500 errors, and expanded 24h ticker cache TTL to 60s to prevent synchronous API blocking.
 
 ### v4.4.17
 * **Critical Fix**: Eliminated a recurring site-down deadlock where `ALTER TABLE` migrations during service restart would block indefinitely behind `idle in transaction` database sessions from background workers or orphaned processes. Migrations now auto-terminate stale sessions before running and use a 5-second `lock_timeout` with automatic retry, preventing the infinite-spinner outage.

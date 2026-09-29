@@ -6239,16 +6239,27 @@ def api_staking_purchase():
         return jsonify({'error': 'Purchase confirmation unavailable. Check the saved receipt and Binance history before trading again.'}), 503
 
 
+_stakeable_coins_cache = {
+    "timestamp": 0,
+    "data": []
+}
+
+
 @portfolio_bp.route("/api/staking/stakeable-coins", methods=["GET"])
 @login_required
 def api_stakeable_coins():
-    """Get list of stakeable coin symbols from Binance.US API
+    """Get list of stakeable coin symbols from Binance.US API (cached for 10 minutes)
     Doc: GET /sapi/v1/staking/asset (extract stakingAsset symbols)"""
+    global _stakeable_coins_cache
+    now = time.time()
+    if now - _stakeable_coins_cache["timestamp"] < 600 and _stakeable_coins_cache["data"]:
+        return jsonify(_stakeable_coins_cache["data"])
+
     try:
         cred = get_user_credentials(current_user.username)
         if not cred or not cred.api_key or not cred.api_secret:
             logger.warning("Binance API credentials not configured")
-            return jsonify([])
+            return jsonify(_stakeable_coins_cache.get("data", []))
 
         # Call Binance.US staking asset information endpoint
         response = binance_us_api_call(cred, '/sapi/v1/staking/asset', method='GET', use_trading_keys=True)
@@ -6257,15 +6268,23 @@ def api_stakeable_coins():
             staking_assets = response.json()
             # Extract just the stakingAsset symbols
             stakeable_coins = [asset.get('stakingAsset') for asset in staking_assets if asset.get('stakingAsset')]
+            _stakeable_coins_cache = {
+                "timestamp": now,
+                "data": stakeable_coins
+            }
             logger.info(f"Retrieved {len(stakeable_coins)} stakeable coins from Binance.US API")
             return jsonify(stakeable_coins)
         else:
-            logger.error(f"Binance.US staking API error: {response.status_code} - {response.text}")
-            return jsonify([])
+            logger.warning(f"Binance.US staking API returned {response.status_code}, serving cached fallback")
+            return jsonify(_stakeable_coins_cache.get("data", []))
 
     except Exception as e:
-        logger.error(f"Error in api_stakeable_coins: {e}")
-        return jsonify([])
+        logger.warning(f"Error in api_stakeable_coins: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return jsonify(_stakeable_coins_cache.get("data", []))
 
 @portfolio_bp.route("/api/staking/stake", methods=["POST"])
 @login_required

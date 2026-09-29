@@ -1855,17 +1855,15 @@ function Dashboard({ isLightMode }) {
 
         // First, fetch portfolio data (most important) - use database for instant load
         try {
-          const portfolioResponse = await axios.get('/api/coin-data');
-          // Also fetch open orders to flag rows
-          let pendingOrdersData = [];
-          try {
-            const ordersRes = await axios.get('/api/pending-orders', { withCredentials: true });
-            pendingOrdersData = ordersRes.data.pending_orders || [];
-            setPendingOrders(pendingOrdersData);
-          } catch (e) {
-            console.error('Error fetching pending orders:', e);
-            // ignore if not authed yet; we still render portfolio
-          }
+          const [portfolioResponse, ordersRes] = await Promise.all([
+            axios.get('/api/coin-data'),
+            axios.get('/api/pending-orders', { withCredentials: true }).catch(e => {
+              console.error('Error fetching pending orders:', e);
+              return { data: { pending_orders: [] } };
+            })
+          ]);
+          const pendingOrdersData = ordersRes.data?.pending_orders || [];
+          setPendingOrders(pendingOrdersData);
           const rawPortfolio = Array.isArray(portfolioResponse.data.portfolio)
             ? portfolioResponse.data.portfolio
             : [];
@@ -2077,12 +2075,9 @@ function Dashboard({ isLightMode }) {
   useEffect(() => {
     async function fetchStakeableCoins() {
       try {
-        console.log('Fetching stakeable coins...');
         const response = await axios.get('/api/staking/stakeable-coins', { withCredentials: true });
-        console.log('Stakeable coins response:', response.data);
         setStakeableCoins(response.data || []);
       } catch (err) {
-        console.error('Failed to fetch stakeable coins:', err);
         setStakeableCoins([]);
       }
     }

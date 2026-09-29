@@ -64,6 +64,10 @@ def load_user(user_id):
         return db.session.get(User, int(user_id))
     except Exception as e:
         logger.error(f"Error loading user {user_id}: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         return None
 
 app.register_blueprint(auth_bp)

@@ -281,8 +281,6 @@ def init_db(app=None):
             except Exception as ex:
                 print(f"Migration safety: could not clean idle transactions: {ex}")
 
-        _kill_idle_transactions()
-
         for table, col, col_type in columns_to_ensure:
             try:
                 with db.engine.begin() as conn:

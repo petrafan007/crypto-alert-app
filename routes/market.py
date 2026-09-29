@@ -31,7 +31,7 @@ _ticker_24h_cache = {
 def _get_binance_24h_tickers():
     global _ticker_24h_cache
     now = time.time()
-    if now - _ticker_24h_cache["timestamp"] < 15 and _ticker_24h_cache["data"]:
+    if now - _ticker_24h_cache["timestamp"] < 60 and _ticker_24h_cache["data"]:
         return _ticker_24h_cache["data"]
 
     try:
@@ -42,13 +42,15 @@ def _get_binance_24h_tickers():
         for t in tickers:
             if isinstance(t, dict) and 'symbol' in t:
                 res[t['symbol']] = t
-        _ticker_24h_cache = {
-            "timestamp": now,
-            "data": res
-        }
-        return res
+        if res:
+            _ticker_24h_cache = {
+                "timestamp": now,
+                "data": res
+            }
+            return res
+        return _ticker_24h_cache.get("data", {})
     except Exception as e:
-        logger.error(f"Error fetching 24h tickers from Binance: {e}")
+        logger.warning(f"Error fetching 24h tickers from Binance (using cached fallback): {e}")
         return _ticker_24h_cache.get("data", {})
 
 
@@ -614,6 +616,10 @@ def api_coin_data():
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         logger.error(f"Unexpected error in api_coin_data: {str(e)}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         return jsonify({"portfolio": []})
 
 
