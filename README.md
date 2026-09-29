@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.4.14
+**Version:** 4.4.17
 
 ## Recent Updates
+
+### v4.4.17
+* **Critical Fix**: Eliminated a recurring site-down deadlock where `ALTER TABLE` migrations during service restart would block indefinitely behind `idle in transaction` database sessions from background workers or orphaned processes. Migrations now auto-terminate stale sessions before running and use a 5-second `lock_timeout` with automatic retry, preventing the infinite-spinner outage.
 
 ### v4.4.14
 * **Fix**: Cleaned up stuck synthetic orders that failed to cancel due to UI/backend mismatch.

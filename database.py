@@ -260,12 +260,46 @@ def init_db(app=None):
             ("event_strategy_configs", "ai_config", "TEXT DEFAULT '{}'"),
             ("ai_conversations", "client_request_id", "VARCHAR(100)"),
         ]
+        # ── Guard against idle-in-transaction sessions blocking ALTER TABLE ──
+        # ALTER TABLE requires AccessExclusive lock, which is incompatible
+        # with AccessShareLock held by idle-in-transaction sessions from the
+        # background worker or rogue processes.  Terminate them up-front and
+        # use a tight lock_timeout so we fail fast instead of hanging forever.
+        def _kill_idle_transactions():
+            """Terminate idle-in-transaction sessions that block DDL."""
+            try:
+                with db.engine.begin() as conn:
+                    result = conn.execute(db.text(
+                        "SELECT pg_terminate_backend(pid) "
+                        "FROM pg_stat_activity "
+                        "WHERE state = 'idle in transaction' "
+                        "  AND pid != pg_backend_pid()"
+                    ))
+                    killed = result.rowcount
+                    if killed:
+                        print(f"Migration safety: terminated {killed} idle-in-transaction session(s)")
+            except Exception as ex:
+                print(f"Migration safety: could not clean idle transactions: {ex}")
+
+        _kill_idle_transactions()
+
         for table, col, col_type in columns_to_ensure:
             try:
                 with db.engine.begin() as conn:
+                    conn.execute(db.text("SET LOCAL lock_timeout = '5s'"))
                     conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
             except Exception as ex:
-                print(f"Migration note for {table}.{col}: {ex}")
+                if 'lock timeout' in str(ex).lower():
+                    print(f"Migration lock timeout on {table}.{col}, clearing blockers and retrying…")
+                    _kill_idle_transactions()
+                    try:
+                        with db.engine.begin() as conn:
+                            conn.execute(db.text("SET LOCAL lock_timeout = '10s'"))
+                            conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
+                    except Exception as retry_ex:
+                        print(f"Migration FAILED for {table}.{col} after retry: {retry_ex}")
+                else:
+                    print(f"Migration note for {table}.{col}: {ex}")
 
         try:
             with db.engine.begin() as conn:
