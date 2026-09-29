@@ -3454,6 +3454,9 @@ Historical changelog entries retain the product name used when they were origina
 * Removed redundant "Save Settings" buttons inside the strategy configuration modals.
 * Expanded the Master Quantitative Strategy Engine AI Configuration modal to include a consolidated Master CIO/Auditor system prompt input field.
 
+## Release Notes v4.4.16 (Hotfix 2)
+- Fix: Removed syntheticOrders badge to fix ReferenceError crash in WebullTrading.
+
 ## Release Notes v4.4.15 (Hotfix)
 - Fix: Addressed a crash in WebullTrading due to undefined references (trailingOrders).
 

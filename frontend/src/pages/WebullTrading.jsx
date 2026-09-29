@@ -5292,11 +5292,6 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         </button>
         <button className={`tab-button ${['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) ? 'active' : ''}`} onClick={() => setActiveTab('synthetic_orders')}>
           ⚡ <span className="tab-text">Synthetic Orders</span>
-          {(syntheticOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length > 0) && (
-            <span className="tab-badge" style={{ background: '#38bdf8' }}>
-              {syntheticOrders?.filter(o => ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length}
-            </span>
-          )}
         </button>
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
           📜 <span className="tab-text">Order History</span>
