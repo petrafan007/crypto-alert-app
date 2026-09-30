@@ -95,6 +95,17 @@ def validate_entry(decision, market, event_cfg, settings, watchlist, now):
                   - float(signal_cfg.get('fee_per_contract', DEFAULT_SIGNAL_CONFIG['fee_per_contract'])))
     if assessment['net_edge'] - fee_gap < settings['min_net_edge']:
         return 'REJECTED', 'Fresh executable quote no longer meets net edge after all costs.', assessment
+    from services.strategy_client import evaluate as strategy_evaluate, StrategyUnavailable
+    try:
+        choice = strategy_evaluate(decision.user_id, 'events', decision.contract_symbol,
+            {'eligible': True, 'fresh_quote': True, 'risk_allowed': True}, now)
+    except StrategyUnavailable as exc:
+        return 'REJECTED', 'Strategy service unavailable; new Event entry held: ' + str(exc), assessment
+    assessment['strategy_version'] = choice['strategy_version']
+    assessment['code_sha256'] = choice['code_sha256']
+    assessment['strategy_setup'] = choice['setup']
+    if not choice['enter']:
+        return 'REJECTED', 'Strategy source declined Event entry: ' + choice['reason'], assessment
     return None, None, assessment
 
 
@@ -198,6 +209,10 @@ def _consume(user_id, *, decision_ids, quote_loader):
                 ('REJECTED', 'Contract already consumed by the paper ledger.') if existing else
                 ('MISSED', 'Decision exceeded its 120-second freshness window.'))
             processed.append(record_disposition(decision, generation, status, reason, now))
+            engine.record_signal_decision(user_id, generation, 'events', decision.contract_symbol, now, 0,
+                {'enter': True, 'setup': 'EVENT_EDGE_V1',
+                 'checks': {'event_decision_id': decision.id, 'confidence': decision.confidence}},
+                'RISK_HELD' if held else status, reason, event_decision_id=decision.id)
             db.session.commit()
             continue
         db.session.commit()
@@ -242,7 +257,9 @@ def _consume(user_id, *, decision_ids, quote_loader):
             db.session.flush()
             price = assessment['executable_price']
             details['selected_ask_size'] = market.get(f"{assessment['outcome'].lower()}_ask_size")
-            details.update({'quote_snapshot_id': quote_row.id, 'quote_refreshed_at': now.isoformat() + 'Z', 'net_edge_at_fill': assessment['net_edge']})
+            details.update({'quote_snapshot_id': quote_row.id, 'quote_refreshed_at': now.isoformat() + 'Z', 'net_edge_at_fill': assessment['net_edge'],
+                            'strategy_version': assessment.get('strategy_version'), 'code_sha256': assessment.get('code_sha256'),
+                            'setup': assessment.get('strategy_setup')})
             rejections = []
             lot = engine.enter_lot(cfg, acc, state, 'events', decision.contract_symbol[:64],
                 {'enter': True, 'side': 'LONG', 'reason': 'Freshly revalidated Event probability signal'}, price, now,
@@ -253,6 +270,18 @@ def _consume(user_id, *, decision_ids, quote_loader):
             else:
                 status, reason = 'REJECTED', rejections[0] if rejections else 'Paper ledger rejected the entry.'
         processed.append(record_disposition(decision, generation, status, reason, now, **details))
+        event_signal = {'enter': bool(assessment and assessment.get('strategy_version')), 'setup': details.get('setup') or 'EVENT_EDGE_V1',
+                        'strategy_version': details.get('strategy_version') or '4.5.0-fixed-risk',
+                        'code_sha256': details.get('code_sha256'),
+                        'checks': {'event_decision_id': decision.id, 'confidence': decision.confidence,
+                                   'net_edge': assessment.get('net_edge') if assessment else None,
+                                   'quote_revalidated': bool(assessment)}}
+        if not event_signal['code_sha256']:
+            event_signal.pop('code_sha256')
+        engine.record_signal_decision(user_id, generation, 'events', decision.contract_symbol, now,
+            assessment.get('executable_price', 0) if assessment else 0, event_signal,
+            status, reason, db.session.get(engine.Lot, details['lot_id']) if details.get('lot_id') else None,
+            event_decision_id=decision.id)
         engine.balances(acc, state, user_id)
         db.session.commit()
     # Manage existing Event risk even if its entry module is disabled/paused.
@@ -281,6 +310,16 @@ def _consume(user_id, *, decision_ids, quote_loader):
     status, message = readiness(user_id, event_cfg, now)
     if not engine.settings_for(cfg)['events']['enabled']:
         status, message = 'DISABLED', 'Event entries disabled; existing risk continues to be managed.'
+    elif event_cfg and event_cfg.enabled:
+        try:
+            from services.event_risk_policy import normalize_risk_config, entry_allowance
+            policy = normalize_risk_config(event_cfg.risk_config)
+            allowance = entry_allowance(policy, [lot for lot in engine.current_lots(user_id, state, False)
+                                                   if lot.module == 'events'], now)
+            if allowance['reason']:
+                status, message = 'RISK_BLOCKED', allowance['reason']
+        except ValueError as exc:
+            status, message = 'DATA_LIMITED', 'Event risk policy unavailable: ' + str(exc)[:150]
     telemetry = engine.loads(state.telemetry_json, {})
     previous = telemetry.get('events', {})
     history = (previous.get('handoff_dispositions', []) + processed)[-50:]

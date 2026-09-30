@@ -23,10 +23,15 @@ def quote(symbol='KXBTC15M-TEST', now=None, **changes):
 class EventQuoteValidationTests(unittest.TestCase):
     def setUp(self):
         self.now = datetime.utcnow()
-        self.decision = SimpleNamespace(created_at=self.now, contract_symbol='KXBTC15M-TEST',
+        self.decision = SimpleNamespace(user_id=1, created_at=self.now, contract_symbol='KXBTC15M-TEST',
             probability_yes=.8, confidence=.9, outcome='YES')
         self.config = SimpleNamespace(risk_config='{}', signal_config='{}', kill_switch=False)
         self.settings = {'min_confidence': .5, 'min_net_edge': .015}
+        self.service_patch = patch('services.strategy_client.evaluate', return_value={
+            'enter': True, 'setup': 'EVENT_EDGE_V1', 'strategy_version': '4.5.0-baseline',
+            'code_sha256': 'a' * 64, 'reason': 'Qualified.'})
+        self.service_patch.start()
+        self.addCleanup(self.service_patch.stop)
 
     def validate(self, market):
         return handoff.validate_entry(self.decision, market, self.config, self.settings, ['KXBTC15M'], self.now)

@@ -611,7 +611,7 @@ def _webull_records(payload):
     """Extract list-shaped records from direct and enveloped Webull payloads."""
     records = payload.get('data', payload) if isinstance(payload, dict) else payload
     if isinstance(records, dict):
-        for key in ('bars', 'items', 'list', 'records', 'data'):
+        for key in ('bars', 'items', 'list', 'records', 'data', 'result'):
             candidate = records.get(key)
             if isinstance(candidate, list):
                 records = candidate

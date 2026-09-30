@@ -112,7 +112,8 @@ def scenario_run(dataset,config,points,name,iv):
             return None
         finally:depth_cap=None
     with app.app_context(),ExitStack() as stack:
-        tables=[m.PortfolioStrategyConfig,m.PortfolioStrategyAccount,m.PortfolioEngineState,m.PortfolioStrategyPosition,m.PortfolioStrategyLot,m.PortfolioStrategyOrder,m.PortfolioEquitySnapshot,m.PortfolioEngineLog,m.PortfolioMarketObservation,
+        tables=[m.PortfolioStrategyConfig,m.PortfolioStrategyAccount,m.PortfolioEngineState,m.PortfolioStrategyPosition,m.PortfolioStrategyLot,m.PortfolioStrategyOrder,m.PortfolioEquitySnapshot,m.PortfolioEngineLog,m.PortfolioMarketObservation,m.PortfolioSignalDecision,
+                m.PortfolioOptionCoverage,m.PortfolioAIReview,m.PortfolioStrategyRevision,
                 em.EventStrategyConfig,em.EventMarketSnapshot,em.EventContractOutcome,Notification]
         db.metadata.create_all(db.engine,tables=[model.__table__ for model in tables])
         cfg,acc,state=e.ensure_portfolio(1)
@@ -123,6 +124,15 @@ def scenario_run(dataset,config,points,name,iv):
         db.session.add(event_cfg);db.session.commit()
         for attribute,value in (('datetime',Clock),('costs',costs),('fill_price',fill),('entry_quantity',quantity),('enter_lot',enter),('mark_event',mark_event),('_record_portfolio_log',lambda *a,**k:None)):
             stack.enter_context(patch.object(e,attribute,value))
+        # This offline replay has no socket or credentials. Freeze the shipped
+        # baseline source so results remain labeled and reproducible.
+        from pathlib import Path
+        from strategy_service.server import evaluate_local, digest
+        def baseline_decider(user_id, module, symbol, features, now):
+            source=(Path(__file__).resolve().parent.parent/'strategy_service'/'rules'/(module+'.py')).read_text()
+            return {**evaluate_local(source,features),'module':module,
+                    'code_sha256':digest(source),'strategy_version':'4.5.0-baseline'}
+        stack.enter_context(patch('services.strategy_client.evaluate',side_effect=baseline_decider))
         curves=[];seen_forecasts=set();seen_outcomes=set()
         for moment,scan in points:
             Clock.current=moment.replace(tzinfo=None);now=Clock.current
@@ -188,7 +198,7 @@ def scenario_run(dataset,config,points,name,iv):
                         market={**row.get('market',{}),**{k:v for k,v in q.items() if k.startswith(('yes_','no_'))},'symbol':row['symbol'],
                                 'cutoff_at':row['cutoff_at'],'quote_as_of':iso(q['event']) if q.get('timestamp_basis')=='PROVIDER' else None,
                                 'quote_retrieved_at':iso(q['at']),'quote_time_basis':'PROVIDER_QUOTE' if q.get('timestamp_basis')=='PROVIDER' else 'RETRIEVAL_ONLY'}
-                        decision=SimpleNamespace(created_at=row['event'].replace(tzinfo=None),contract_symbol=row['symbol'],probability_yes=row['probability_yes'],confidence=row['confidence'],outcome=row.get('outcome'))
+                        decision=SimpleNamespace(user_id=1,created_at=row['event'].replace(tzinfo=None),contract_symbol=row['symbol'],probability_yes=row['probability_yes'],confidence=row['confidence'],outcome=row.get('outcome'))
                         if decision.outcome not in ('YES','NO'):
                             from event_algo import evaluate_market
                             decision.outcome=evaluate_market({**market,'model_probability_yes':row['probability_yes'],'model_confidence':row['confidence']},event_cfg,now=now)['outcome']

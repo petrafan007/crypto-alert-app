@@ -112,24 +112,85 @@ def atr(bars, period=14):
     return sum(ranges[-period:]) / period
 
 
-def equity_signal(bars, price, settings, benchmark):
+def equity_rotation_scores(histories, benchmark, settings):
+    """Rank only completed-session trends using the same SPY observation."""
+    if len(benchmark) < 64:
+        raise ValueError('SPY requires 64 completed daily bars.')
+    spy_momentum = benchmark[-1]['close'] / benchmark[-64]['close'] - 1
+    ranked = []
     n = settings['trend_sma_days']
-    if len(bars) < max(n, 64, settings['rsi_period'] + 1) or len(benchmark) < 64:
+    for symbol, bars in histories.items():
+        if len(bars) < max(n, 64):
+            continue
+        closes = [row['close'] for row in bars]
+        momentum = closes[-1] / closes[-64] - 1
+        relative = momentum - spy_momentum
+        average = sum(closes[-n:]) / n
+        if closes[-1] > average and momentum > 0 and relative >= 0:
+            ranked.append((symbol, relative, momentum))
+    ranked.sort(key=lambda row: (-row[1], -row[2], row[0]))
+    return {symbol: index + 1 for index, (symbol, _, _) in enumerate(ranked)}
+
+
+def equity_signal(bars, price, settings, benchmark, rotation_rank=None):
+    n = settings['trend_sma_days']
+    if len(bars) < max(n, 64, settings['rsi_period'] + 1, 21) or len(benchmark) < 64:
         raise ValueError('Insufficient completed daily history for trend and relative momentum.')
     closes = [b['close'] for b in bars]
     momentum = closes[-1] / closes[-64] - 1
     relative = momentum - (benchmark[-1]['close'] / benchmark[-64]['close'] - 1)
     average = sum(closes[-n:]) / n
     pullback = rsi(closes, settings['rsi_period'])
-    deviation = math.sqrt(sum((x-sum(closes[-20:])/20)**2 for x in closes[-20:])/20)
-    lower = sum(closes[-20:])/20 - settings['bollinger_std'] * deviation
-    return {'enter': price > average and momentum > 0 and relative >= 0 and pullback < settings['rsi_entry_threshold'] and closes[-1] <= lower,
-            'checks': {'completed_daily_bars': len(bars), 'trend_sma': average, 'price_above_sma': price > average,
+    middle = sum(closes[-20:]) / 20
+    deviation = math.sqrt(sum((x-middle)**2 for x in closes[-20:]) / 20)
+    lower = middle - settings['bollinger_std'] * deviation
+    trend = closes[-1] > average and momentum > 0
+    rotation = trend and relative >= 0 and rotation_rank is not None and rotation_rank <= 2
+    reversal = trend and pullback < settings['rsi_entry_threshold'] and closes[-1] <= lower
+    setup = 'TREND_ROTATION_V1' if rotation else 'TREND_PULLBACK_V1' if reversal else None
+    return {'enter': bool(setup), 'setup': setup,
+            'checks': {'completed_daily_bars': len(bars), 'trend_sma': average,
+                       'completed_close_above_sma': closes[-1] > average,
+                       'current_price_above_sma': price > average,
                        'momentum_63_sessions': momentum, 'relative_momentum_vs_spy': relative,
+                       'rotation_rank': rotation_rank, 'rotation_top_two': bool(rotation),
                        'rsi': pullback, 'rsi_below_entry_threshold': pullback < settings['rsi_entry_threshold'],
-                       'lower_bollinger_band': lower, 'close_below_lower_band': closes[-1] <= lower},
-            'exit': price < average or pullback > 70, 'stop': price - 2 * atr(bars),
-            'reason': f'RSI {pullback:.1f}, 63-session relative momentum {relative:.4f}', 'side': 'LONG'}
+                       'lower_bollinger_band': lower, 'close_below_lower_band': closes[-1] <= lower,
+                       'pullback_qualified': bool(reversal)},
+            'exit': price < average or pullback > 70,
+            'stop': price - 2 * atr(bars),
+            'reason': (setup or f'No trend rotation or pullback setup; RSI {pullback:.1f}, relative momentum {relative:.4f}'),
+            'side': 'LONG', 'completed_bar_time': bars[-1].get('time')}
+
+
+def realized_volatility(bars, sessions=20):
+    if len(bars) <= sessions:
+        raise ValueError(f'{sessions + 1} completed underlying bars are required.')
+    closes = [finite(row['close'], 'underlying close', 0.000001) for row in bars[-sessions-1:]]
+    returns = [math.log(right / left) for left, right in zip(closes, closes[1:])]
+    mean = sum(returns) / len(returns)
+    variance = sum((value - mean)**2 for value in returns) / (len(returns) - 1)
+    return math.sqrt(variance * 252)
+
+
+def option_regime(bars, price, current_iv, rank_30=None, rank_252=None, min_ivr=40):
+    if len(bars) < 61:
+        raise ValueError('61 completed underlying bars are required for option trend and volatility.')
+    iv = finite(current_iv, 'current ATM IV', 0.000001, 10)
+    rv20, rv60 = realized_volatility(bars, 20), realized_volatility(bars, 60)
+    closes = [row['close'] for row in bars]
+    trend = closes[-1] / closes[-21] - 1
+    average = sum(closes[-50:]) / 50
+    kind = 'PUT' if trend > 0 and closes[-1] > average else 'CALL' if trend < 0 and closes[-1] < average else None
+    basis = 'ANNUAL_IV_RANK_252' if rank_252 is not None else 'SHORT_IV_PERCENTILE_30' if rank_30 is not None else 'CURRENT_IV_VS_REALIZED_VOL'
+    ready = bool(kind and (rank_252 >= min_ivr if rank_252 is not None else rank_30 >= min_ivr if rank_30 is not None else iv >= 1.05 * rv20))
+    return {'enter': ready, 'option_type': kind, 'basis': basis,
+            'checks': {'underlying_bars': len(bars), 'trend_20_sessions': trend,
+                       'underlying_sma_50': average, 'rv_20': rv20, 'rv_60': rv60,
+                       'current_atm_iv': iv, 'short_iv_percentile_30': rank_30,
+                       'annual_iv_rank_252': rank_252, 'direction': kind,
+                       'current_iv_above_1_05x_rv20': iv >= 1.05 * rv20},
+            'reason': basis if ready else 'No aligned underlying trend and eligible volatility regime.'}
 
 
 def crypto_signal(bars, price, settings, dominance_ok):
@@ -174,18 +235,19 @@ def futures_signal(bars, price, settings, now):
             'reason': 'Opening range breakout with directional VWAP confirmation'}
 
 
-def select_credit_spread(contracts, price, iv_rank, settings, now):
-    if iv_rank is None or iv_rank < settings['min_ivr']:
+def select_credit_spread(contracts, price, iv_rank, settings, now, *, allow_warmup=False, preferred_kind=None):
+    if not allow_warmup and (iv_rank is None or iv_rank < settings['min_ivr']):
         raise ValueError('IV rank is unavailable, warming up, or below the entry threshold.')
     today = utc(now).astimezone(ET).date()
     candidates = []
+    missing_depth = False
     for short in contracts:
         try:
             strike = finite(short['strike'], 'strike', 0.000001)
             delta = finite(abs(float(short['delta'])), 'absolute delta', 0.01, 0.5)
             dte = (datetime.fromisoformat(short['expiration']).date()-today).days
             kind = short['option_type']
-            if kind not in ('PUT', 'CALL') or not 20 <= dte <= 65:
+            if kind not in ('PUT', 'CALL') or (preferred_kind and kind != preferred_kind) or not 20 <= dte <= 65:
                 continue
             if (kind == 'PUT' and strike >= price) or (kind == 'CALL' and strike <= price):
                 continue
@@ -194,13 +256,19 @@ def select_credit_spread(contracts, price, iv_rank, settings, now):
                     continue
                 width = strike-float(long['strike']) if kind == 'PUT' else float(long['strike'])-strike
                 credit = float(short['bid'])-float(long['ask'])
-                if width <= 0 or not 0 < credit < width:
+                if width <= 0 or not 0 < credit < width or credit * 100 <= 2.60:
+                    continue
+                depth = (short.get('bid_size'), long.get('ask_size'))
+                if any(value is None or float(value) < 1 for value in depth):
+                    missing_depth = True
                     continue
                 candidates.append((abs(dte-settings['target_dte']), abs(delta-settings['target_delta']/100), width,
                                    {'short': short, 'long': long, 'credit': credit, 'width': width, 'expiration': short['expiration']}))
         except (KeyError, ValueError, TypeError):
             continue
     if not candidates:
+        if missing_depth:
+            raise ValueError('No reported two-leg option depth.')
         raise ValueError('No quoted, defined-risk OTM spread with provider Greeks.')
     return min(candidates, key=lambda item: item[:3])[3]
 

@@ -81,12 +81,28 @@ def process_one():
         from credentials import User
         from event_algo import is_event_strategy_admin
         if not is_event_strategy_admin(db.session.get(User,user_id)):raise ValueError('Administrator access is no longer available.')
-        if kind in ('build','daily_iv'):
-            data=build_archive(user_id,request['start'],request['end']);dataset=save_dataset(user_id,data)
+        if kind=='build':
+            data=build_archive(user_id,request['start'],request['end'])
+            dataset=save_dataset(user_id,data)
             result={'dataset_id':dataset.id,'sha256':dataset.sha256,'quality':data['quality']}
-            if kind=='daily_iv':
-                from services.research_history import apply_iv
-                result['daily_iv']=apply_iv(user_id,dataset.id,dataset.sha256,config['settings']['options']['target_dte'])
+        elif kind=='daily_iv':
+            from services.research_history import apply_iv
+            roots=list(dict.fromkeys(config['watchlists'].get('options',[])))[:20]
+            results=[]
+            for root in roots:
+                try:
+                    data=build_archive(user_id,request['start'],request['end'],option_only=True,option_symbols=[root])
+                except ValueError as exc:
+                    if 'No usable observations' in str(exc):
+                        results.append({'symbol':root,'status':'NO_CAPTURE'})
+                        continue
+                    raise
+                dataset=save_dataset(user_id,data)
+                applied=apply_iv(user_id,dataset.id,dataset.sha256,config['settings']['options']['target_dte'])
+                results.append({'symbol':root,'status':'PROCESSED','dataset_id':dataset.id,
+                                'sha256':dataset.sha256,'quality':data['quality'],'daily_iv':applied})
+            result={'scope':'OPTIONS_CLOSE_WINDOW_BY_UNDERLYING','symbols':results,
+                    'processed':sum(item['status']=='PROCESSED' for item in results)}
         else:
             dataset,data=get_dataset(user_id,request['dataset_id'])
             if dataset.sha256!=request['sha256']:raise ValueError('Dataset changed after job submission.')
@@ -156,6 +172,7 @@ def research_job_loop(app,stop_event=None):
         with app.app_context():
             try:
                 schedule_daily_iv()
+                schedule_failed_iv_retries()
                 process_one()
             except Exception as exc:
                 db.session.rollback();app.logger.warning('Research job worker unavailable: %s',type(exc).__name__)
@@ -164,6 +181,45 @@ def research_job_loop(app,stop_event=None):
 
 
 _last_daily_check=0
+_last_retry_check=0
+
+
+def schedule_failed_iv_retries():
+    """One safe retry for each oversized legacy IV job with its original captures."""
+    import time
+    from research_data_models import ResearchCapture
+    global _last_retry_check
+    if time.monotonic() - _last_retry_check < 60:
+        return
+    _last_retry_check = time.monotonic()
+    failed = Job.query.filter(Job.kind == 'daily_iv', Job.status == 'FAILED',
+                              Job.message.ilike('%100,000 records%')).order_by(Job.id).limit(50).all()
+    for old in failed:
+        cfg = db.session.get(Config, old.user_id)
+        if not cfg or not cfg.enabled:
+            continue
+        try:
+            old_payload = json.loads(old.request_json)
+            original_target = old_payload['config']['settings']['options']['target_dte']
+            current_target = saved_config(old.user_id)['settings']['options']['target_dte']
+            if original_target != current_target:
+                continue
+            request = old_payload['request']
+            start, end = stamp(request['start']), stamp(request['end'])
+            if not ResearchCapture.query.filter(ResearchCapture.user_id == old.user_id,
+                ResearchCapture.kind == 'option_quotes',
+                ResearchCapture.received_at >= start.replace(tzinfo=None),
+                ResearchCapture.received_at < end.replace(tzinfo=None)).first():
+                continue
+            later = Job.query.filter(Job.user_id == old.user_id, Job.kind == 'daily_iv',
+                Job.id > old.id).order_by(Job.id).limit(100).all()
+            if any(json.loads(job.request_json)['request'] == request for job in later):
+                continue
+            enqueue(old.user_id, 'daily_iv', request)
+            return  # Bound work to one recovered close window per tick.
+        except (ValueError, KeyError, TypeError):
+            db.session.rollback()
+            continue
 
 
 def schedule_daily_iv():

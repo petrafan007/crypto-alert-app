@@ -1,8 +1,16 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.4.18
+**Version:** 4.5.0
 
 ## Recent Updates
+
+### v4.5.0
+* **Six-hour Master reports:** Restored an explicit every-six-hours Master AI report cadence, separate from the Event report setting. Report health now shows the next due time, last completion and failure reason.
+* **Measurable paper decisions:** Equities use separate ranked trend rotation and pullback setups. Options can evaluate defined-risk current-chain spreads using completed underlying history and realized volatility during the IV-history warm-up. Every evaluated paper signal, rejection and linked fill is recorded; closed trades have per-module win/loss, net P&L and used-capital scorecards against the 18.5% research target.
+* **No-purchase option history:** Scoped daily IV derivation to close-window option/underlying captures, avoiding the unrelated 100,000-record archive failure. Per-symbol quality evidence distinguishes the 30-valid-session short percentile, 252-session annual rank and current-chain fallback. A bounded option OHLCV entitlement probe collects only data already accessible to the configured Webull connection.
+* **Independent strategy source:** A restricted local Unix-socket service runs versioned pure paper-entry rules outside the app checkout. The daily AI worker reads its exact active source, records candidate changes, validates them in a limited process and holds them in shadow until forward evidence gates pass. Active rules can be atomically rolled back without rebuilding the app. Service failure blocks new paper entries while existing position management and Event settlement continue.
+* **Operational clarity:** The dashboard shows strategy service health, decision counts, option readiness, Event risk lockouts, daily AI review status and code diffs. The saved Event drawdown policy remains authoritative. No real broker order path was added.
+* [v4.5.0 architecture, activation thresholds, deployment and limitations](docs/quant_strategy_v4.5.0.md).
 
 ### v4.4.18
 * **Eliminated Rogue Crash-Loop Service**: Discovered and permanently eliminated an orphaned user-level systemd service (`~/.config/systemd/user/crypto-dashboard.service`) that was restarting `main.py` every 10 seconds, port-colliding with gunicorn, and repeatedly calling `_kill_idle_transactions()` which killed active database connections for legitimate background workers, sentiment analysis, and order tracking.

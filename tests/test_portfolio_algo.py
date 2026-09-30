@@ -23,6 +23,9 @@ class PortfolioSignalsTests(unittest.TestCase):
         # UTC inputs; NYSE holiday, early-close and daylight-saving rules.
         cases = [
             ('off', '2026-09-08T21:00:00', None, False),
+            ('six_hours', '2026-09-08T21:00:00', None, True),
+            ('six_hours', '2026-09-08T21:00:00', '2026-09-08T15:00:00', True),
+            ('six_hours', '2026-09-08T20:59:59', '2026-09-08T15:00:00', False),
             ('invalid', '2026-09-08T21:00:00', None, False),
             ('daily', '2026-09-08T19:59:59', '2026-09-04T20:00:00', False),
             ('daily', '2026-09-08T20:00:00', '2026-09-04T20:00:00', True),
@@ -57,7 +60,7 @@ class PortfolioSignalsTests(unittest.TestCase):
                  'secondary': {'provider': 'ollama', 'model': 'saved-fallback'},
                  'tertiary': {'provider': 'ollama', 'model': 'saved-local'}, 'audit_guidance': 'Custom guidance'}
         cfg.master_ai_config = json.dumps(saved)
-        for cadence in ('off', 'daily', 'weekly'):
+        for cadence in ('off', 'six_hours', 'daily', 'weekly'):
             result = e.validate_config({'master_ai_config': {'cadence': cadence}}, cfg)
             self.assertEqual(json.loads(result['master_ai_config']), {**saved, 'cadence': cadence})
             self.assertEqual(json.loads(cfg.master_ai_config), saved)
@@ -220,8 +223,8 @@ class PortfolioSignalsTests(unittest.TestCase):
             futures_signal(bars[1:], 101, settings, start+timedelta(minutes=16))
 
     def test_options_requires_ivr_and_defines_loss(self):
-        legs = [dict(symbol='S', strike=95, delta=-.18, expiration='2026-10-19', option_type='PUT', bid=1.5, ask=1.6),
-                dict(symbol='L', strike=90, delta=-.10, expiration='2026-10-19', option_type='PUT', bid=.4, ask=.5)]
+        legs = [dict(symbol='S', strike=95, delta=-.18, expiration='2026-10-19', option_type='PUT', bid=1.5, ask=1.6, bid_size=10, ask_size=10),
+                dict(symbol='L', strike=90, delta=-.10, expiration='2026-10-19', option_type='PUT', bid=.4, ask=.5, bid_size=10, ask_size=10)]
         now = datetime(2026, 9, 4, 15)
         with self.assertRaises(ValueError):
             select_credit_spread(legs, 100, None, DEFAULT_MODULE_SETTINGS['options'], now)
@@ -268,6 +271,17 @@ class PortfolioLedgerTests(unittest.TestCase):
             db.create_all()
 
     def setUp(self):
+        # Ledger tests exercise accounting against the deterministic baseline;
+        # socket/protocol tests separately cover the service boundary.
+        from pathlib import Path
+        from strategy_service.server import evaluate_local, digest
+        def baseline(user_id, module, symbol, features, now):
+            source = (Path(__file__).resolve().parent.parent / 'strategy_service' / 'rules' / (module + '.py')).read_text()
+            decision = evaluate_local(source, features)
+            return {**decision, 'module': module, 'code_sha256': digest(source),
+                    'strategy_version': '4.5.0-baseline'}
+        self.strategy_patch = patch('services.strategy_client.evaluate', side_effect=baseline)
+        self.strategy_patch.start()
         self.context = self.app.app_context()
         self.context.push()
         type(self).user_counter += 1
@@ -283,6 +297,7 @@ class PortfolioLedgerTests(unittest.TestCase):
             session['_fresh'] = True
 
     def tearDown(self):
+        self.strategy_patch.stop()
         db.session.rollback()
         db.session.remove()
         self.context.pop()
@@ -633,6 +648,73 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertEqual(e.current_lots(self.user_id, self.state), [])
         self.assertAlmostEqual(self.acc.total_equity, 50000+lot.realized_pnl)
 
+    def test_real_strategy_socket_opens_only_paper_lot_and_records_code_hash(self):
+        import subprocess
+        import sys
+        import tempfile
+        import time
+        from pathlib import Path
+        from unittest.mock import MagicMock
+        from portfolio_algo_models import PortfolioSignalDecision
+        self.cfg.watchlists_json = json.dumps({m: (['BTC'] if m == 'crypto' else []) for m in e.MODULES})
+        db.session.commit()
+        e.control(self.user_id, 'start')
+        data = MagicMock()
+        data.quote.return_value = 101
+        data.bars.return_value = [{'high': 100, 'low': 99, 'close': 99.5} for _ in range(25)]
+        data.dominance_ok.return_value = True
+        self.strategy_patch.stop()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                socket_path = directory + '/strategy.sock'
+                environment = {**os.environ, 'QUANT_STRATEGY_ROOT': directory + '/state',
+                               'QUANT_STRATEGY_SOCKET': socket_path}
+                server = subprocess.Popen([sys.executable, '-I',
+                    str(Path(__file__).resolve().parent.parent / 'strategy_service' / 'server.py')],
+                    env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                try:
+                    for _ in range(100):
+                        if os.path.exists(socket_path):
+                            break
+                        time.sleep(.01)
+                    with patch.dict(os.environ, {'QUANT_STRATEGY_SOCKET': socket_path}):
+                        result = e.run_scan(self.user_id, True, provider=data)
+                    self.assertTrue(result['success'])
+                    self.assertEqual(result['modules']['crypto']['entries'], 1)
+                    decision = PortfolioSignalDecision.query.filter_by(user_id=self.user_id, module='crypto').order_by(
+                        PortfolioSignalDecision.id.desc()).first()
+                    self.assertEqual(decision.disposition, 'FILLED')
+                    self.assertEqual(len(decision.code_sha256), 64)
+                    self.assertEqual(decision.strategy_version, '4.5.0-baseline')
+                finally:
+                    server.terminate()
+                    server.wait(timeout=3)
+        finally:
+            self.strategy_patch.start()
+
+    def test_missing_strategy_service_fails_closed_and_records_reason(self):
+        from unittest.mock import MagicMock
+        from portfolio_algo_models import PortfolioSignalDecision
+        self.cfg.watchlists_json = json.dumps({m: (['BTC'] if m == 'crypto' else []) for m in e.MODULES})
+        db.session.commit()
+        e.control(self.user_id, 'start')
+        data = MagicMock()
+        data.quote.return_value = 101
+        data.bars.return_value = [{'high': 100, 'low': 99, 'close': 99.5} for _ in range(25)]
+        data.dominance_ok.return_value = True
+        self.strategy_patch.stop()
+        try:
+            with patch.dict(os.environ, {'QUANT_STRATEGY_SOCKET': '/tmp/definitely-absent-quant-socket.sock'}):
+                result = e.run_scan(self.user_id, True, provider=data)
+            self.assertTrue(result['success'])
+            self.assertEqual(result['modules']['crypto']['entries'], 0)
+            decision = PortfolioSignalDecision.query.filter_by(user_id=self.user_id, module='crypto').order_by(
+                PortfolioSignalDecision.id.desc()).first()
+            self.assertEqual(decision.disposition, 'DATA_LIMITED')
+            self.assertIn('unavailable', decision.reason.lower())
+        finally:
+            self.strategy_patch.start()
+
     def test_equity_worker_enters_on_relative_momentum_pullback(self):
         from unittest.mock import MagicMock
         class FixedClock(datetime):
@@ -663,9 +745,11 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.cfg.watchlists_json = json.dumps({m: (['SPY'] if m=='options' else []) for m in e.MODULES})
         db.session.commit()
         data = MagicMock()
-        legs = [dict(symbol='S', strike=95, delta=-.18, expiration='2026-10-19', option_type='PUT', bid=1.5, ask=1.6),
-                dict(symbol='L', strike=93, delta=-.10, expiration='2026-10-19', option_type='PUT', bid=.4, ask=.5)]
+        legs = [dict(symbol='S', strike=95, delta=-.18, expiration='2026-10-19', option_type='PUT', bid=1.5, ask=1.6, bid_size=10, ask_size=10),
+                dict(symbol='L', strike=93, delta=-.10, expiration='2026-10-19', option_type='PUT', bid=.4, ask=.5, bid_size=10, ask_size=10)]
         data.options.return_value = (100, legs, 50)
+        data.option_readiness = {'SPY': {'current_iv': .4, 'short_iv_percentile_30': None}}
+        data.bars.return_value = [{'close': 80 + i * .2} for i in range(61)]
         with patch('services.portfolio_engine.datetime', FixedClock):
             e.control(self.user_id, 'start')
             self.assertTrue(e.run_scan(self.user_id, True, provider=data)['success'])

@@ -12,6 +12,7 @@ from services.research_archive import LANES, CollectionPaused, settings, save_ca
 WEBULL_PATHS = {
     'option_catalog':'/trading/instruments/options/contracts/list',
     'option_quotes':'/market-data/options/snapshots/list',
+    'option_bars':'/market-data/options/bars/list',
     'stock_quotes':'/market-data/stocks/snapshots/list',
     'stock_bars':'/openapi/market-data/stock/bars',
     'webull_crypto_quotes':'/market-data/crypto/snapshots/list',
@@ -218,6 +219,16 @@ class Collector:
             for start in range(0,len(selected),20):
                 names = [c['symbol'] for c in selected[start:start+20]]
                 self.fetch('option_quotes',root,{'symbols':','.join(names),'category':'US_OPTION'})
+            # A bounded entitlement probe captures price/volume history only;
+            # these bars never stand in for historical spreads, Greeks, or IV.
+            bars_key = 'option-bars:' + root
+            if priority and self.details['cursors'].get(bars_key) != str(now.date()):
+                names = [c['symbol'] for c in priority[:2]]
+                response = self.fetch('option_bars', root,
+                    {'symbols': ','.join(names), 'category': 'US_OPTION',
+                     'timespan': 'D', 'count': 1200, 'real_time_required': 'false'})
+                if response is not None:
+                    self.details['cursors'][bars_key] = str(now.date())
 
     def events_lane(self, watches):
         from event_algo import _market_cutoff

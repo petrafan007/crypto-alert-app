@@ -55,7 +55,8 @@ def init_db(app=None):
     from event_algo_models import EventStrategyConfig, EventStrategyRun, EventStrategyLog, EventStrategyAIEvaluation, EventMarketSnapshot, EventStrategyDecision, EventStrategyOrder, EventStrategyPosition, EventStrategyPerformance, EventContractOutcome, EventStrategyReport
     from portfolio_algo_models import (PortfolioStrategyConfig, PortfolioStrategyAccount,
         PortfolioStrategyPosition, PortfolioStrategyOrder, PortfolioEngineState,
-        PortfolioStrategyLot, PortfolioEquitySnapshot, PortfolioAudit, PortfolioMarketObservation)
+        PortfolioStrategyLot, PortfolioEquitySnapshot, PortfolioAudit, PortfolioMarketObservation,
+        PortfolioSignalDecision, PortfolioStrategyRevision, PortfolioAIReview, PortfolioOptionCoverage)
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
     from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder, LadderOrder, LadderRung, SyntheticExecution
     

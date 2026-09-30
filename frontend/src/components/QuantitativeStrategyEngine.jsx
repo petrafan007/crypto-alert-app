@@ -164,6 +164,7 @@ export default function QuantitativeStrategyEngine({
 
   // Engine Execution State
   const [engineStatus, setEngineStatus] = useState(null);
+  const [strategyHistory, setStrategyHistory] = useState(null);
   const [engineBusy, setEngineBusy] = useState(false);
   const [engineError, setEngineError] = useState('');
   const [refetchSignal, setRefetchSignal] = useState(0);
@@ -178,6 +179,15 @@ export default function QuantitativeStrategyEngine({
       setEngineError(err.response?.data?.message || 'Worker control failed.');
     } finally {
       setEngineBusy(false);
+    }
+  };
+
+  const loadStrategyHistory = async () => {
+    try {
+      const response = await axios.get('/api/webull/portfolio-algo/strategy-revisions', { withCredentials: true });
+      setStrategyHistory(response.data);
+    } catch (err) {
+      setEngineError(err.response?.data?.message || 'Strategy revision history is unavailable.');
     }
   };
 
@@ -284,7 +294,7 @@ export default function QuantitativeStrategyEngine({
           watchlists: config.watchlists,
           module_settings: config.module_settings,
           master_ai_prompt: masterAIPromptDraft,
-          master_ai_config: { cadence: config?.master_ai_config?.cadence || 'off' },
+          master_ai_config: { cadence: config?.master_ai_config?.cadence || 'off', daily_strategy_requests: config?.master_ai_config?.daily_strategy_requests || 1 },
         },
         { withCredentials: true }
       );
@@ -448,6 +458,74 @@ export default function QuantitativeStrategyEngine({
               </div>
             </div>
           ))}
+        </div>
+        <div style={{ margin: '0 20px 16px', padding: 14, border: '1px solid rgba(148,163,184,0.3)', borderRadius: 8 }}>
+          <strong>Paper decisions and report health</strong>
+          <p style={{ margin: '8px 0' }}>
+            Master report: {engineStatus?.master_report_health?.cadence === 'six_hours' ? 'every six hours' : engineStatus?.master_report_health?.cadence || 'off'}
+            {' · '}Next due: {engineStatus?.master_report_health?.next_due_at ? formatEasternDateTime(engineStatus.master_report_health.next_due_at) : '—'}
+            {' · '}Latest: {engineStatus?.master_report_health?.last_status || 'none'}
+            {engineStatus?.master_report_health?.last_completed_at && <> at {formatEasternDateTime(engineStatus.master_report_health.last_completed_at)}</>}
+          </p>
+          {engineStatus?.master_report_health?.failure_reason && <p role="alert">Report failure: {engineStatus.master_report_health.failure_reason}</p>}
+          <p style={{ margin: '8px 0' }}>
+            Strategy source service: {engineStatus?.strategy_service?.status || 'unknown'}
+            {engineStatus?.strategy_service?.reason && <> · {engineStatus.strategy_service.reason}</>}
+            {' · '}Daily AI review: {engineStatus?.daily_ai_review?.status || 'awaiting first review'}
+            {engineStatus?.daily_ai_review?.message && <> · {engineStatus.daily_ai_review.message}</>}
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 8 }}>
+            {Object.entries(engineStatus?.decision_summary_24h || {}).map(([module, item]) => (
+              <div key={module} style={{ padding: 8, border: '1px solid rgba(148,163,184,0.2)', borderRadius: 6 }}>
+                <strong>{module}</strong><div>24h: {item.evaluated} evaluated · {item.qualified} qualified · {item.filled} filled · {item.blocked} blocked</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 8, marginTop: 8 }}>
+            {Object.entries(engineStatus?.module_outcomes || {}).filter(([module]) => module !== 'futures' || engineStatus?.module_enabled?.futures).map(([module, outcome]) => (
+              <div key={module} style={{ padding: 8, border: '1px solid rgba(148,163,184,0.2)', borderRadius: 6 }}>
+                <strong>{module} closed paper results</strong>
+                <div>{outcome.wins} wins · {outcome.losses} losses · {outcome.breakeven} even</div>
+                <div>Net {formatCurrency(outcome.net_pnl_usd)} after recorded costs</div>
+                <div>Return on used capital: {outcome.return_on_used_capital_pct == null ? 'Not enough closed trades' : outcome.return_on_used_capital_pct + '%'}</div>
+              </div>
+            ))}
+          </div>
+          <p style={{ margin: '8px 0' }}>Annual research target: {config?.target_annual_return ?? 18.5}%.
+            {' '}Passive SPY price comparison: {engineStatus?.passive_benchmark?.status === 'MEASURED'
+              ? engineStatus.passive_benchmark.price_return_pct + '% over ' + engineStatus.passive_benchmark.completed_sessions + ' matched closes'
+              : engineStatus?.passive_benchmark?.reason || 'unavailable'}.
+            {' '}Cash comparison: 0% before interest.</p>
+          {engineStatus?.modules?.events?.status === 'RISK_BLOCKED' && <p role="alert">
+            Event entries blocked: measured realized drawdown {formatCurrency(engineStatus.modules.events.risk_policy?.realized_drawdown)}
+            {' '}versus the saved {formatCurrency(engineStatus.modules.events.risk_policy?.limits?.max_drawdown)} drawdown ceiling.
+            {' '}Existing contracts are still monitored and settled. {engineStatus.modules.events.messages?.[0]}
+          </p>}
+          {(engineStatus?.modules?.options?.prerequisites || []).map(item => (
+            <p key={item.symbol} style={{ margin: '6px 0' }}>Options {item.symbol}: {item.valid_iv_sessions}/30 verified IV sessions for short history,
+              {' '}{item.valid_iv_sessions}/252 for annual rank. Current-chain paper fallback can evaluate now when its underlying history and live legs qualify.
+              {item.latest_gap && <> Latest gap: {item.latest_gap}</>}
+            </p>
+          ))}
+          {engineStatus?.strategy_revisions?.length > 0 && <p style={{ margin: '6px 0' }}>
+            Latest source revision: {engineStatus.strategy_revisions[0].module} · {engineStatus.strategy_revisions[0].status}
+            {' · '}{engineStatus.strategy_revisions[0].code_sha256?.slice(0, 12)}
+          </p>}
+          <button className="btn-quant-save" onClick={loadStrategyHistory}>View AI reviews and code changes</button>
+          {strategyHistory && <div style={{ marginTop: 10 }}>
+            {(strategyHistory.reviews || []).slice(0, 7).map(review => (
+              <p key={review.id}>{review.day}: {review.status} · {review.message || 'No explanation recorded'}
+                {' · '}AI requests: {review.request_count} · {review.cost_usd == null ? 'Provider cost not reported' : formatCurrency(review.cost_usd)}
+              </p>
+            ))}
+            {(strategyHistory.revisions || []).map(revision => (
+              <details key={revision.id}>
+                <summary>{revision.module} · {revision.status} · {revision.created_at} · {revision.candidate_sha256?.slice(0, 12)}</summary>
+                {revision.rollback_reason && <p>{revision.rollback_reason}</p>}
+                <pre style={{ overflowX: 'auto', whiteSpace: 'pre-wrap', fontSize: 11 }}>{revision.diff || 'Code diff unavailable from the strategy service.'}</pre>
+              </details>
+            ))}
+          </div>}
         </div>
         {engineError && (
           <div className="settings-message" style={{ marginBottom: 16, background: 'rgba(239, 68, 68, 0.15)', borderColor: '#ef4444' }}>
@@ -1241,7 +1319,13 @@ export default function QuantitativeStrategyEngine({
 
               <label className="settings-form-group">Autonomous audit cadence
                 <select value={config?.master_ai_config?.cadence || 'off'} onChange={(e) => setConfig(prev => ({ ...prev, master_ai_config: { cadence: e.target.value } }))}>
-                  <option value="off">Off</option><option value="daily">Daily after US market close</option><option value="weekly">Weekly after the first available market close</option>
+                  <option value="off">Off</option><option value="six_hours">Every 6 hours, including weekends</option><option value="daily">Daily after US market close</option><option value="weekly">Weekly after the first available market close</option>
+                </select>
+              </label>
+              <label className="settings-form-group">Daily strategy AI request ceiling
+                <select value={config?.master_ai_config?.daily_strategy_requests || 1}
+                  onChange={(e) => setConfig(prev => ({ ...prev, master_ai_config: { ...prev.master_ai_config, daily_strategy_requests: Number(e.target.value) } }))}>
+                  <option value={1}>1 provider request per day</option><option value={2}>2 provider requests per day</option><option value={3}>3 provider requests per day</option>
                 </select>
               </label>
               <button className="btn-quant-save" disabled={saving} onClick={handleSavePortfolioConfig}>Save mandate &amp; cadence</button>

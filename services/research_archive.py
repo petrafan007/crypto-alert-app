@@ -2,6 +2,7 @@
 import gzip
 import hashlib
 import json
+from datetime import timedelta
 from sqlalchemy import func
 from core.extensions import db
 from research_data_models import ResearchCapture as Capture, ResearchCollectionConfig as Config, ResearchCollectionState as State, utcnow
@@ -90,7 +91,14 @@ def status(user_id):
     totals = Capture.query.filter_by(user_id=user_id).with_entities(Capture.lane, func.count(Capture.id), func.min(Capture.received_at), func.max(Capture.received_at)).group_by(Capture.lane).all()
     aggregate = {lane: {'batches':n, 'first_at':first.isoformat()+'Z', 'latest_at':last.isoformat()+'Z'} for lane,n,first,last in totals}
     opts = settings(cfg) if cfg else dict(DEFAULTS)
-    return {'enabled':bool(cfg and cfg.enabled), 'settings':opts, 'stored_bytes':cfg.stored_bytes if cfg else 0,
+    ceiling = opts['storage_mb'] * 1048576
+    used = cfg.stored_bytes if cfg else 0
+    recent = db.session.query(func.coalesce(func.sum(Capture.compressed_bytes), 0)).filter(
+        Capture.user_id == user_id, Capture.received_at >= utcnow() - timedelta(days=7)).scalar() or 0
+    growth = recent / 7
+    return {'enabled':bool(cfg and cfg.enabled), 'settings':opts, 'stored_bytes':used,
+            'remaining_bytes':max(0, ceiling - used), 'recent_capture_bytes_per_day':round(growth),
+            'estimated_days_to_cap_at_recent_rate':round((ceiling - used) / growth, 1) if growth else None,
             'lanes':[{'lane':r.lane, 'status':r.status, 'heartbeat_at':r.heartbeat_at.isoformat()+'Z' if r.heartbeat_at else None,
                       'next_run_at':r.next_run_at.isoformat()+'Z' if r.next_run_at else None,
                       'details':json.loads(r.details_json), **aggregate.get(r.lane, {})} for r in states],

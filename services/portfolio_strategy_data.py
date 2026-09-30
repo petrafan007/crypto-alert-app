@@ -14,6 +14,7 @@ class PortfolioMarketData:
         self.connection = (credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token)
         self.user_id = user_id
         self.cache = {}
+        self.option_readiness = {}
 
     def bars(self, symbol, instrument, now, interval='D', limit=260):
         from services.webull_service import get_webull_market_bars
@@ -151,15 +152,19 @@ class PortfolioMarketData:
         expiration = min({c['expiration'] for c in contracts}, key=lambda e: (abs((utc(e).date()-utc(now).astimezone(ET).date()).days-settings['target_dte']), e))
         selected = sorted([c for c in contracts if c['expiration'] == expiration], key=lambda c: abs(c['strike']-price))[:80]
         quoted = self.option_quotes(selected, now)
-        from services.portfolio_iv import atm_pair, collection_window, iv_source, iv_series
+        from services.portfolio_iv import atm_pair, iv_source, iv_series
         current = atm_pair(quoted, price)
         source = iv_source(settings['target_dte'])
-        if collection_window(now):
-            history = self.observe(iv_series(symbol, settings['target_dte']), current, now, source=source, preserve_daily=True)
-        else:
-            history = self.observation_history(iv_series(symbol, settings['target_dte']), source, today)
+        # Only the completeness-checked archive job promotes a close-window
+        # session. A current chain alone is useful for the warm-up strategy,
+        # but must not be relabeled as verified historical IV.
+        history = self.observation_history(iv_series(symbol, settings['target_dte']), source, today)
         values = [row.value for row in history if math.isfinite(row.value) and 0 < row.value < 10][-252:]
         rank = max(0, min(100, 100*(current-min(values))/(max(values)-min(values)))) if len(values) >= 252 and max(values)>min(values) else None
+        short = 100 * sum(value <= current for value in values[-30:]) / 30 if len(values) >= 30 else None
+        self.option_readiness[symbol] = {'current_iv': current, 'valid_sessions': len(values),
+                                         'short_iv_percentile_30': short, 'annual_iv_rank_252': rank,
+                                         'next_threshold': 30 if len(values) < 30 else 252 if len(values) < 252 else None}
         return price, quoted, rank
 
     def spread_mark(self, details, now):

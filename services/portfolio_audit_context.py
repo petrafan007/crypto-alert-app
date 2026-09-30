@@ -2,14 +2,14 @@
 import re
 
 AUDIT_END = '<!-- AUDIT_COMPLETE -->'
-AUDIT_TOKEN_LIMITS = {'portfolio_module_audit': 8192, 'portfolio_audit': 16384}
+AUDIT_TOKEN_LIMITS = {'portfolio_module_audit': 8192, 'portfolio_audit': 16384, 'portfolio_strategy_review': 4096}
 
 ENGINE_PURPOSE = (
     'This engine is an isolated, multi-asset PAPER research ledger. Its purpose is to forward-test '
     'deterministic strategies, realistic simulated costs, capital budgets and risk controls before '
     'judging their performance. It does not trade the real account. The annual return target is a '
     'research objective, never a forecast or promise. AI audits explain observed operation and suggest '
-    'evidence-based engineering or strategy experiments; they do not execute trades or change settings. '
+    'evidence-based engineering or strategy experiments. A separate daily AI review may propose pure strategy source changes; deterministic validation and forward paper evidence gate activation. Audits themselves do not execute trades or change settings. '
     'Only configured watchlists and enabled modules are eligible for new entries. Existing disabled-module '
     'positions still count as risk. Do not recommend enabling disabled futures just to fill an allocation. '
     'Allocation percentages are maximum strategy budgets, not mandatory invested weights. Unused cash '
@@ -114,8 +114,8 @@ def audit_prompt_policy():
             'master_scope': MASTER_SCOPE, 'module_scope': MODULE_SCOPE}
 
 STRATEGY_RULES = {
-    'equities': 'US regular sessions only. Completed daily trend SMA, positive 63-session momentum and SPY relative strength; oversold RSI and lower Bollinger pullback. Exits: RSI recovery, trend failure or ATR stop.',
-    'options': 'Standard defined-risk credit spreads, 20–65 DTE closest to configured target, short absolute delta near target, executable two-sided legs, IV Rank above minimum. IV Rank needs 252 observed daily ATM IV values with a non-flat range. Exits: profit target, spread stop or seven DTE. No invented IV history.',
+    'equities': 'US regular sessions only. Completed 63-session trend and SPY relative strength rank the two leading watchlist symbols. Independent oversold RSI/lower-band pullback may also qualify in a positive long trend. Exits: RSI recovery, trend failure or ATR stop.',
+    'options': 'Defined-risk 20–65 DTE credit spreads use fresh two-sided legs. During IV warm-up, completed underlying history, realized volatility and current ATM IV support a separately labeled paper regime. Thirty verified IV sessions permit a short percentile; 252 permit annual IV rank. Exits: profit target, spread stop or seven DTE. No invented IV history.',
     'crypto': '24/7 completed-hour Donchian breakouts with ATR trailing stops. ETH/SOL also require measured Bitcoin dominance at or below the preceding seven-day average. BTC does not require that filter.',
     'futures': 'Opt-in micro futures opening-range breakout with volume/VWAP confirmation, actual contract metadata, margin reserves, session exits and daily risk ceiling.',
     'events': 'Fresh eligible Event-worker decisions, configured confidence/net edge after fees, selected-side executable books and pre-cutoff entries. Use the saved Event risk policy in structured evidence for position, fee-inclusive exposure, contract, rolling-hour, Eastern-day and realized high-water drawdown limits; do not substitute historical hard-coded limits. Open stakes and fees reserve loss allowance. Supplied ask depth caps quantity; missing depth is unknown. Mark at purchased-side bid; settle only on explicit provider evidence. Unresolved expired positions remain open and occupy capacity.',

@@ -278,3 +278,85 @@ def _record_portfolio_log(user_id, event_type, message, level="INFO", **kwargs):
         db.session.add(row)
     except Exception as exc:
         print(f"Failed to record portfolio log: {exc}\n{traceback.format_exc()}")
+
+
+class PortfolioSignalDecision(db.Model):
+    """Immutable evidence for one paper signal evaluation and its final disposition."""
+    __tablename__ = "portfolio_signal_decisions"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    generation = db.Column(db.Integer, nullable=False)
+    module = db.Column(db.String(16), nullable=False)
+    symbol = db.Column(db.String(160), nullable=False)
+    evaluated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    available_at = db.Column(db.DateTime)
+    snapshot_sha256 = db.Column(db.String(64), nullable=False)
+    strategy_version = db.Column(db.String(80), nullable=False)
+    code_sha256 = db.Column(db.String(64), nullable=False)
+    setup = db.Column(db.String(80))
+    proposed_action = db.Column(db.String(16), nullable=False)
+    disposition = db.Column(db.String(32), nullable=False)
+    reason = db.Column(db.Text, nullable=False)
+    checks_json = db.Column(db.Text, nullable=False, default="{}")
+    lot_id = db.Column(db.Integer, db.ForeignKey("portfolio_strategy_lots.id"))
+    event_decision_id = db.Column(db.Integer)
+    __table_args__ = (
+        db.Index("ix_signal_decision_user_module_time", "user_id", "module", "evaluated_at"),
+        db.Index("ix_signal_decision_user_lot", "user_id", "lot_id"),
+    )
+
+
+class PortfolioStrategyRevision(db.Model):
+    __tablename__ = "portfolio_strategy_revisions"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    module = db.Column(db.String(16), nullable=False)
+    parent_sha256 = db.Column(db.String(64), nullable=False)
+    candidate_sha256 = db.Column(db.String(64), nullable=False)
+    source_json = db.Column(db.Text, nullable=False)
+    evidence_sha256 = db.Column(db.String(64), nullable=False)
+    validation_json = db.Column(db.Text, nullable=False, default="{}")
+    provider = db.Column(db.String(80))
+    model = db.Column(db.String(160))
+    status = db.Column(db.String(32), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    activated_at = db.Column(db.DateTime)
+    rollback_reason = db.Column(db.Text)
+    __table_args__ = (db.Index("ix_strategy_revision_user_module_time", "user_id", "module", "created_at"),)
+
+
+class PortfolioAIReview(db.Model):
+    __tablename__ = "portfolio_ai_reviews"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    review_day = db.Column(db.Date, nullable=False)
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime)
+    status = db.Column(db.String(32), nullable=False, default="RUNNING")
+    evidence_sha256 = db.Column(db.String(64))
+    summary_json = db.Column(db.Text, nullable=False, default="{}")
+    provider = db.Column(db.String(80))
+    model = db.Column(db.String(160))
+    request_count = db.Column(db.Integer, nullable=False, default=0)
+    cost_usd = db.Column(db.Float)  # Unknown unless the provider reports a charge.
+    message = db.Column(db.Text)
+    __table_args__ = (db.UniqueConstraint("user_id", "review_day", name="uq_portfolio_ai_review_day"),)
+
+
+class PortfolioOptionCoverage(db.Model):
+    __tablename__ = "portfolio_option_coverage"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    symbol = db.Column(db.String(64), nullable=False)
+    session_day = db.Column(db.Date, nullable=False)
+    target_dte = db.Column(db.Integer, nullable=False)
+    source = db.Column(db.String(80), nullable=False)
+    iv_valid = db.Column(db.Boolean, nullable=False, default=False)
+    spread_valid = db.Column(db.Boolean, nullable=False, default=False)
+    reason = db.Column(db.Text)
+    evidence_sha256 = db.Column(db.String(64))
+    checked_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "symbol", "session_day", "target_dte", "source", name="uq_portfolio_option_coverage"),
+        db.Index("ix_option_coverage_user_symbol_day", "user_id", "symbol", "session_day"),
+    )

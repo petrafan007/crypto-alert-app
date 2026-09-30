@@ -4,6 +4,7 @@ All fills are local ORM records. This module cannot submit brokerage orders.
 Provider requests happen outside row locks; ownership is rechecked before each fill.
 """
 import copy
+import hashlib
 import json
 import logging
 import math
@@ -23,11 +24,11 @@ from portfolio_algo_models import (
     PortfolioStrategyPosition as Position, PortfolioStrategyOrder as Order,
     PortfolioEngineState as State, PortfolioStrategyLot as Lot,
     PortfolioEquitySnapshot as Snapshot, PortfolioAudit as Audit,
-    PortfolioEngineLog, _record_portfolio_log,
+    PortfolioEngineLog, PortfolioSignalDecision, _record_portfolio_log,
 )
 from services.portfolio_strategy_signals import (
     MODULES, TYPES, ET, finite, utc, in_session, session_bounds,
-    equity_signal, crypto_signal, futures_signal, select_credit_spread, performance,
+    equity_signal, equity_rotation_scores, option_regime, crypto_signal, futures_signal, select_credit_spread, performance,
 )
 
 from services.portfolio_allocations import normalize_allocations
@@ -185,8 +186,11 @@ def validate_config(payload, cfg):
         result['master_ai_prompt'] = prompt.strip() or DEFAULT_MASTER_CIO_PROMPT
     if 'master_ai_config' in payload:
         audit = payload['master_ai_config']
-        if not isinstance(audit, dict) or set(audit)-{'cadence'} or audit.get('cadence') not in ('off', 'daily', 'weekly'):
-            raise ValueError('Audit cadence must be off, daily or weekly.')
+        if not isinstance(audit, dict) or set(audit)-{'cadence', 'daily_strategy_requests'} or audit.get('cadence') not in ('off', 'six_hours', 'daily', 'weekly'):
+            raise ValueError('Audit cadence must be off, six hours, daily or weekly.')
+        if 'daily_strategy_requests' in audit and (type(audit['daily_strategy_requests']) is not int or
+                not 1 <= audit['daily_strategy_requests'] <= 3):
+            raise ValueError('Daily strategy AI request ceiling must be 1–3.')
         saved = loads(getattr(cfg, 'master_ai_config', None), {})
         result['master_ai_config'] = json.dumps({**saved, **audit})
     return result
@@ -595,16 +599,24 @@ def portfolio_status(user_id):
     from services.portfolio_iv import iv_source, iv_series
     watches = loads(cfg.watchlists_json, DEFAULT_QUANT_WATCHLISTS)
     if module_settings['options']['enabled']:
+        from portfolio_algo_models import PortfolioOptionCoverage
         telemetry['options']['prerequisites'] = []
+        target_dte = module_settings['options']['target_dte']
         for symbol in watches.get('options', []):
-            count = PortfolioMarketObservation.query.filter_by(user_id=user_id, series=iv_series(symbol, module_settings['options']['target_dte'])).filter(
-                PortfolioMarketObservation.day >= datetime.utcnow().date()-timedelta(days=370),
-                PortfolioMarketObservation.day <= datetime.utcnow().date(),
-                PortfolioMarketObservation.source == iv_source(module_settings['options']['target_dte']),
-                PortfolioMarketObservation.observed_at.isnot(None)).count()
+            coverage = PortfolioOptionCoverage.query.filter_by(user_id=user_id, symbol=symbol,
+                target_dte=target_dte, source=iv_source(target_dte)).filter(
+                PortfolioOptionCoverage.session_day >= datetime.utcnow().date()-timedelta(days=370)).all()
+            valid = sum(bool(row.iv_valid) for row in coverage)
+            spread_days = sum(bool(row.spread_valid) for row in coverage)
+            latest = max(coverage, key=lambda row: row.session_day) if coverage else None
             telemetry['options']['prerequisites'].append({
-                'symbol': symbol, 'daily_iv_observations': min(count, 252), 'required': 252,
-                'message': f'{symbol}: {min(count, 252)}/252 consistent near-close ATM-pair IV observations. Other methodology/history is retained but excluded. No historical IV import is configured; allocation remains unused until history and executable quotes qualify.',
+                'symbol': symbol, 'valid_iv_sessions': valid, 'daily_iv_observations': valid, 'required': 252, 'spread_replay_sessions': spread_days,
+                'short_iv_required': 30, 'annual_iv_required': 252,
+                'current_chain_fallback': 'Eligible after 61 completed underlying bars and fresh, quoted spread legs.',
+                'next_threshold': 30 if valid < 30 else 252 if valid < 252 else None,
+                'latest_coverage_day': latest.session_day.isoformat() if latest else None,
+                'latest_gap': latest.reason if latest and not latest.iv_valid else None,
+                'message': f'{symbol}: {valid}/30 verified IV sessions for short percentile; {valid}/252 for annual rank. Current-chain paper fallback does not need historical option IV.',
             })
     event_open = [p for p in positions if p['module'] == 'events']
     risk_status = event_risk_status(user_id, state, datetime.utcnow())
@@ -630,7 +642,57 @@ def portfolio_status(user_id):
         snapshots=[{'time': r.created_at, 'equity': r.equity} for r in metric_rows],
         module_pnl=module_pnl, reserved_capital=sum(p['collateral'] for p in positions))
     metrics['annualized_return_pct'] = goal['annualized_return_pct']
+    from services.portfolio_benchmark import passive_spy
+    benchmark = passive_spy(user_id, acc.initial_balance, acc.reset_at, valuation_at)
     calibration = event_calibration(user_id, acc.reset_at)
+    module_outcomes = {}
+    for module in MODULES:
+        closed = [lot for lot in lots if lot.module == module and lot.closed_at]
+        capital = sum(lot.collateral for lot in closed)
+        module_outcomes[module] = {
+            'closed_trades': len(closed), 'wins': sum(lot.realized_pnl > 0 for lot in closed),
+            'losses': sum(lot.realized_pnl < 0 for lot in closed),
+            'breakeven': sum(lot.realized_pnl == 0 for lot in closed),
+            'net_pnl_usd': round(sum(lot.realized_pnl for lot in closed), 2),
+            'return_on_used_capital_pct': round(100 * sum(lot.realized_pnl for lot in closed) / capital, 4) if capital else None,
+            'capital_basis_usd': round(capital, 2),
+            'outcome_basis': 'Closed paper lots after recorded entry/exit costs; open marks excluded.',
+        }
+    from portfolio_algo_models import PortfolioAIReview, PortfolioStrategyRevision
+    from services.strategy_client import request as strategy_request, StrategyUnavailable
+    latest_audit = Audit.query.filter_by(user_id=user_id).order_by(Audit.id.desc()).first()
+    cadence = loads(cfg.master_ai_config, {}).get('cadence', 'off')
+    next_due = ((state.last_audit_at + timedelta(hours=6)).isoformat() + 'Z'
+                if cadence == 'six_hours' and state.last_audit_at else
+                datetime.utcnow().isoformat() + 'Z' if cadence == 'six_hours' else None)
+    review = PortfolioAIReview.query.filter_by(user_id=user_id).order_by(PortfolioAIReview.id.desc()).first()
+    revisions = PortfolioStrategyRevision.query.filter_by(user_id=user_id).order_by(PortfolioStrategyRevision.id.desc()).limit(10).all()
+    since = datetime.utcnow() - timedelta(hours=24)
+    decision_counts = db.session.query(
+        PortfolioSignalDecision.module, PortfolioSignalDecision.proposed_action,
+        PortfolioSignalDecision.disposition, func.count(PortfolioSignalDecision.id)).filter(
+        PortfolioSignalDecision.user_id == user_id,
+        PortfolioSignalDecision.evaluated_at >= since).group_by(
+        PortfolioSignalDecision.module, PortfolioSignalDecision.proposed_action,
+        PortfolioSignalDecision.disposition).all()
+    decision_summary = {module: {'evaluated': 0, 'qualified': 0, 'filled': 0, 'blocked': 0}
+                        for module in ('equities', 'options', 'crypto', 'events')}
+    for module, action, disposition, count in decision_counts:
+        item = decision_summary[module]
+        item['evaluated'] += count
+        item['qualified'] += count if action == 'ENTER' else 0
+        item['filled'] += count if disposition == 'FILLED' else 0
+        item['blocked'] += count if disposition in ('REJECTED', 'HELD', 'RISK_HELD', 'RISK_BLOCKED') else 0
+    try:
+        strategy_health = strategy_request('health')
+    except StrategyUnavailable as exc:
+        strategy_health = {'status': 'UNAVAILABLE', 'reason': str(exc)}
+    audit_evidence = loads(latest_audit.evidence_json, {}) if latest_audit else {}
+    report_health = {'cadence': cadence, 'next_due_at': next_due,
+                     'last_started_at': latest_audit.created_at.isoformat() + 'Z' if latest_audit else None,
+                     'last_completed_at': audit_evidence.get('audit_progress', {}).get('finished_at'),
+                     'last_status': latest_audit.status if latest_audit else None,
+                     'failure_reason': audit_evidence.get('audit_error') if latest_audit and latest_audit.status == 'FAILED' else None}
     return {'success': True, 'mode': 'PAPER', 'worker_status': status, 'enabled': cfg.enabled,
             'kill_switch': state.kill_switch, 'pause_reason': state.pause_reason,
             'heartbeat_at': state.heartbeat_at.isoformat()+'Z' if state.heartbeat_at else None,
@@ -643,7 +705,17 @@ def portfolio_status(user_id):
             'sub_accounts': sub_accounts,
             'module_enabled': {m: module_settings[m]['enabled'] for m in MODULES},
             'cash_allocation_pct': 0 if any(module_settings[m]['enabled'] for m in MODULES) else 100,
-            'performance': metrics, 'goal_tracking': goal, 'event_calibration': calibration,
+            'performance': metrics, 'goal_tracking': goal, 'passive_benchmark': benchmark, 'event_calibration': calibration,
+            'master_report_health': report_health, 'strategy_service': strategy_health,
+            'decision_summary_24h': decision_summary, 'module_outcomes': module_outcomes,
+            'daily_ai_review': ({'day': review.review_day.isoformat(), 'status': review.status,
+                                 'message': review.message, 'provider': review.provider, 'model': review.model,
+                                 'request_count': review.request_count, 'cost_usd': review.cost_usd}
+                                if review else None),
+            'strategy_revisions': [{'id': row.id, 'module': row.module, 'status': row.status,
+                                    'created_at': row.created_at.isoformat() + 'Z',
+                                    'code_sha256': row.candidate_sha256,
+                                    'rollback_reason': row.rollback_reason} for row in revisions],
             'equity_curve': curve[-2000:], 'allocations': allocations, 'rebalance': drift}
 
 
@@ -958,6 +1030,22 @@ def run_scan(user_id, force=False, provider=None):
             except Exception as exc:
                 db.session.rollback()
                 report[module]['messages'].append(f'{symbol}: {str(exc)[:200]}')
+        rotation_ranks = {}
+        if settings['equities']['enabled'] and in_session(datetime.utcnow()):
+            try:
+                market_data()
+                ranking_time = datetime.utcnow()
+                benchmark = data.bars('SPY', 'EQUITY', ranking_time)
+                histories = {}
+                for candidate in watches.get('equities', []):
+                    try:
+                        histories[candidate] = data.bars(candidate, 'EQUITY', ranking_time,
+                            limit=max(settings['equities']['trend_sma_days'] + 10, 260))
+                    except Exception as exc:
+                        report['equities']['messages'].append(f'{candidate}: daily history unavailable ({str(exc)[:120]})')
+                rotation_ranks = equity_rotation_scores(histories, benchmark, settings['equities'])
+            except Exception as exc:
+                report['equities']['messages'].append(f'Rotation ranking unavailable: {str(exc)[:120]}')
         for module in MODULES:
             if module == 'events':
                 # Do not delay short-lived decisions behind this scan's provider
@@ -985,11 +1073,32 @@ def run_scan(user_id, force=False, provider=None):
                         market_data()
                         if module == 'options':
                             price, contracts, rank = data.options(symbol, settings[module], now)
-                            spread = select_credit_spread(contracts, price, rank, settings[module], now)
-                            price, multiplier = spread['credit'], 100
-                            margin = (spread['width']-price)*100
-                            details = spread
-                            signal = {'enter': True, 'side': 'SHORT', 'target': price*(1-settings[module]['profit_target_pct']/100), 'reason': 'Defined-risk credit spread'}
+                            readiness = data.option_readiness[symbol]
+                            bars = data.bars(symbol, 'EQUITY', now, limit=260)
+                            regime = option_regime(bars, price, readiness['current_iv'],
+                                readiness['short_iv_percentile_30'], rank, settings[module]['min_ivr'])
+                            from services.strategy_client import evaluate as strategy_evaluate
+                            choice = strategy_evaluate(user_id, 'options', symbol,
+                                {'checks': regime['checks'], 'basis': regime['basis'],
+                                 'min_ivr': settings[module]['min_ivr']}, now)
+                            if choice['enter']:
+                                spread = select_credit_spread(contracts, price, rank, settings[module], now,
+                                    allow_warmup=rank is None, preferred_kind=regime['option_type'])
+                                price, multiplier = spread['credit'], 100
+                                margin = (spread['width']-price)*100
+                                details = {**spread, 'regime': regime, 'iv_readiness': readiness}
+                                signal = {'enter': True, 'side': 'SHORT',
+                                          'target': price*(1-settings[module]['profit_target_pct']/100),
+                                          'reason': choice['reason'] + ' Defined-risk credit spread.',
+                                          'checks': regime['checks'], 'setup': choice['setup'],
+                                          'strategy_version': choice['strategy_version'],
+                                          'code_sha256': choice['code_sha256']}
+                            else:
+                                signal = {'enter': False, 'side': 'SHORT', 'reason': choice['reason'],
+                                          'checks': regime['checks'], 'setup': choice['setup'],
+                                          'strategy_version': choice['strategy_version'],
+                                          'code_sha256': choice['code_sha256']}
+                                details = {'iv_readiness': readiness}
                         elif module == 'futures':
                             symbol, multiplier, margin = data.future(watch_symbol, now)
                             price = data.quote(symbol, 'FUTURES', now)
@@ -998,10 +1107,21 @@ def run_scan(user_id, force=False, provider=None):
                         elif module == 'crypto':
                             price = data.quote(symbol, 'CRYPTO', now)
                             signal = crypto_signal(data.bars(symbol, 'CRYPTO', now, interval='H1', limit=150), price, settings[module], data.dominance_ok(symbol, now))
+                            from services.strategy_client import evaluate as strategy_evaluate
+                            choice = strategy_evaluate(user_id, 'crypto', symbol, {'checks': signal['checks']}, now)
+                            signal.update(enter=choice['enter'], setup=choice['setup'],
+                                          reason=choice['reason'], strategy_version=choice['strategy_version'],
+                                          code_sha256=choice['code_sha256'])
                         else:
                             price = data.quote(symbol, 'EQUITY', now)
                             bars = data.bars(symbol, 'EQUITY', now, limit=max(settings[module]['trend_sma_days']+10, 260))
-                            signal = equity_signal(bars, price, settings[module], data.bars('SPY', 'EQUITY', now))
+                            signal = equity_signal(bars, price, settings[module],
+                                data.bars('SPY', 'EQUITY', now), rotation_ranks.get(symbol))
+                            from services.strategy_client import evaluate as strategy_evaluate
+                            choice = strategy_evaluate(user_id, 'equities', symbol, {'checks': signal['checks']}, now)
+                            signal.update(enter=choice['enter'], setup=choice['setup'],
+                                          reason=choice['reason'], strategy_version=choice['strategy_version'],
+                                          code_sha256=choice['code_sha256'])
                         entries = [(symbol, price, signal, details, None)]
                     if datetime.utcnow()-now > timedelta(seconds=120):
                         raise ValueError('Market-data collection exceeded the quote freshness window.')
@@ -1020,6 +1140,13 @@ def run_scan(user_id, force=False, provider=None):
                     is_held = check_circuit(cfg, acc, state) or not cfg.enabled or state.kill_switch
                     entries_before_jev = report[module]['entries']
                     for entry_symbol, price, signal, details, key in entries:
+                        opened = None
+                        disposition = 'NO_TRADE'
+                        disposition_reason = (signal or {}).get('reason', 'No qualifying signal.')
+                        if isinstance(details, dict) and signal:
+                            details = {**details, 'strategy_version': signal.get('strategy_version'),
+                                       'code_sha256': signal.get('code_sha256'),
+                                       'setup': signal.get('setup')}
                         report[module]['observations'].append({
                             'symbol': entry_symbol, 'observed_at': now.isoformat()+'Z', 'price': price,
                             'entry_qualified': bool(signal and signal.get('enter')),
@@ -1033,14 +1160,20 @@ def run_scan(user_id, force=False, provider=None):
                                 _record_portfolio_log(user_id, 'TRADE_VIABLE_HELD',
                                                       f"Qualified {module} setup detected on {entry_symbol} at {price:.4f} (viable signal; execution held in 24/7 monitoring mode). Reason: {signal.get('reason', 'Qualified')}")
                                 report[module]['messages'].append(f"{entry_symbol}: Viable entry signal detected ({signal.get('reason', 'Qualified')}); execution held.")
+                                disposition, disposition_reason = 'RISK_HELD', state.pause_reason or 'Paper entries paused.'
                             else:
                                 rejections = []
                                 opened = enter_lot(cfg, acc, state, module, entry_symbol, signal, price, now, multiplier=multiplier, margin=margin, details=details, key=key, rejections=rejections)
                                 if rejections:
                                     report[module]['rejected_entries'].append({'symbol': entry_symbol, 'reason': rejections[0]})
                                     _record_portfolio_log(user_id, 'ENTRY_SKIPPED', f'{entry_symbol}: {rejections[0]}', module=module, symbol=entry_symbol)
+                                disposition = 'FILLED' if opened is not None else 'REJECTED'
+                                disposition_reason = 'Paper lot opened.' if opened is not None else (rejections[0] if rejections else 'Entry did not fill.')
                                 report[module]['entries'] += int(opened is not None)
                                 balances(acc, state, user_id)
+                        if module in ('equities', 'options', 'crypto'):
+                            record_signal_decision(user_id, state.generation, module, entry_symbol, now,
+                                price, signal, disposition, disposition_reason, opened)
                     report[module]['evaluated'] += 1
                     report[module]['status'] = 'READY'
                     db.session.commit()
@@ -1053,7 +1186,20 @@ def run_scan(user_id, force=False, provider=None):
                         })
                 except Exception as exc:
                     db.session.rollback()
-                    report[module]['messages'].append(f'{watch_symbol}: {str(exc)[:200]}')
+                    failure = str(exc)[:200]
+                    report[module]['messages'].append(f'{watch_symbol}: {failure}')
+                    if module in ('equities', 'options', 'crypto'):
+                        try:
+                            cfg, acc, state = locked(user_id)
+                            if owns(cfg, state, token):
+                                record_signal_decision(user_id, state.generation, module, watch_symbol, now, 0,
+                                    {'enter': False, 'reason': failure, 'setup': 'DATA_OR_STRATEGY_UNAVAILABLE'},
+                                    'DATA_LIMITED', failure)
+                                db.session.commit()
+                            else:
+                                db.session.rollback()
+                        except Exception:
+                            db.session.rollback()
         cfg, acc, state = locked(user_id)
         if state.lease_token == token:
             report['events'] = loads(state.telemetry_json, {}).get('events', {
@@ -1102,6 +1248,33 @@ def run_scan(user_id, force=False, provider=None):
             db.session.rollback()
         logger.warning('Portfolio scan failed for user %s: %s', user_id, exc)
         return {'success': False, 'message': str(exc)[:300]}
+
+
+def record_signal_decision(user_id, generation, module, symbol, now, price, signal,
+                           disposition, reason, lot=None, event_decision_id=None):
+    """Keep the no-trade decision and any linked paper fill in the same transaction."""
+    checks = (signal or {}).get('checks') or {}
+    snapshot = {'module': module, 'symbol': symbol, 'as_of': now.isoformat(),
+                'price': price, 'checks': checks}
+    sha = hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode()).hexdigest()
+    available = checks.get('completed_bar_time')
+    if available is None:
+        available = (signal or {}).get('completed_bar_time')
+    try:
+        available_at = utc(available).replace(tzinfo=None) if available is not None else now
+    except (ValueError, TypeError, OverflowError):
+        available_at = now
+    row = PortfolioSignalDecision(
+        user_id=user_id, generation=generation, module=module, symbol=symbol,
+        evaluated_at=now, available_at=available_at, snapshot_sha256=sha,
+        strategy_version=(signal or {}).get('strategy_version', '4.5.0-fixed-risk'),
+        code_sha256=(signal or {}).get('code_sha256', hashlib.sha256(module.encode()).hexdigest()),
+        setup=(signal or {}).get('setup'), proposed_action='ENTER' if (signal or {}).get('enter') else 'NO_TRADE',
+        disposition=disposition, reason=str(reason or '')[:1000],
+        checks_json=json.dumps(checks, default=str), lot_id=lot.id if lot else None,
+        event_decision_id=event_decision_id)
+    db.session.add(row)
+    return row
 
 
 def measured_correlations(user_id, generation):
@@ -1165,6 +1338,8 @@ def audit_due(cfg, state, now):
     this check in reserve_audit.
     """
     cadence = loads(getattr(cfg, 'master_ai_config', None), {}).get('cadence', 'off')
+    if cadence == 'six_hours':
+        return state.last_audit_at is None or (utc(now) - utc(state.last_audit_at)).total_seconds() >= 21600
     if cadence not in ('daily', 'weekly'):
         return False
     now = utc(now)
@@ -1293,8 +1468,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                               if k not in ('auditor_prompt', 'allocation_preference')} for m in enabled_modules}
         all_lots = current_lots(user_id, state, False)
         evidence['module_trade_results'] = {m: {
-            'closed_trades': sum(l.module == m and l.closed_at is not None for l in all_lots),
-            'realized_pnl_usd': sum(l.realized_pnl for l in all_lots if l.module == m and l.closed_at is not None),
+            **evidence['module_outcomes'][m],
             'open_positions': sum(p['module'] == m for p in evidence['positions']),
         } for m in MODULES}
         evidence['operational_summary'] = {}
@@ -1304,6 +1478,13 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                 explanation = ('The exchange calendar is closed. The session gate skipped new-entry data requests '
                                'and signal evaluation. This is normal waiting, not evidence of missing price history '
                                'or a provider outage. Next open: ' + str(next_open) + '.')
+            elif module == 'events' and metrics['status'] == 'RISK_BLOCKED':
+                explanation = ('The saved Event risk policy blocks new entries. The paper ledger is still '
+                               'monitoring and settling existing contracts. The administrator must review '
+                               'the limit; the AI cannot change it. Measured realized drawdown is $' +
+                               str(metrics.get('risk_policy', {}).get('realized_drawdown')) +
+                               ' versus saved $' + str(metrics.get('risk_policy', {}).get('limits', {}).get('max_drawdown')) +
+                               ' ceiling. ' + str(metrics.get('messages', [''])[0]))
             elif module == 'events':
                 explanation = ('Use the independently timestamped Event consumer and upstream decision diagnostics. '
                                'An empty eligible-decision lookup is not evidence that market data or the AI provider succeeded. '

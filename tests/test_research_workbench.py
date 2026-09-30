@@ -17,7 +17,7 @@ from sqlalchemy.schema import CreateSchema
 from core.extensions import db
 from credentials import User
 from research_data_models import ResearchDataset,ResearchJob,ResearchCapture,ResearchCollectionConfig,ResearchCollectionState,utcnow
-from portfolio_algo_models import PortfolioStrategyConfig,PortfolioMarketObservation,DEFAULT_MODULE_SETTINGS,DEFAULT_ALLOCATIONS,DEFAULT_QUANT_WATCHLISTS
+from portfolio_algo_models import PortfolioStrategyConfig,PortfolioMarketObservation,PortfolioOptionCoverage,DEFAULT_MODULE_SETTINGS,DEFAULT_ALLOCATIONS,DEFAULT_QUANT_WATCHLISTS
 from event_algo_models import EventMarketSnapshot,EventStrategyDecision,EventContractOutcome,EventStrategyConfig
 from services.research_dataset import canonical,validate_row,adapt,encoded,save_dataset,get_dataset,build_archive,stamp
 from services.research_history import ResearchMarketData,iv_preview,apply_iv
@@ -149,6 +149,22 @@ class ResearchPureTests(unittest.TestCase):
         data['records'].append({**catalog,'page':'page2','next':None})
         self.assertTrue(ResearchMarketData(data).complete_catalog('SPY','WEBULL_PRODUCTION',at.date(),at))
 
+    def test_option_historical_bars_keep_contract_symbol_and_no_synthetic_iv(self):
+        contract = 'SPY250620P00090000'
+        payload = {'result': [{'symbol': contract, 'instrument_id': '123',
+                    'result': [{'time': '2025-05-30T00:00:00Z', 'open': '1',
+                                'high': '1.2', 'low': '.9', 'close': '1.1', 'volume': '10'}]}]}
+        raw = encoded(payload)
+        capture = SimpleNamespace(id=77, source='WEBULL_PRODUCTION', kind='option_bars', symbol='SPY',
+            received_at=NOW.replace(tzinfo=None), payload_gzip=gzip.compress(raw),
+            sha256=hashlib.sha256(raw).hexdigest(), metadata_json=json.dumps({'parameters': {'timespan': 'D'}}))
+        records = list(adapt(capture))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['symbol'], contract)
+        self.assertEqual(records[0]['module'], 'options')
+        self.assertEqual(records[0]['kind'], 'bar')
+        self.assertNotIn('implied_volatility', records[0])
+
     def test_options_rank_uses_252_same_source_method_target_days(self):
         import pandas_market_calendars as calendars
         data=option_data();at=NOW.replace(hour=19,minute=55)
@@ -197,7 +213,8 @@ class ResearchPureTests(unittest.TestCase):
             price,quotes,_=original(provider,*args)
             return price,quotes,80  # This test targets ledger accounting, not IV warm-up (tested separately).
         times=timeline(data,NOW.replace(hour=19,minute=50),NOW.replace(hour=19,minute=56))
-        with patch.object(ResearchMarketData,'options',ready):
+        underlying=[{'close':80+i*.2} for i in range(61)]
+        with patch.object(ResearchMarketData,'options',ready), patch.object(ResearchMarketData,'bars',return_value=underlying):
             result=scenario_run(data,cfg,times,'baseline',[])
         self.assertEqual(result['entries'],1)
         self.assertEqual(result['trades'][0]['collateral'],360)
@@ -205,10 +222,10 @@ class ResearchPureTests(unittest.TestCase):
         self.assertLess(result['ending_equity'],100000)
         for r in data['records']:
             if r['kind']=='option_quote':r['bid_size']=None
-        with patch.object(ResearchMarketData,'options',ready):
+        with patch.object(ResearchMarketData,'options',ready), patch.object(ResearchMarketData,'bars',return_value=underlying):
             result=scenario_run(data,cfg,times,'baseline',[])
         self.assertEqual(result['entries'],0)
-        self.assertIn('No reported two-leg option depth.',result['decisions'])
+        self.assertTrue(any('No reported two-leg option depth.' in message for message in result['module_errors']['options']))
 
     def test_futures_session_exit_actual_multiplier_and_margin(self):
         at=NOW.replace(hour=19,minute=50);symbol='MESM25'
@@ -262,7 +279,7 @@ class ResearchDatabaseTests(unittest.TestCase):
         db.init_app(self.app);self.ctx=self.app.app_context();self.ctx.push()
         if uri.startswith('postgresql'):
             with db.engine.begin() as con:con.execute(CreateSchema(schema))
-        db.metadata.create_all(db.engine,tables=[m.__table__ for m in (User,ResearchCollectionConfig,ResearchCollectionState,ResearchCapture,ResearchDataset,ResearchJob,PortfolioStrategyConfig,PortfolioMarketObservation,EventStrategyConfig,EventMarketSnapshot,EventStrategyDecision,EventContractOutcome)])
+        db.metadata.create_all(db.engine,tables=[m.__table__ for m in (User,ResearchCollectionConfig,ResearchCollectionState,ResearchCapture,ResearchDataset,ResearchJob,PortfolioStrategyConfig,PortfolioMarketObservation,PortfolioOptionCoverage,EventStrategyConfig,EventMarketSnapshot,EventStrategyDecision,EventContractOutcome)])
         db.session.add(User(id=1,username='admin',pwd_hash='test'));db.session.add(PortfolioStrategyConfig(user_id=1));db.session.commit()
 
     def tearDown(self):
@@ -300,6 +317,24 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.assertEqual(len(provider.bars('BTC','CRYPTO',NOW,interval='H1')),1)
         self.assertEqual(provider.quote('BTC','CRYPTO',NOW+timedelta(minutes=1)),100.5)
         with self.assertRaises(ValueError):provider.bars('BTC','CRYPTO',NOW-timedelta(hours=2),interval='H1')
+
+    def test_daily_option_archive_scopes_root_and_skips_broad_catalog(self):
+        at=NOW.replace(hour=19,minute=50)
+        for root,span in (("SPY",45),("SPY",1095),("QQQ",45)):
+            raw=encoded({"data": []});blob=gzip.compress(raw)
+            db.session.add(ResearchCapture(user_id=1,lane='equities',source='WEBULL_PRODUCTION',
+                kind='option_catalog',symbol=root,started_at=at.replace(tzinfo=None),
+                received_at=at.replace(tzinfo=None),sha256=hashlib.sha256(raw).hexdigest(),
+                compressed_bytes=len(blob),raw_bytes=len(raw),payload_gzip=blob,
+                metadata_json=json.dumps({'parameters':{'start_date':str(at.date()),
+                    'end_date':str((at+timedelta(days=span)).date())}})))
+        db.session.commit()
+        result=build_archive(1,at-timedelta(minutes=1),at+timedelta(minutes=1),
+                             option_only=True,option_symbols=['SPY'])
+        self.assertEqual(result['quality']['accepted'],1)
+        self.assertEqual(result['quality']['excluded']['Broad catalog excluded from daily IV'],1)
+        self.assertEqual(result['provenance']['option_symbols'],['SPY'])
+        self.assertEqual(len(result['provenance']['captures']),1)
 
     def test_append_iv_is_idempotent_and_preserves_conflicts(self):
         dataset=save_dataset(1,option_data());first=apply_iv(1,dataset.id,dataset.sha256,45)

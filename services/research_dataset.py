@@ -73,7 +73,7 @@ def adapt(capture):
         yield item('catalog','options',capture.symbol,cycle_id=meta.get('cycle_id',str(capture.id)),
                    start=params.get('start_date'),end=params.get('end_date'),page=params.get('pagination_key'),next=next_cursor(body,'pagination_key'))
         for r in records(body):
-            yield item('contract','options',r['symbol'],root=r.get('underlying_symbol'),
+            yield item('contract','options',r['symbol'],instrument_id=r.get('instrument_id'),root=r.get('underlying_symbol'),
                        expiration=str(r.get('expiration_date',''))[:10],strike=r.get('strike_price'),
                        option_type={'C':'CALL','P':'PUT'}.get(r.get('option_type'),r.get('option_type')),
                        multiplier=r.get('multiplier'),standard=r.get('def_type')=='STANDARD',
@@ -85,6 +85,7 @@ def adapt(capture):
         for r in records(body):
             q=_normalise_option_snapshot_record(r)
             yield item('option_quote','options',r['symbol'],r.get('quote_time',r.get('timestamp')),
+                       instrument_id=r.get('instrument_id'),
                        **{k:q.get(k) for k in ('bid','ask','bid_size','ask_size','implied_volatility','delta','gamma','theta','vega','rho','volume','open_interest')},iv_units='DECIMAL')
     elif kind=='event_catalog':
         from event_algo import _market_cutoff
@@ -120,13 +121,16 @@ def adapt(capture):
             yield item('quote','crypto',capture.symbol,price=(bid+ask)/2,bid=bid,ask=ask,
                        bid_size=body['bids'][0][1],ask_size=body['asks'][0][1],book_update_id=body.get('lastUpdateId'),
                        bids=body['bids'],asks=body['asks'],price_basis='BOOK_MIDPOINT')
-    elif kind in ('crypto_bars','stock_bars','webull_crypto_bars','futures_bars'):
+    elif kind in ('crypto_bars','stock_bars','webull_crypto_bars','futures_bars','option_bars'):
         interval=params.get('interval') or {'D':'1d','M60':'1h','M1':'1m'}.get(params.get('timespan'))
-        module='equities' if kind=='stock_bars' else 'futures' if kind=='futures_bars' else 'crypto'
+        module='equities' if kind=='stock_bars' else 'options' if kind=='option_bars' else 'futures' if kind=='futures_bars' else 'crypto'
         if interval not in ('1m','1h','1d'):
             raise ValueError('Unknown candle interval.')
-        raw_bars=body if kind=='crypto_bars' else [b for r in records(body) for b in (r['result'] if isinstance(r.get('result'),list) else [r])]
-        for r in raw_bars:
+        raw_bars=([(capture.symbol, bar) for bar in body] if kind=='crypto_bars' else
+                  [(parent.get('symbol', capture.symbol), bar)
+                   for parent in records(body)
+                   for bar in (parent['result'] if isinstance(parent.get('result'), list) else [parent])])
+        for observed_symbol, r in raw_bars:
             if isinstance(r,list):
                 fields=dict(zip(('open','high','low','close','volume'),r[1:6])); opened=stamp(r[0]); closed=stamp(r[6])+timedelta(milliseconds=1)
             else:
@@ -134,13 +138,13 @@ def adapt(capture):
                 fields=_normalise_webull_bar(r,strict_ohlc=True)
                 if fields is None: continue
                 opened=stamp(fields.pop('time'))
-                if interval=='1d' and module=='equities':
+                if interval=='1d' and module in ('equities','options'):
                     bounds=session_bounds(opened.date() if opened.hour==0 else opened.astimezone(ET).date())
                     if not bounds: continue
                     closed=bounds[1]
                 else: closed=opened+timedelta(seconds={'1m':60,'1h':3600,'1d':86400}[interval])
             if closed<=received:
-                yield item('bar',module,capture.symbol,opened,**fields,interval=interval,complete_at=iso(closed))
+                yield item('bar',module,observed_symbol,opened,**fields,interval=interval,complete_at=iso(closed))
     elif kind=='dominance':
         r=body['data']
         yield item('dominance','crypto','BTC_DOMINANCE',r['updated_at'],value=r['market_cap_percentage']['btc'])
@@ -173,7 +177,7 @@ def validate_row(row):
             raise ValueError('Invalid OHLC.')
         complete=stamp(row.get('complete_at'))
         minimum=when+timedelta(seconds={'1m':60,'1h':3600,'1d':86400}[row['interval']])
-        if row['module']=='equities' and row['interval']=='1d':
+        if row['module'] in ('equities','options') and row['interval']=='1d':
             bounds=session_bounds(when.date() if when.hour==0 else when.astimezone(ET).date())
             if not bounds:raise ValueError('Non-session equity bar.')
             minimum=bounds[1]
@@ -280,15 +284,31 @@ def compare_books(rows):
             'basis':'Exact ticker, one-to-one receipts within five seconds. No exchange timestamp, latency, broker depth equivalence or fill guarantee is inferred.'}
 
 
-def build_archive(user_id,start,end):
+def build_archive(user_id,start,end,*,option_only=False,option_symbols=None):
     start,end=stamp(start),stamp(end)
     if not start<end or (end-start).days>370:raise ValueError('Choose an archive window of at most 370 days.')
-    query=ResearchCapture.query.filter(ResearchCapture.user_id==user_id,ResearchCapture.received_at>=start.replace(tzinfo=None),ResearchCapture.received_at<end.replace(tzinfo=None)).order_by(ResearchCapture.id)
+    query=ResearchCapture.query.filter(ResearchCapture.user_id==user_id,ResearchCapture.received_at>=start.replace(tzinfo=None),ResearchCapture.received_at<end.replace(tzinfo=None))
+    if option_only:
+        # Daily IV needs only the close-window option chain and its underlying quote.
+        # Broad Event/crypto history can exceed the general dataset record limit.
+        query=query.filter(ResearchCapture.kind.in_(('stock_quotes','option_catalog','option_quotes')))
+        if option_symbols:
+            query=query.filter(ResearchCapture.symbol.in_(option_symbols))
+    query=query.order_by(ResearchCapture.id)
     hashes=[];excluded=Counter();iv_jobs=[]
     def read_rows():
         from itertools import chain
         total=0
-        for capture in chain(warmup_captures(user_id,start),query.yield_per(25)):
+        for capture in chain(() if option_only else warmup_captures(user_id,start),query.yield_per(25)):
+            if option_only and capture.kind=='option_catalog':
+                try:
+                    params=json.loads(capture.metadata_json).get('parameters',{})
+                    if (datetime.fromisoformat(params['end_date'])-datetime.fromisoformat(params['start_date'])).days>70:
+                        excluded['Broad catalog excluded from daily IV']+=1
+                        continue
+                except (ValueError,TypeError,KeyError):
+                    excluded['Catalog without narrow date range excluded from daily IV']+=1
+                    continue
             total+=capture.raw_bytes
             if total>MAX_RAW_BYTES or len(hashes)>=20000:raise ValueError('Archive window exceeds 128 MiB / 20,000 batches; narrow the dates.')
             hashes.append([capture.id,capture.sha256])
@@ -303,16 +323,18 @@ def build_archive(user_id,start,end):
         jobs=ResearchJob.query.filter(ResearchJob.user_id==user_id,ResearchJob.kind.in_(('daily_iv','iv_apply')),
             ResearchJob.status=='COMPLETED',ResearchJob.completed_at<start.replace(tzinfo=None),
             ResearchJob.completed_at>=(start-timedelta(days=370)).replace(tzinfo=None)).order_by(ResearchJob.id).limit(801)
-        for job in jobs.yield_per(10):
+        for job in (() if option_only else jobs.yield_per(10)):
             if len(iv_jobs)>=800:raise ValueError('More than 800 prior IV jobs; use a normalized historical import.')
             result=unpack(job.result_gzip)
             iv_jobs.append(job.id)
-            for item in result.get('daily_iv',result).get('accepted',[]):
-                if stamp(item['available_at'])<start:yield validate_row(item)
-        for row in event_evidence(user_id,start,end):
+            batches=([part.get('daily_iv',{}) for part in result['symbols']] if isinstance(result.get('symbols'),list) else [result.get('daily_iv',result)])
+            for batch in batches:
+                for item in batch.get('accepted',[]):
+                    if stamp(item['available_at'])<start:yield validate_row(item)
+        for row in (() if option_only else event_evidence(user_id,start,end)):
             try:yield validate_row(row)
             except (ValueError,TypeError,KeyError) as exc:excluded['Event evidence: '+str(exc)[:100]]+=1
-    data=canonical(read_rows(),{'origin':'LOCAL_ARCHIVE','captures':hashes,'prior_iv_job_ids':iv_jobs,'start':iso(start),'end':iso(end),'source_verified':False},excluded)
+    data=canonical(read_rows(),{'origin':'LOCAL_ARCHIVE','captures':hashes,'prior_iv_job_ids':iv_jobs,'start':iso(start),'end':iso(end),'source_verified':False,'scope':'OPTIONS_CLOSE_WINDOW' if option_only else 'FULL_ARCHIVE','option_symbols':option_symbols if option_only else None},excluded)
     data['quality'].update(evaluation_start=iso(start),evaluation_end=iso(end),
                            warmup_observations=sum(stamp(r['available_at'])<start for r in data['records']))
     return data

@@ -13,7 +13,7 @@ from event_algo import is_event_strategy_admin
 from portfolio_algo_models import (
     DEFAULT_ALLOCATIONS, DEFAULT_MASTER_CIO_PROMPT, DEFAULT_MODULE_SETTINGS, DEFAULT_QUANT_WATCHLISTS,
     PortfolioStrategyOrder, PortfolioStrategyPosition, PortfolioStrategyLot,
-    PortfolioEquitySnapshot, PortfolioAudit, PortfolioEngineLog
+    PortfolioEquitySnapshot, PortfolioAudit, PortfolioEngineLog, PortfolioStrategyRevision, PortfolioAIReview
 )
 from services import portfolio_engine as engine
 from services.portfolio_audit_context import audit_prompt_policy, DEFAULT_AUDIT_GUIDANCE
@@ -211,6 +211,50 @@ def portfolio_algo_update_config():
 @portfolio_admin_required
 def portfolio_algo_status():
     return jsonify(engine.portfolio_status(current_user.id))
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/strategy-revisions', methods=['GET'])
+@portfolio_admin_required
+def portfolio_strategy_revisions():
+    import difflib
+    from services.strategy_client import request as strategy_request, StrategyUnavailable
+    rows = PortfolioStrategyRevision.query.filter_by(user_id=current_user.id).order_by(
+        PortfolioStrategyRevision.id.desc()).limit(20).all()
+    result = []
+    for row in rows:
+        candidate = json.loads(row.source_json).get('source', '')
+        try:
+            parent = strategy_request('version_source', module=row.module, code_sha256=row.parent_sha256)['source']
+            diff = ''.join(difflib.unified_diff(parent.splitlines(keepends=True),
+                candidate.splitlines(keepends=True), fromfile=row.parent_sha256[:12],
+                tofile=row.candidate_sha256[:12]))
+        except (StrategyUnavailable, KeyError, ValueError):
+            diff = None
+        result.append({'id': row.id, 'module': row.module, 'status': row.status,
+            'created_at': row.created_at.isoformat() + 'Z', 'activated_at': row.activated_at.isoformat() + 'Z' if row.activated_at else None,
+            'parent_sha256': row.parent_sha256, 'candidate_sha256': row.candidate_sha256,
+            'diff': diff, 'validation': engine.loads(row.validation_json, {}),
+            'rollback_reason': row.rollback_reason})
+    reviews = PortfolioAIReview.query.filter_by(user_id=current_user.id).order_by(
+        PortfolioAIReview.id.desc()).limit(20).all()
+    return jsonify(success=True, revisions=result, reviews=[
+        {'id': row.id, 'day': row.review_day.isoformat(), 'status': row.status,
+         'message': row.message, 'provider': row.provider, 'model': row.model,
+         'request_count': row.request_count, 'cost_usd': row.cost_usd}
+        for row in reviews])
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/strategy-revisions/<int:revision_id>/rollback', methods=['POST'])
+@portfolio_admin_required
+def portfolio_strategy_revision_rollback(revision_id):
+    from services.strategy_client import request as strategy_request
+    row = PortfolioStrategyRevision.query.filter_by(id=revision_id, user_id=current_user.id).first()
+    if not row or row.status != 'ACTIVE':
+        raise ValueError('Active revision not found for this administrator.')
+    result = strategy_request('rollback', module=row.module, expected_sha256=row.candidate_sha256)
+    row.status, row.rollback_reason = 'ROLLED_BACK', 'Administrator requested atomic strategy rollback.'
+    db.session.commit()
+    return jsonify(success=True, result=result)
 
 
 @portfolio_algo_bp.route('/api/webull/portfolio-algo/data-check', methods=['POST'])

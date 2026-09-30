@@ -1,8 +1,11 @@
 """As-of research data boundary and reproducible daily IV previews."""
 from bisect import bisect_right
 from collections import defaultdict, Counter
-from datetime import timedelta
+from datetime import datetime, timedelta
+import hashlib
+import json
 import time
+from core.extensions import db
 from services.research_dataset import stamp,iso
 from services.portfolio_strategy_signals import finite,utc,ET,fresh_quote
 from services.portfolio_iv import atm_pair,collection_window,iv_series,iv_source
@@ -20,6 +23,7 @@ class ResearchMarketData:
         for key,rows in self.groups.items():
             rows.sort(key=lambda r:r['at']);self.times[key]=[r['at'] for r in rows]
         self.iv_observations=iv_observations or []
+        self.option_readiness={}
 
     def rows(self,kind,module,now):
         key=(kind,module)
@@ -133,7 +137,11 @@ class ResearchMarketData:
             days[day]=r['value']
         values=[v for day,v in sorted(days.items()) if day not in conflicts and utc(now).astimezone(ET).date()-timedelta(days=370)<=day<=utc(now).astimezone(ET).date()][-252:]
         rank=100*(current-min(values))/(max(values)-min(values)) if len(values)>=252 and max(values)>min(values) else None
-        return price,quoted,max(0,min(100,rank)) if rank is not None else None
+        rank=max(0,min(100,rank)) if rank is not None else None
+        self.option_readiness[root]={'current_iv':current, 'valid_sessions':len(values),
+            'short_iv_percentile_30':100*sum(value<=current for value in values[-30:])/30 if len(values)>=30 else None,
+            'annual_iv_rank_252':rank}
+        return price,quoted,rank
 
     def spread_mark(self,details,now):
         quotes=[]
@@ -170,6 +178,51 @@ def iv_preview(dataset,target):
             'direct_scalar_iv_rows_not_promoted':sum(r['kind']=='iv' for r in dataset['records'])}
 
 
+def record_option_coverage(user_id, dataset, preview, target):
+    """Upsert quality evidence per observed underlying/session without inventing missing IV."""
+    from portfolio_algo_models import PortfolioOptionCoverage as Coverage
+    from services.portfolio_engine import settings_for
+    from portfolio_algo_models import PortfolioStrategyConfig
+    from services.portfolio_strategy_signals import select_credit_spread
+    from services.portfolio_iv import iv_source
+    cfg = PortfolioStrategyConfig.query.filter_by(user_id=user_id).first()
+    option_settings = settings_for(cfg)['options'] if cfg else {'target_dte': target, 'min_ivr': 40, 'target_delta': 25}
+    feed = ResearchMarketData(dataset)
+    symbols = {row.get('root') for row in dataset['records']
+               if row.get('kind') == 'contract' and row.get('module') == 'options' and row.get('root')}
+    days = {stamp(row['available_at']).astimezone(ET).date()
+            for row in dataset['records'] if row.get('module') == 'options' and row.get('kind') == 'option_quote'}
+    accepted = {(row['symbol'], stamp(row['event_at']).astimezone(ET).date()): row
+                for row in preview['accepted']}
+    for symbol in sorted(symbols):
+        for day in sorted(days):
+            item = accepted.get((symbol, day))
+            prior = Coverage.query.filter_by(user_id=user_id, symbol=symbol, session_day=day,
+                target_dte=target, source=iv_source(target)).first()
+            if prior is None:
+                prior = Coverage(user_id=user_id, symbol=symbol, session_day=day,
+                    target_dte=target, source=iv_source(target))
+                db.session.add(prior)
+            if item and item['source'] == 'WEBULL_PRODUCTION':
+                prior.iv_valid = True
+                prior.evidence_sha256 = dataset['provenance'].get('captures') and hashlib.sha256(
+                    json.dumps(dataset['provenance']['captures'], sort_keys=True).encode()).hexdigest()
+                try:
+                    at = stamp(item['available_at'])
+                    price, quotes, _ = feed.option_chain(symbol, target, at, require_complete=True)
+                    select_credit_spread(quotes, price, None, option_settings, at, allow_warmup=True)
+                    prior.spread_valid = True
+                    prior.reason = None
+                except (ValueError, KeyError, TypeError) as exc:
+                    prior.spread_valid = False
+                    prior.reason = 'IV valid; spread replay incomplete: ' + str(exc)[:180]
+            elif not prior.iv_valid:
+                prior.spread_valid = False
+                prior.reason = 'No complete compatible close-window IV pair. Exclusions: ' + str(preview['exclusions'])[:180]
+            prior.checked_at = datetime.utcnow()
+    db.session.flush()
+
+
 def apply_iv(user_id,dataset_id,digest,target):
     """Append only compatible self-collected daily values; never replace history."""
     from core.extensions import db
@@ -181,6 +234,7 @@ def apply_iv(user_id,dataset_id,digest,target):
     if data['provenance'].get('origin')!='LOCAL_ARCHIVE':raise ValueError('Imported provider history remains isolated research data; it cannot relabel the live Webull series.')
     preview=iv_preview(data,target); inserted=existing=conflicts=0
     with job_slot(user_id,'iv-history'):
+        record_option_coverage(user_id, data, preview, target)
         for item in preview['accepted']:
             if item['source']!='WEBULL_PRODUCTION':continue
             series=iv_series(item['symbol'],target);day=stamp(item['event_at']).astimezone(ET).date()

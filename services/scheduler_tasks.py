@@ -1452,6 +1452,9 @@ def start_background_jobs(app=None):
     quant_event_thread.start()
     quant_audit_thread = threading.Thread(target=portfolio_audit_loop, args=(app,), daemon=True, name="quant-cio-audits")
     quant_audit_thread.start()
+    from services.portfolio_strategy_review import strategy_review_loop
+    quant_review_thread = threading.Thread(target=strategy_review_loop, args=(app,), daemon=True, name="quant-daily-strategy-review")
+    quant_review_thread.start()
     from services.portfolio_audit_lifecycle import audit_recovery_loop
     quant_recovery_thread = threading.Thread(target=audit_recovery_loop, args=(app,), daemon=True, name="quant-audit-recovery")
     quant_recovery_thread.start()
@@ -1556,6 +1559,7 @@ def start_background_jobs(app=None):
         "quantitative_strategy": quant_thread,
         "quantitative_event_handoff": quant_event_thread,
         "quantitative_audits": quant_audit_thread,
+        "quantitative_strategy_review": quant_review_thread,
         "quantitative_audit_recovery": quant_recovery_thread,
         "options_thesis": t_opt,
         "sync": sync_thread,
