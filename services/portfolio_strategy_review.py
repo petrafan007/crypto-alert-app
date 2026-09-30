@@ -14,6 +14,7 @@ from portfolio_algo_models import (
 )
 from services.portfolio_strategy_signals import ET
 from services.strategy_client import request, StrategyUnavailable
+from services.provider_resilience import AuditCancelled
 
 logger = logging.getLogger(__name__)
 MODULES = ('equities', 'options', 'crypto', 'events')
@@ -232,13 +233,12 @@ def review_user(user_id, day=None):
             'The source is a proposal for forward shadow evaluation; do not claim profitability. '
             'Do not ask for lower risk limits or guaranteed trade frequency.'
         )
-        from services.provider_resilience import AuditCancelled
         attempts = {'count': 0}
         limit = payload['daily_request_limit']
         def observe_attempt(**event):
             if event.get('event') == 'started':
                 attempts['count'] += 1
-                row.request_count = attempts['count']
+                row.request_count = min(attempts['count'], limit)
                 db.session.commit()
         def request_guard():
             if attempts['count'] > limit:
@@ -285,6 +285,15 @@ def review_user(user_id, day=None):
                     row.status = 'CANDIDATE_REJECTED'
         row.completed_at = datetime.utcnow()
         db.session.commit()
+    except AuditCancelled:
+        db.session.rollback()
+        row = db.session.get(Review, row.id, populate_existing=True)
+        if row:
+            row.status = 'AI_BUDGET_EXHAUSTED'
+            row.message = 'The configured AI provider did not return a usable response within the daily request ceiling; review evidence was saved.'
+            row.request_count = min(row.request_count or 0, limit)
+            row.completed_at = datetime.utcnow()
+            db.session.commit()
     except Exception as exc:
         db.session.rollback()
         row = db.session.get(Review, row.id, populate_existing=True)

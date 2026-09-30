@@ -302,6 +302,32 @@ class PortfolioLedgerTests(unittest.TestCase):
         db.session.remove()
         self.context.pop()
 
+    def test_daily_ai_budget_exhaustion_preserves_measured_review(self):
+        from credentials import User
+        from portfolio_algo_models import PortfolioAIReview
+        from services.portfolio_strategy_review import review_user
+        from services.provider_resilience import AuditCancelled
+        db.session.add(User(id=self.user_id, username='quant-budget-'+str(self.user_id), pwd_hash='test'))
+        self.cfg.enabled = True
+        self.cfg.master_ai_config = json.dumps({'cadence':'six_hours','daily_strategy_requests':1})
+        db.session.commit()
+        snapshot={'modules':{}, 'active_sources':{}, 'daily_request_limit':1}
+        def exhausted(**kwargs):
+            kwargs['attempt_observer'](event='started')
+            kwargs['request_guard']()
+            kwargs['attempt_observer'](event='started')
+            kwargs['request_guard']()
+            raise AssertionError('Guard should stop the second attempt.')
+        with patch('services.portfolio_strategy_review.promote_mature_shadows'), \
+             patch('services.portfolio_strategy_review.evidence', return_value=snapshot), \
+             patch('services.ai_service.is_ai_enabled', return_value=True), \
+             patch('services.ai_service.call_ai_with_web_search', side_effect=exhausted):
+            review = review_user(self.user_id)
+        self.assertEqual(review.status, 'AI_BUDGET_EXHAUSTED')
+        self.assertEqual(review.request_count, 1)
+        self.assertIsNotNone(review.evidence_sha256)
+        self.assertEqual(PortfolioAIReview.query.filter_by(user_id=self.user_id).count(),1)
+
     def entry(self, module='equities', side='LONG', price=100, stop=95, **kwargs):
         if module == 'events':
             from event_algo import get_or_create_config
