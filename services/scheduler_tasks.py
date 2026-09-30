@@ -1436,9 +1436,7 @@ def start_background_jobs(app=None):
     event_algo_thread.start()
     from services.event_runtime import event_maintenance_loop
     event_settlement_thread = threading.Thread(target=event_maintenance_loop, args=(app,), kwargs={'job':'settlement'}, daemon=True, name='event-settlement')
-    event_report_thread = threading.Thread(target=event_maintenance_loop, args=(app,), kwargs={'job':'report'}, daemon=True, name='event-reports')
     event_settlement_thread.start()
-    event_report_thread.start()
 
     from services.jev_evaluations import jev_worker_loop
     jev_thread = threading.Thread(target=jev_worker_loop, args=(app,), daemon=True, name='jev-shadow-worker')
@@ -1555,7 +1553,6 @@ def start_background_jobs(app=None):
         **research_threads,
         "event_strategy": event_algo_thread,
         "event_settlement": event_settlement_thread,
-        "event_reports": event_report_thread,
         "quantitative_strategy": quant_thread,
         "quantitative_event_handoff": quant_event_thread,
         "quantitative_audits": quant_audit_thread,

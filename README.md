@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.5.2
+**Version:** 4.6.0
 
 ## Recent Updates
+
+### v4.6.0
+* **Continuous paper decisions through losses:** Event hourly, daily and high-water loss values and the portfolio 10% floor are measurements, not entry stops. Existing paper history is retained. Per-trade size, cash, open exposure, quote quality, duplicate-entry checks and the manual kill switch still apply. Futures aggregate daily-loss gating is retired too.
+* **One scheduled report check:** Runs at 5:00 p.m. America/New_York on NYSE trading days. The six-hour Master and separate Event AI intervals are retired; Event facts are included in the portfolio report. No-change or stale-worker checks are saved without AI calls. Existing reports remain archived.
+* **Daily rule review:** Runs after the close at 5:30 p.m. Eastern (including weekends for crypto/Event activity), skips AI when no qualified decision or closed trade changed, and retries transient failures within the saved daily request ceiling. Restricted, versioned rules in the separate strategy service may begin paper-only experiments after fresh forward decisions; the first five closed results are assessed for rollback. Neither a proposal nor a short paper run proves profitability.
+* [v4.6.0 operation, safeguards and limitations](docs/quant_strategy_v4.6.0.md).
 
 ### v4.5.2
 * **Resilient six-hour reports:** When an AI provider fails after portfolio evidence is collected, save a factual category-by-category report while marking the AI attempt `FAILED` instead of losing the measured facts. Keep the provider error and measured evidence visible.

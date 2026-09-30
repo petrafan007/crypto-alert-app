@@ -450,12 +450,6 @@ def portfolio_algo_ai_config():
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             raise ValueError('A JSON object is required.')
-        if "audit_hours" in payload and user_setting:
-            try:
-                user_setting.event_strategy_audit_hours = max(1, min(72, int(payload["audit_hours"])))
-            except (TypeError, ValueError):
-                pass
-
         if "master_ai_prompt" in payload:
             prompt = payload["master_ai_prompt"]
             if isinstance(prompt, str) and len(prompt) <= 16000:
@@ -500,14 +494,12 @@ def portfolio_algo_ai_config():
         )
         db.session.commit()
 
-    audit_hours = getattr(user_setting, "event_strategy_audit_hours", 6) if user_setting else 6
     
     from routes.event_algo import sanitize_event_ai_config
     sanitized_ai = sanitize_event_ai_config(cfg.master_ai_config or "{}")
     sanitized_ai['audit_guidance'] = engine.loads(cfg.master_ai_config, {}).get('audit_guidance', DEFAULT_AUDIT_GUIDANCE)
     return jsonify({
         "success": True,
-        "audit_hours": audit_hours,
         "master_ai_prompt": cfg.master_ai_prompt,
         "default_master_ai_prompt": DEFAULT_MASTER_CIO_PROMPT,
         "audit_prompt_policy": audit_prompt_policy(),

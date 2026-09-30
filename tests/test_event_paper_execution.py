@@ -184,7 +184,6 @@ class LegacyEventFillTests(unittest.TestCase):
         row = self.decision()
         for key, value in (('max_open_positions', 0), ('max_contracts_per_trade', 0),
                            ('max_dollars_per_trade', .4), ('max_open_dollars', .4),
-                           ('max_hourly_loss', .4), ('max_daily_loss', .4), ('max_drawdown', .4),
                            ('max_spread', .001), ('min_volume', 100),
                            ('min_time_remaining_seconds', 400), ('max_time_remaining_seconds', 100)):
             with self.subTest(key=key):
@@ -212,17 +211,22 @@ class LegacyEventFillTests(unittest.TestCase):
         self.assertEqual(simulate_paper_fills(1, config=other, decision_ids=[row.id])['simulated_count'], 0)
         self.assertEqual(EventStrategyOrder.query.count(), 1)
 
-    def test_closed_losses_and_pending_orders_reserve_risk_across_configs(self):
-        row = self.decision()
-        for status, settled, pnl in (('SIMULATED_PENDING', None, 0),
-                                    ('SIMULATED_SETTLED', datetime.utcnow(), -1)):
-            existing = EventStrategyOrder(user_id=1, config_id=999, mode='PAPER',
-                contract_symbol=status, outcome='YES', side='BUY', quantity=1,
-                filled_quantity=0 if settled is None else 1, filled_price=.4, fee=.02,
-                status=status, settled_at=settled, realized_pnl=pnl)
-            db.session.add(existing)
-            self.limits(max_daily_loss=.8)
-            self.assertEqual(simulate_paper_fills(1, decision_ids=[row.id])['simulated_count'], 0)
+    def test_pending_exposure_blocks_but_closed_loss_does_not(self):
+        pending = EventStrategyOrder(user_id=1, config_id=999, mode='PAPER',
+            contract_symbol='OLD', outcome='YES', side='BUY', quantity=1,
+            filled_quantity=0, filled_price=.4, fee=.02, status='SIMULATED_PENDING')
+        db.session.add(pending)
+        self.limits(max_open_dollars=.4)
+        row = self.decision('PENDING_BLOCK')
+        self.assertEqual(simulate_paper_fills(1, decision_ids=[row.id])['simulated_count'], 0)
+        pending.status = 'SIMULATED_SETTLED'
+        pending.filled_quantity = 1
+        pending.settled_at = datetime.utcnow()
+        pending.realized_pnl = -1
+        self.limits(max_open_dollars=30, max_daily_loss=0, max_drawdown=0)
+        db.session.commit()
+        row = self.decision('AFTER_LOSS')
+        self.assertEqual(simulate_paper_fills(1, decision_ids=[row.id])['simulated_count'], 1)
 
     def test_invalid_settings_and_ambiguous_history_fail_closed(self):
         self.decision()

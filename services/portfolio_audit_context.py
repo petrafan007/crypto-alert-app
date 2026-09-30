@@ -9,7 +9,7 @@ ENGINE_PURPOSE = (
     'deterministic strategies, realistic simulated costs, capital budgets and risk controls before '
     'judging their performance. It does not trade the real account. The annual return target is a '
     'research objective, never a forecast or promise. AI audits explain observed operation and suggest '
-    'evidence-based engineering or strategy experiments. A separate daily AI review may propose pure strategy source changes; deterministic validation and forward paper evidence gate activation. Audits themselves do not execute trades or change settings. '
+    'evidence-based engineering or strategy experiments. A separate daily AI review may propose pure strategy source changes; deterministic validation and a fresh forward decision sample gate paper-only experiment activation. Audits themselves do not execute trades or change settings. '
     'Only configured watchlists and enabled modules are eligible for new entries. Existing disabled-module '
     'positions still count as risk. Do not recommend enabling disabled futures just to fill an allocation. '
     'Allocation percentages are maximum strategy budgets, not mandatory invested weights. Unused cash '
@@ -47,9 +47,8 @@ EVIDENCE_RULES = (
     'claim a long-term annual target has failed on a one-day sample. A supplied target-path shortfall is a '
     'descriptive difference at that timestamp, not proof of strategy failure. Follow operational_summary '
     'as the authoritative explanation of each module; specialist prose is not a source of new facts. '
-    'The implemented portfolio circuit pauses new entries at a 10% loss of starting bankroll; '
-    'do not claim it is missing or suggest adding it. This floor differs from historical peak-to-trough '
-    'maximum drawdown. Do not attribute maximum drawdown to current holdings or a single trade without '
+    'Aggregate paper losses and drawdown are measurements, not automatic entry stops. '
+    'The administrator manual kill switch and per-trade exposure controls remain binding. Do not attribute maximum drawdown to current holdings or a single trade without '
     'a supplied attribution. Drift is actual_pct minus target_pct. Open Event market value is '
     'collateral plus unrealized P&L, not original collateral. Use supplied formatted monetary facts '
     'rather than inventing notional exposure. Do not recommend relaxing confidence, edge, dominance '
@@ -117,8 +116,8 @@ STRATEGY_RULES = {
     'equities': 'US regular sessions only. Completed 63-session trend and SPY relative strength rank the two leading watchlist symbols. Independent oversold RSI/lower-band pullback may also qualify in a positive long trend. Exits: RSI recovery, trend failure or ATR stop.',
     'options': 'Defined-risk 20–65 DTE credit spreads use fresh two-sided legs. During IV warm-up, completed underlying history, realized volatility and current ATM IV support a separately labeled paper regime. Thirty verified IV sessions permit a short percentile; 252 permit annual IV rank. Exits: profit target, spread stop or seven DTE. No invented IV history.',
     'crypto': '24/7 completed-hour Donchian breakouts with ATR trailing stops. ETH/SOL also require measured Bitcoin dominance at or below the preceding seven-day average. BTC does not require that filter.',
-    'futures': 'Opt-in micro futures opening-range breakout with volume/VWAP confirmation, actual contract metadata, margin reserves, session exits and daily risk ceiling.',
-    'events': 'Fresh eligible Event-worker decisions, configured confidence/net edge after fees, selected-side executable books and pre-cutoff entries. Use the saved Event risk policy in structured evidence for position, fee-inclusive exposure, contract, rolling-hour, Eastern-day and realized high-water drawdown limits; do not substitute historical hard-coded limits. Open stakes and fees reserve loss allowance. Supplied ask depth caps quantity; missing depth is unknown. Mark at purchased-side bid; settle only on explicit provider evidence. Unresolved expired positions remain open and occupy capacity.',
+    'futures': 'Opt-in micro futures opening-range breakout with volume/VWAP confirmation, actual contract metadata, margin reserves and session exits. Daily P&L is measured, not an entry stop.',
+    'events': 'Fresh eligible Event-worker decisions, configured confidence/net edge after fees, selected-side executable books and pre-cutoff entries. Saved per-trade dollars, open dollars, positions and contract count limit paper exposure. Rolling-hour, Eastern-day P&L and realized high-water drawdown remain measured facts, not entry stops. Supplied ask depth caps quantity; missing depth is unknown. Mark at purchased-side bid; settle only on explicit provider evidence. Unresolved expired positions remain open and occupy capacity.',
 }
 
 

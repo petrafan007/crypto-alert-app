@@ -216,7 +216,6 @@ export default function Settings({ isLightMode }) {
     copilot_chat_pre: '',
     copilot_chat_post: '',
     copilot_title_prompt: '',
-    event_strategy_audit_hours: 6,
     event_strategy_audit_prompt: ''
   });
   const [loading, setLoading] = useState(false);
@@ -275,7 +274,6 @@ export default function Settings({ isLightMode }) {
   const [eventStrategyReportMessage, setEventStrategyReportMessage] = useState('');
   const [showEventStrategyAIModal, setShowEventStrategyAIModal] = useState(false);
   const [eventStrategyAIConfig, setEventStrategyAIConfig] = useState({
-    audit_hours: 6,
     audit_prompt: '',
     ai_config: {
       primary: { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
@@ -513,7 +511,7 @@ export default function Settings({ isLightMode }) {
         const audit = normalizePortfolioAudit(response.data.audit || {});
         setEventStrategyReport(audit);
         setEventStrategyReportHistory(previous => [audit, ...previous.filter(item => item.id !== audit.id)]);
-        if (['SUCCESS', 'PENDING'].includes(audit.status)) {
+        if (['SUCCESS', 'PENDING', 'NO_CHANGE'].includes(audit.status)) {
           setEventStrategyReportMessage(auditOutcomeMessage(audit));
         } else {
           setEventStrategyReportError(auditOutcomeMessage(audit));
@@ -547,8 +545,8 @@ export default function Settings({ isLightMode }) {
         setEventStrategyReport(previous => selectPortfolioAudit(audits, previous?.id));
         if (!audits.some(report => report.status === 'PENDING')) {
           const latest = audits[0];
-          setEventStrategyReportMessage(latest?.status === 'SUCCESS' ? auditOutcomeMessage(latest) : '');
-          setEventStrategyReportError(latest?.status !== 'SUCCESS' ? auditOutcomeMessage(latest) : '');
+          setEventStrategyReportMessage(['SUCCESS', 'NO_CHANGE'].includes(latest?.status) ? auditOutcomeMessage(latest) : '');
+          setEventStrategyReportError(!['SUCCESS', 'NO_CHANGE'].includes(latest?.status) ? auditOutcomeMessage(latest) : '');
         }
       } catch (error) {
         if (!cancelled) setEventStrategyReportError('Unable to refresh report progress. The saved audit continues; reopen report history to check it.');
@@ -565,7 +563,6 @@ export default function Settings({ isLightMode }) {
       const response = await axios.get('/api/webull/portfolio-algo/ai-config', { withCredentials: true });
       if (response.data?.success) {
         const loadedConfig = {
-          audit_hours: response.data.audit_hours ?? 6,
           master_ai_prompt: response.data.master_ai_prompt ?? '',
           default_master_ai_prompt: response.data.default_master_ai_prompt || '',
           audit_prompt_policy: response.data.audit_prompt_policy,
@@ -600,12 +597,10 @@ export default function Settings({ isLightMode }) {
         setEventStrategyMessage('Event Strategy AI configuration saved successfully.');
         setSettings((prev) => ({
           ...prev,
-          event_strategy_audit_hours: response.data.audit_hours,
           event_strategy_master_ai_prompt: response.data.master_ai_prompt,
         }));
         setEventStrategyAIConfig((prev) => ({
           ...prev,
-          audit_hours: response.data.audit_hours,
           master_ai_prompt: response.data.master_ai_prompt,
           ai_config: response.data.ai_config,
         }));
@@ -4358,40 +4353,10 @@ export default function Settings({ isLightMode }) {
                       </span>
                     </div>
                     <p style={{ fontSize: '0.82rem', color: isLightMode ? '#475569' : '#94a3b8', margin: '0 0 16px 0', lineHeight: 1.45 }}>
-                      Configures Event operational reports and their AI prompt. Portfolio master audits follow the separate Off/Daily/Weekly schedule in the Quantitative Strategy Engine.
+                      Configures the shared AI providers and prompt. One portfolio report check runs at 5:00 p.m. Eastern on NYSE trading days; Event evidence is included.
                     </p>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, alignItems: 'start' }}>
-                      <div style={{ maxWidth: 280 }}>
-                        <label style={{ display: 'block', marginBottom: 8, fontSize: '12px', fontWeight: 600, color: isLightMode ? '#334155' : '#e2e8f0' }}>
-                          Event operational report interval (hours)
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="72"
-                          step="1"
-                          value={eventStrategyAIConfig.audit_hours || 6}
-                          onChange={(e) => setEventStrategyAIConfig((prev) => ({
-                            ...prev,
-                            audit_hours: parseInt(e.target.value) || 6,
-                          }))}
-                          style={{
-                            width: '100%',
-                            padding: '8px 12px',
-                            borderRadius: 6,
-                            background: isLightMode ? '#ffffff' : '#1e293b',
-                            color: isLightMode ? '#0f172a' : '#ffffff',
-                            border: '1px solid rgba(148,163,184,0.3)',
-                            boxSizing: 'border-box',
-                            fontSize: '13px'
-                          }}
-                        />
-                        <span style={{ fontSize: '11px', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 6, display: 'block', lineHeight: 1.4 }}>
-                          Cadence for autonomous evaluations (Default: 6 hours, e.g. 4, 6, 8, 12, 24).
-                        </span>
-                      </div>
-
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                           <label htmlFor="quant-master-audit-prompt" style={{ fontSize: '12px', fontWeight: 600, color: isLightMode ? '#334155' : '#e2e8f0' }}>

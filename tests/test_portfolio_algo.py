@@ -19,55 +19,39 @@ from services.portfolio_strategy_signals import (
 
 
 class PortfolioSignalsTests(unittest.TestCase):
-    def test_master_audit_schedule_market_closes(self):
-        # UTC inputs; NYSE holiday, early-close and daylight-saving rules.
+    def test_master_audit_runs_once_at_five_eastern_on_nyse_sessions(self):
         cases = [
-            ('off', '2026-09-08T21:00:00', None, False),
-            ('six_hours', '2026-09-08T21:00:00', None, True),
-            ('six_hours', '2026-09-08T21:00:00', '2026-09-08T15:00:00', True),
-            ('six_hours', '2026-09-08T20:59:59', '2026-09-08T15:00:00', False),
-            ('invalid', '2026-09-08T21:00:00', None, False),
-            ('daily', '2026-09-08T19:59:59', '2026-09-04T20:00:00', False),
-            ('daily', '2026-09-08T20:00:00', '2026-09-04T20:00:00', True),
-            ('daily', '2026-09-08T21:00:00', '2026-09-08T20:00:00', False),
-            ('daily', '2026-09-06T15:00:00', None, True),
-            ('daily', '2026-09-06T15:00:00', '2026-09-04T20:00:00', False),
-            ('daily', '2026-11-27T17:59:59', '2026-11-25T21:00:00', False),
-            ('daily', '2026-11-27T18:00:00', '2026-11-25T21:00:00', True),
-            ('daily', '2026-11-30T20:59:59', '2026-11-27T18:00:00', False),
-            ('daily', '2026-11-30T21:00:00', '2026-11-27T18:00:00', True),
-            ('weekly', '2026-09-07T21:00:00', None, False),
-            ('weekly', '2026-09-08T19:59:59', None, False),
-            ('weekly', '2026-09-08T20:00:00', None, True),
-            ('weekly', '2026-09-11T21:00:00', None, True),
-            ('weekly', '2026-09-11T21:00:00', '2026-09-08T20:00:00', False),
-            ('weekly', '2026-09-14T19:00:00', '2026-09-08T20:00:00', False),
-            ('weekly', '2026-09-14T20:00:00', '2026-09-08T20:00:00', True),
+            ('2026-09-08T20:59:59', None, False),
+            ('2026-09-08T21:00:00', None, True),
+            ('2026-09-08T21:00:00', '2026-09-08T20:59:59', True),
+            ('2026-09-08T21:00:00', '2026-09-08T21:00:00', False),
+            ('2026-09-06T21:00:00', None, False),
+            ('2026-09-07T21:00:00', None, False),
+            ('2026-11-27T21:59:59', None, False),
+            ('2026-11-27T22:00:00', None, True),
+            ('2026-11-30T22:00:00', '2026-11-27T22:00:00', True),
         ]
-        for cadence, now, last, expected in cases:
-            with self.subTest(cadence=cadence, now=now, last=last):
-                cfg = SimpleNamespace(master_ai_config=json.dumps({'cadence': cadence}))
+        for now, last, expected in cases:
+            with self.subTest(now=now, last=last):
                 state = SimpleNamespace(last_audit_at=datetime.fromisoformat(last) if last else None)
-                self.assertEqual(e.audit_due(cfg, state, datetime.fromisoformat(now)), expected)
-        self.assertFalse(e.audit_due(SimpleNamespace(), SimpleNamespace(last_audit_at=None), datetime.utcnow()))
+                self.assertEqual(e.audit_due(SimpleNamespace(), state, datetime.fromisoformat(now)), expected)
+        state = SimpleNamespace(last_audit_at=None)
+        self.assertEqual(e.scheduled_report_due(state, datetime.fromisoformat('2026-09-08T16:00:00')).isoformat(),
+                         '2026-09-08T21:00:00+00:00')
 
     def config(self):
         return SimpleNamespace(total_bankroll=50000, module_settings_json='{}', allocations_json=json.dumps(DEFAULT_ALLOCATIONS), watchlists_json=json.dumps(DEFAULT_QUANT_WATCHLISTS))
 
-    def test_cadence_save_preserves_dedicated_ai_configuration(self):
+    def test_fixed_report_schedule_retires_cadence_without_losing_ai_settings(self):
         cfg = self.config()
-        saved = {'cadence': 'off', 'primary': {'provider': 'gemini', 'model': 'saved-model', 'api_key': 'encrypted-key'},
-                 'secondary': {'provider': 'ollama', 'model': 'saved-fallback'},
-                 'tertiary': {'provider': 'ollama', 'model': 'saved-local'}, 'audit_guidance': 'Custom guidance'}
+        saved = {'cadence': 'six_hours', 'primary': {'provider': 'gemini', 'model': 'saved-model', 'api_key': 'encrypted-key'},
+                 'audit_guidance': 'Custom guidance'}
         cfg.master_ai_config = json.dumps(saved)
-        for cadence in ('off', 'six_hours', 'daily', 'weekly'):
-            result = e.validate_config({'master_ai_config': {'cadence': cadence}}, cfg)
-            self.assertEqual(json.loads(result['master_ai_config']), {**saved, 'cadence': cadence})
-            self.assertEqual(json.loads(cfg.master_ai_config), saved)
+        result = e.validate_config({'master_ai_config': {'daily_strategy_requests': 3}}, cfg)
+        self.assertEqual(json.loads(result['master_ai_config']), {k: v for k, v in saved.items() if k != 'cadence'} |
+                         {'daily_strategy_requests': 3})
         with self.assertRaises(ValueError):
-            e.validate_config({'master_ai_config': {'cadence': 'off', 'primary': {}}}, cfg)
-        cfg.master_ai_config = None
-        self.assertEqual(json.loads(e.validate_config({'master_ai_config': {'cadence': 'off'}}, cfg)['master_ai_config']), {'cadence': 'off'})
+            e.validate_config({'master_ai_config': {'cadence': 'six_hours'}}, cfg)
 
     def test_allocation_rejects_nan_negative_unknown_and_rounding(self):
         for value in (float('nan'), float('inf'), -1, True):

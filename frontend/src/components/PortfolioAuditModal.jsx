@@ -162,32 +162,32 @@ export default function PortfolioAuditModal({
                     padding: '3px 10px',
                     borderRadius: 12,
                     background:
-                      report.status === 'SUCCESS'
+                      ['SUCCESS', 'NO_CHANGE'].includes(report.status)
                         ? 'rgba(34, 197, 94, 0.18)'
                         : report.status === 'DEGRADED' || report.status === 'FAILED'
                         ? 'rgba(239, 68, 68, 0.18)'
                         : 'rgba(234, 179, 8, 0.18)',
                     border: `1px solid ${
-                      report.status === 'SUCCESS'
+                      ['SUCCESS', 'NO_CHANGE'].includes(report.status)
                         ? '#22c55e'
                         : report.status === 'DEGRADED' || report.status === 'FAILED'
                         ? '#ef4444'
                         : '#eab308'
                     }`,
                     color:
-                      report.status === 'SUCCESS'
+                      ['SUCCESS', 'NO_CHANGE'].includes(report.status)
                         ? '#4ade80'
                         : report.status === 'DEGRADED' || report.status === 'FAILED'
                         ? '#f87171'
                         : '#fde047',
                   }}
                 >
-                  {report.status === 'SUCCESS' ? 'REPORT COMPLETE' : report.status}
+                  {report.status === 'NO_CHANGE' ? 'NO MATERIAL CHANGE' : report.status === 'SUCCESS' ? 'REPORT COMPLETE' : report.status}
                 </span>
               )}
             </h3>
             <div style={{ fontSize: '0.82rem', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4 }}>
-              Portfolio and enabled-module assessments. Automatic reports follow the master Off/Daily/Weekly schedule; manual reports remain available.
+              Portfolio and enabled-module assessments. One scheduled check runs at 5:00 p.m. Eastern on NYSE trading days; manual reports remain available.
             </div>
           </div>
           <button

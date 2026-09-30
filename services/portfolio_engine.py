@@ -186,12 +186,13 @@ def validate_config(payload, cfg):
         result['master_ai_prompt'] = prompt.strip() or DEFAULT_MASTER_CIO_PROMPT
     if 'master_ai_config' in payload:
         audit = payload['master_ai_config']
-        if not isinstance(audit, dict) or set(audit)-{'cadence', 'daily_strategy_requests'} or audit.get('cadence') not in ('off', 'six_hours', 'daily', 'weekly'):
-            raise ValueError('Audit cadence must be off, six hours, daily or weekly.')
+        if not isinstance(audit, dict) or set(audit)-{'daily_strategy_requests'}:
+            raise ValueError('Scheduled reports run at 5 p.m. Eastern on NYSE trading days; only the daily strategy request ceiling is configurable.')
         if 'daily_strategy_requests' in audit and (type(audit['daily_strategy_requests']) is not int or
                 not 1 <= audit['daily_strategy_requests'] <= 3):
             raise ValueError('Daily strategy AI request ceiling must be 1–3.')
         saved = loads(getattr(cfg, 'master_ai_config', None), {})
+        saved.pop('cadence', None)  # Retire persisted interval settings on next save.
         result['master_ai_config'] = json.dumps({**saved, **audit})
     return result
 
@@ -212,6 +213,11 @@ def ensure_portfolio(user_id):
             if state is None:
                 state = State(user_id=user_id)
                 db.session.add(state)
+            elif state.kill_switch and (state.pause_reason or '').startswith('Portfolio drawdown reached 10% of starting bankroll.'):
+                # Release only the retired automatic paper-loss pause. Manual kills retain their own reason.
+                state.kill_switch = False
+                state.pause_reason = None
+                cfg.worker_status = 'RUNNING' if cfg.enabled else 'STOPPED'
             db.session.commit()
             return cfg, acc, state
         except IntegrityError:
@@ -339,7 +345,7 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
         if allowance['reason']:
             return reject(allowance['reason'])
         budget = min(budget, allowance['entry_budget'])
-        max_loss = allowance['remaining_loss_allowance']
+        max_loss = allowance['entry_budget']
         max_contracts = risk['max_contracts_per_trade']
         raw_depth = details.get('selected_ask_size')
         details['depth_status'] = 'UNKNOWN' if raw_depth is None else 'REPORTED'
@@ -355,12 +361,6 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     if unit <= 0 or budget <= 0:
         return reject('Insufficient module budget or available cash.')
     stop = signal.get('stop')
-    if module == 'futures':
-        ceiling = settings_for(cfg)['futures']['max_intraday_loss']
-        day_start = utc(now).astimezone(ET).replace(hour=0, minute=0, second=0, microsecond=0)
-        day_pnl = sum(l.realized_pnl for l in current_lots(cfg.user_id, state, False) if l.module=='futures' and l.closed_at and utc(l.closed_at)>=day_start)
-        open_risk = sum(abs(db.session.get(Position, l.position_id).average_cost-(l.stop_price or 0))*db.session.get(Position, l.position_id).quantity*l.multiplier + 2*l.entry_fee for l in current_lots(cfg.user_id, state) if l.module=='futures')
-        max_loss = max(0, ceiling+min(day_pnl, 0)-open_risk)
     quantity = entry_quantity(module, price, budget, acc.total_equity, stop,
                               multiplier=multiplier, unit=unit, max_loss=max_loss, max_contracts=max_contracts)
     if quantity <= 0:
@@ -390,11 +390,7 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
 
 
 def check_circuit(cfg, acc, state):
-    if acc.total_equity <= acc.initial_balance*0.9:
-        if not state.kill_switch:
-            snapshot(cfg, acc, state, datetime.utcnow())
-        trigger_pause(cfg, state, 'Portfolio drawdown reached 10% of starting bankroll. New entries paused for review; continuous 24/7 market monitoring and viability tracking active.')
-        return True
+    # Aggregate paper losses are measured, but never stop the experiment.
     return state.kill_switch
 
 
@@ -661,10 +657,8 @@ def portfolio_status(user_id):
     from portfolio_algo_models import PortfolioAIReview, PortfolioStrategyRevision
     from services.strategy_client import request as strategy_request, StrategyUnavailable
     latest_audit = Audit.query.filter_by(user_id=user_id).order_by(Audit.id.desc()).first()
-    cadence = loads(cfg.master_ai_config, {}).get('cadence', 'off')
-    next_due = ((state.last_audit_at + timedelta(hours=6)).isoformat() + 'Z'
-                if cadence == 'six_hours' and state.last_audit_at else
-                datetime.utcnow().isoformat() + 'Z' if cadence == 'six_hours' else None)
+    cadence = 'NYSE_DAILY_17_ET'
+    next_due = scheduled_report_due(state, datetime.utcnow()).isoformat().replace('+00:00', 'Z')
     review = PortfolioAIReview.query.filter_by(user_id=user_id).order_by(PortfolioAIReview.id.desc()).first()
     revisions = PortfolioStrategyRevision.query.filter_by(user_id=user_id).order_by(PortfolioStrategyRevision.id.desc()).limit(10).all()
     since = datetime.utcnow() - timedelta(hours=24)
@@ -793,8 +787,6 @@ def control(user_id, action):
     if action == 'start':
         if state.kill_switch:
             raise ValueError('Acknowledge the circuit breaker before starting.')
-        if acc.total_equity <= acc.initial_balance*0.9:
-            raise ValueError('Bankroll remains below the circuit-breaker floor.')
         # Reject unsafe legacy persisted configuration before scheduling it.
         validate_config({'module_settings': settings_for(cfg), 'allocations': loads(cfg.allocations_json, {})}, cfg)
         legacy = Position.query.filter_by(user_id=user_id).filter(Position.quantity>0, ~Position.id.in_(db.session.query(Lot.position_id))).first()
@@ -820,14 +812,10 @@ def control(user_id, action):
         event_cfg.worker_status = 'KILLED'
     elif action == 'acknowledge':
         state.pause_reason = None
-        if acc.total_equity <= acc.initial_balance*0.9:
-            cfg.worker_status = 'MONITORING_ONLY'
-            event_cfg.worker_status = 'MONITORING_ONLY'
-        else:
-            state.kill_switch = False
-            cfg.worker_status = 'RUNNING' if cfg.enabled else 'STOPPED'
-            event_cfg.kill_switch = False
-            event_cfg.worker_status = 'RUNNING' if event_cfg.enabled else 'STOPPED'
+        state.kill_switch = False
+        cfg.worker_status = 'RUNNING' if cfg.enabled else 'STOPPED'
+        event_cfg.kill_switch = False
+        event_cfg.worker_status = 'RUNNING' if event_cfg.enabled else 'STOPPED'
     else:
         raise ValueError('Unknown worker action.')
     db.session.commit()
@@ -1008,12 +996,6 @@ def run_scan(user_id, force=False, provider=None):
                 elif old_stop is not None and ((pos.side=='LONG' and price<=old_stop) or (pos.side=='SHORT' and price>=old_stop)):
                     reason = 'STOP_LOSS'
                 mark_position(pos, lot, price)
-                if module == 'futures':
-                    bounds = utc(now).astimezone(ET).replace(hour=0, minute=0, second=0, microsecond=0)
-                    daily = sum(l.realized_pnl for l in current_lots(user_id, state, False) if l.module=='futures' and l.closed_at and utc(l.closed_at)>=bounds)
-                    floating = sum(db.session.get(Position, l.position_id).unrealized_pnl-l.entry_fee for l in current_lots(user_id, state) if l.module=='futures')
-                    if daily+floating <= -settings[module]['max_intraday_loss']:
-                        reason = 'DAILY_LOSS_LIMIT'
                 if reason:
                     _record_portfolio_log(user_id, 'POSITION_CLOSED', f"Closing {module} lot {lot_id} ({symbol}) at {price:.4f}. Reason: {reason}")
                     close_lot(acc, lot, price, reason, now)
@@ -1267,7 +1249,7 @@ def record_signal_decision(user_id, generation, module, symbol, now, price, sign
     row = PortfolioSignalDecision(
         user_id=user_id, generation=generation, module=module, symbol=symbol,
         evaluated_at=now, available_at=available_at, snapshot_sha256=sha,
-        strategy_version=(signal or {}).get('strategy_version', '4.5.0-fixed-risk'),
+        strategy_version=(signal or {}).get('strategy_version', '4.6.0-app-gate'),
         code_sha256=(signal or {}).get('code_sha256', hashlib.sha256(module.encode()).hexdigest()),
         setup=(signal or {}).get('setup'), proposed_action='ENTER' if (signal or {}).get('enter') else 'NO_TRADE',
         disposition=disposition, reason=str(reason or '')[:1000],
@@ -1330,36 +1312,71 @@ def save_audit_progress(audit_id, evidence, stage=None, module=None, **details):
     db.session.commit()
 
 
-def audit_due(cfg, state, now):
-    """Run once per completed daily close or first weekly NYSE close.
+def scheduled_report_due(state, now):
+    """Next due NYSE session at 17:00 America/New_York (DST aware)."""
+    from datetime import timezone
+    local = utc(now).astimezone(ET)
+    for offset in range(15):
+        day = local.date() + timedelta(days=offset)
+        if not session_bounds(day):
+            continue
+        due = datetime.combine(day, datetime.min.time(), tzinfo=ET).replace(hour=17).astimezone(timezone.utc)
+        if offset == 0 and (utc(now) < due or not state.last_audit_at or utc(state.last_audit_at) < due):
+            return due
+        if offset > 0:
+            return due
+    raise ValueError('NYSE calendar has no trading session in the next 15 days.')
 
-    Daily catch-up uses only the latest completed session. Weekly catch-up
-    stays within the current Eastern calendar week. Manual requests bypass
-    this check in reserve_audit.
-    """
-    cadence = loads(getattr(cfg, 'master_ai_config', None), {}).get('cadence', 'off')
-    if cadence == 'six_hours':
-        return state.last_audit_at is None or (utc(now) - utc(state.last_audit_at)).total_seconds() >= 21600
-    if cadence not in ('daily', 'weekly'):
+
+def audit_due(cfg, state, now):
+    """One scheduled check at or after 17:00 ET on each NYSE session day."""
+    local = utc(now).astimezone(ET)
+    if not session_bounds(local.date()) or (local.hour, local.minute) < (17, 0):
         return False
-    now = utc(now)
-    today = now.astimezone(ET).date()
-    if cadence == 'daily':
-        days = (today - timedelta(days=offset) for offset in range(8))
-    else:
-        monday = today - timedelta(days=today.weekday())
-        days = (monday + timedelta(days=offset) for offset in range(7))
-    for day in days:
-        bounds = session_bounds(day)
-        if not bounds:
+    due = datetime.combine(local.date(), datetime.min.time(), tzinfo=ET).replace(hour=17)
+    return state.last_audit_at is None or utc(state.last_audit_at) < due.astimezone(utc(now).tzinfo)
+
+
+def scheduled_material_fingerprints(user_id, generation):
+    """Stable per-module paper activity; quote-number churn never triggers AI."""
+    filled = dict(db.session.query(PortfolioSignalDecision.module, func.max(PortfolioSignalDecision.id)).filter(
+        PortfolioSignalDecision.user_id == user_id, PortfolioSignalDecision.generation == generation,
+        PortfolioSignalDecision.disposition == 'FILLED').group_by(PortfolioSignalDecision.module).all())
+    closed = {module: (stamp, count) for module, stamp, count in db.session.query(
+        Lot.module, func.max(Lot.closed_at), func.count(Lot.id)).filter(
+        Lot.user_id == user_id, Lot.generation == generation, Lot.closed_at.isnot(None)).group_by(Lot.module).all()}
+    blocked = PortfolioSignalDecision.query.filter(
+        PortfolioSignalDecision.user_id == user_id,
+        PortfolioSignalDecision.generation == generation,
+        PortfolioSignalDecision.proposed_action == 'ENTER',
+        PortfolioSignalDecision.disposition != 'FILLED').order_by(
+        PortfolioSignalDecision.id.desc()).limit(1000).all()
+    blocks = {module: set() for module in MODULES}
+    for row in blocked:
+        if row.module not in blocks:
             continue
-        close = utc(bounds[1])
-        if close > now:
-            if cadence == 'weekly':
-                return False
-            continue
-        return state.last_audit_at is None or utc(state.last_audit_at) < close
-    return False
+        blocks[row.module].add((row.symbol, row.setup, row.disposition,
+            re.sub(r'\$?\d+(?:\.\d+)?', '<n>', row.reason[:120])))
+    state = db.session.get(State, user_id)
+    telemetry = loads(state.telemetry_json, {}) if state else {}
+    from portfolio_algo_models import PortfolioStrategyRevision
+    revisions = {module: [] for module in MODULES}
+    for row in PortfolioStrategyRevision.query.filter_by(user_id=user_id).order_by(
+            PortfolioStrategyRevision.id.desc()).limit(20).all():
+        revisions[row.module].append((row.id, row.status))
+    return {module: hashlib.sha256(json.dumps({
+        'fills': filled.get(module), 'closes': closed.get(module),
+        'blocks': sorted(blocks[module]), 'status': telemetry.get(module, {}).get('status'),
+        'revisions': revisions[module]}, sort_keys=True, default=str).encode()).hexdigest()
+        for module in MODULES}
+
+
+def scheduled_material_signature(user_id, generation, now):
+    modules = scheduled_material_fingerprints(user_id, generation)
+    state = db.session.get(State, user_id)
+    cfg = Config.query.filter_by(user_id=user_id, name='Default Multi-Asset Portfolio').first()
+    return hashlib.sha256(json.dumps({'modules': modules, 'worker': cfg.worker_status if cfg else None,
+        'kill_switch': state.kill_switch if state else None}, sort_keys=True).encode()).hexdigest()
 
 
 def reserve_audit(user_id, scheduled=False):
@@ -1435,7 +1452,37 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
     cfg, _, state = ensure_portfolio(user_id)
     evidence = {}
     try:
-        evidence = portfolio_status(user_id)
+        if scheduled:
+            freshness = (utc(datetime.utcnow()) - utc(state.last_scan_at)).total_seconds() if state.last_scan_at else None
+            if freshness is None or freshness > 900:
+                row.status = 'DATA_STALE'
+                row.content = 'Scheduled report check found no portfolio scan in the last 15 minutes. AI analysis was skipped; inspect worker health.'
+                row.evidence_json = json.dumps({'as_of': datetime.utcnow().isoformat()+'Z',
+                    'last_scan_at': state.last_scan_at.isoformat()+'Z' if state.last_scan_at else None,
+                    'ai_requests_skipped': True, 'audit_progress': {'stage': 'completed',
+                    'finished_at': datetime.utcnow().isoformat()+'Z'}})
+                db.session.commit()
+                return audit_dict(row)
+            module_signatures = scheduled_material_fingerprints(user_id, state.generation)
+            signature = scheduled_material_signature(user_id, state.generation, datetime.utcnow())
+            previous = Audit.query.filter(Audit.user_id == user_id, Audit.generation == state.generation,
+                Audit.id < audit_id, Audit.status.in_(('SUCCESS', 'PARTIAL', 'NO_CHANGE'))).order_by(Audit.id.desc()).first()
+            previous_evidence = loads(previous.evidence_json, {}) if previous else {}
+            changed_modules = [module for module in MODULES
+                if module_signatures[module] != previous_evidence.get('material_module_signatures', {}).get(module)]
+            if previous_evidence.get('material_signature') == signature:
+                row.status = 'NO_CHANGE'
+                row.content = 'No material paper decision or outcome change since the prior report. No AI requests made.'
+                row.evidence_json = json.dumps({'material_signature': signature,
+                    'material_module_signatures': module_signatures, 'as_of': datetime.utcnow().isoformat()+'Z',
+                    'audit_progress': {'stage': 'completed', 'finished_at': datetime.utcnow().isoformat()+'Z'},
+                    'ai_requests_skipped': True})
+                db.session.commit()
+                return audit_dict(row)
+            evidence['material_signature'] = signature
+            evidence['material_module_signatures'] = module_signatures
+            evidence['changed_modules'] = changed_modules
+        evidence.update(portfolio_status(user_id))
         if evidence['generation'] != row.generation:
             raise ValueError('Paper run changed while the audit was being prepared.')
         evidence.pop('equity_curve', None)
@@ -1454,7 +1501,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                 if evidence['account']['total_equity'] > 0 else None),
         }
         evidence['target_annual_return'] = cfg.target_annual_return
-        evidence['audit_schema_version'] = '2.95.0'
+        evidence['audit_schema_version'] = '4.6.0'
         evidence['audit_guidance'] = loads(cfg.master_ai_config, {}).get('audit_guidance')
         evidence['goal_tracking'].pop('curve', None)
         evidence['audit_context_version'] = 3
@@ -1469,12 +1516,14 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             if bounds and bounds[0] > utc(now):
                 next_open = bounds[0].astimezone(ET).isoformat()
                 break
+        today_bounds = session_bounds(local.date())
         evidence['exchange_session'] = {'as_of_eastern': local.isoformat(), 'open_now': in_session(now),
-                                        'has_session_today': session_bounds(local.date()) is not None,
+                                        'has_session_today': today_bounds is not None,
+                                        'today_close_eastern': today_bounds[1].astimezone(ET).isoformat() if today_bounds else None,
                                         'next_open_eastern': next_open}
         evidence['engine_purpose'] = ENGINE_PURPOSE
         evidence['risk_controls'] = {
-            'portfolio_circuit_implemented': True, 'loss_of_starting_bankroll_pause_pct': 10,
+            'portfolio_circuit_implemented': False, 'aggregate_loss_entry_stop': False,
             'new_entries_paused': state.kill_switch, 'pause_reason': state.pause_reason,
             'per_position_bucket_limit_pct': {'futures': 100, 'other_modules': 20}, 'modeled_stop_risk_portfolio_pct': 0.5,
             'event_risk_policy': evidence['modules'].get('events', {}).get('risk_policy'),
@@ -1495,16 +1544,20 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
         for module in enabled_modules:
             metrics = evidence['modules'][module]
             if metrics['status'] == 'MARKET_CLOSED':
-                explanation = ('The exchange calendar is closed. The session gate skipped new-entry data requests '
-                               'and signal evaluation. This is normal waiting, not evidence of missing price history '
-                               'or a provider outage. Next open: ' + str(next_open) + '.')
+                if today_bounds and utc(now) >= utc(today_bounds[1]):
+                    explanation = ('The regular session ended at ' + today_bounds[1].astimezone(ET).isoformat() +
+                                   '. New equity/option entries are closed now; review recorded decisions, fills and '
+                                   'outcomes from the completed session before judging activity. Next open: ' + str(next_open) + '.')
+                else:
+                    explanation = ('The exchange calendar is closed. New-entry signal evaluation waits for the next '
+                                   'regular session; this alone does not indicate a data-provider failure. Next open: ' +
+                                   str(next_open) + '.')
             elif module == 'events' and metrics['status'] == 'RISK_BLOCKED':
                 explanation = ('The saved Event risk policy blocks new entries. The paper ledger is still '
                                'monitoring and settling existing contracts. The administrator must review '
-                               'the limit; the AI cannot change it. Measured realized drawdown is $' +
+                               'the per-trade or open-exposure limit. Measured realized drawdown is $' +
                                str(metrics.get('risk_policy', {}).get('realized_drawdown')) +
-                               ' versus saved $' + str(metrics.get('risk_policy', {}).get('limits', {}).get('max_drawdown')) +
-                               ' ceiling. ' + str(metrics.get('messages', [''])[0]))
+                               '. ' + str(metrics.get('messages', [''])[0]))
             elif module == 'events':
                 explanation = ('Use the independently timestamped Event consumer and upstream decision diagnostics. '
                                'An empty eligible-decision lookup is not evidence that market data or the AI provider succeeded. '
@@ -1558,6 +1611,8 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             module_responses, module_errors = {}, {}
             evidence['module_audits'] = module_responses
             evidence['module_audit_errors'] = module_errors
+            evidence['module_audits_skipped'] = ([m for m in enabled_modules if m not in evidence['changed_modules']]
+                                                 if scheduled else [])
             save_audit_progress(audit_id, evidence)
             def observe_attempt(**event):
                 from services.ai_provider_protocol import safe_provider_error
@@ -1570,7 +1625,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                 save_audit_progress(audit_id, evidence, **{'retry_at': None, **event})
 
             last_prompt_finished_at = None
-            for module in enabled_modules:
+            for module in (m for m in enabled_modules if not scheduled or m in evidence['changed_modules']):
                 wait_for_next_audit_prompt(last_prompt_finished_at, prompt_interval)
                 _record_portfolio_log(user_id, 'AUDIT_MODULE', f'Running AI auditor for module: {module}')
                 save_audit_progress(audit_id, evidence, 'module', module)

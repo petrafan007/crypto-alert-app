@@ -44,28 +44,27 @@ class EventRiskPolicyTests(unittest.TestCase):
         self.assertEqual(result['daily_realized_pnl'], -2)
         self.assertEqual(result['realized_drawdown'], 5)
         self.assertEqual(result['remaining_loss_allowance'], 10)
+        self.assertFalse(result['aggregate_loss_limits_enforced'])
 
     def test_existing_stakes_and_fees_reserve_loss_budget(self):
         result = entry_allowance(normalize_risk_config({}), [lot(1, collateral=10, fee=.3)], datetime.utcnow())
         self.assertAlmostEqual(result['open_dollars'], 10.3)
         self.assertAlmostEqual(result['reserved_loss'], 10.6)
-        self.assertAlmostEqual(result['remaining_loss_allowance'], 4.4)
+        self.assertAlmostEqual(result['remaining_loss_allowance'], 10.0)
 
-    def test_zero_caps_block_and_gains_do_not_expand_daily_risk(self):
+    def test_exposure_caps_bind_but_realized_losses_remain_measurements(self):
         now = datetime.utcnow()
         for key in ('max_open_positions', 'max_dollars_per_trade', 'max_open_dollars',
-                    'max_contracts_per_trade', 'max_hourly_loss', 'max_daily_loss', 'max_drawdown'):
+                    'max_contracts_per_trade'):
             with self.subTest(key=key):
                 self.assertIsNotNone(entry_allowance(normalize_risk_config({key: 0}), [], now)['reason'])
-        result = entry_allowance(normalize_risk_config({}), [lot(1, now-timedelta(minutes=1), 100)], now)
-        self.assertEqual(result['remaining_loss_allowance'], 15)
-
-    def test_realized_drawdown_persists_across_daily_rollover(self):
-        now = datetime.utcnow()
         rows = [lot(1, now-timedelta(days=3), 20), lot(2, now-timedelta(days=2), -36)]
-        result = entry_allowance(normalize_risk_config({}), rows, now)
-        self.assertEqual(result['realized_drawdown'], 36)
-        self.assertIsNotNone(result['reason'])
+        for key in ('max_hourly_loss', 'max_daily_loss', 'max_drawdown'):
+            with self.subTest(key=key):
+                result = entry_allowance(normalize_risk_config({key: 0}), rows, now)
+                self.assertIsNone(result['reason'])
+                self.assertEqual(result['realized_drawdown'], 36)
+                self.assertEqual(result['entry_budget'], 10)
 
 
 class EventRiskLedgerTests(unittest.TestCase):
@@ -142,15 +141,12 @@ class EventRiskLedgerTests(unittest.TestCase):
         self.assertIsNone(self.enter('SECOND')[0])
         self.assertEqual(engine.Lot.query.count(), 1)
 
-    def test_hourly_losses_block_and_other_generations_do_not(self):
+    def test_hourly_losses_do_not_block_new_paper_entries(self):
         row, _, _ = self.enter()
         engine.close_lot(self.acc, row, 0, 'SETTLEMENT', self.now)
         db.session.commit()
         self.save_limits(max_hourly_loss=5)
-        self.assertIsNone(self.enter('SECOND')[0])
-        self.state.generation += 1
-        db.session.commit()
-        self.assertIsNotNone(self.enter('THIRD')[0])
+        self.assertIsNotNone(self.enter('SECOND')[0])
 
     def test_saved_position_limit_and_config_changes_are_reloaded(self):
         self.save_limits(max_open_positions=1)

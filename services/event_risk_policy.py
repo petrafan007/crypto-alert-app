@@ -54,10 +54,9 @@ def normalize_risk_config(value):
 def entry_allowance(risk, lots, now):
     """Caller supplies only the user's current-generation Event lots under lock.
 
-    Dollar exposure includes entry fees. Loss allowances reserve all open
-    stakes plus entry and estimated exit fees, without crediting unrealized
-    gains. Hourly is rolling; daily starts at Eastern midnight. Drawdown is
-    measured from the closed-trade net-P&L high-water mark for this generation.
+    Dollar exposure includes entry fees. Historical hourly and daily P&L and
+    high-water drawdown are measured for review, never used to halt paper
+    entries. Open exposure and individual-trade limits remain binding.
     """
     now = utc(now)
     day_start = now.astimezone(ET).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -80,23 +79,19 @@ def entry_allowance(risk, lots, now):
             daily += pnl
     if not math.isfinite(exposure) or not math.isfinite(open_risk) or exposure < 0 or open_risk < 0:
         raise ValueError('Event open risk history is invalid.')
-    loss_remaining = min(
-        risk['max_hourly_loss'] + min(0.0, hourly),
-        risk['max_daily_loss'] + min(0.0, daily),
-        risk['max_drawdown'] - max(0.0, peak - cumulative),
-    ) - open_risk
     budget = min(risk['max_dollars_per_trade'], risk['max_open_dollars'] - exposure)
     reason = None
     if len(opened) >= risk['max_open_positions']:
         reason = 'Saved Event open-position limit reached, including pending settlements.'
     elif budget <= 0 or risk['max_contracts_per_trade'] <= 0:
         reason = 'Saved Event dollar exposure or contract limit leaves no entry allowance.'
-    elif loss_remaining <= 0:
-        reason = 'Saved Event hourly, daily or drawdown loss allowance is exhausted after reserving open risk.'
     return {
         'limits': risk, 'open_positions': len(opened), 'open_dollars': exposure,
         'reserved_loss': open_risk, 'hourly_realized_pnl': hourly, 'daily_realized_pnl': daily,
         'realized_drawdown': max(0.0, peak - cumulative),
-        'entry_budget': max(0.0, budget), 'remaining_loss_allowance': max(0.0, loss_remaining),
+        'entry_budget': max(0.0, budget),
+        # Compatibility for legacy paper execution and position sizing.
+        'remaining_loss_allowance': max(0.0, budget),
+        'aggregate_loss_limits_enforced': False,
         'reason': reason,
     }

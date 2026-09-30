@@ -165,8 +165,8 @@ def simulate_legacy_fills(user_id, *, config=None, decision_ids=None, limit=25):
                 evidence['event_risk_at_fill'] = allowance
                 if allowance['reason']:
                     raise ValueError(allowance['reason'])
-                if price + fee > allowance['entry_budget'] + 1e-9 or price + 2 * fee > allowance['remaining_loss_allowance'] + 1e-9:
-                    raise ValueError('Saved Event dollar/loss allowance cannot fund one contract including fees.')
+                if price + fee > allowance['entry_budget'] + 1e-9 or price + 2 * fee > allowance['entry_budget'] + 1e-9:
+                    raise ValueError('Saved Event per-trade dollar allowance cannot fund one contract including fees.')
                 order = EventStrategyOrder(user_id=user_id, config_id=config.id, decision_id=decision.id,
                     mode='PAPER', broker='WEBULL', client_order_id='paper-' + uuid4().hex,
                     contract_symbol=decision.contract_symbol, outcome=decision.outcome, side='BUY',

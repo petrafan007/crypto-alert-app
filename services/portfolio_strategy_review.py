@@ -12,7 +12,7 @@ from portfolio_algo_models import (
     PortfolioSignalDecision as Decision, PortfolioStrategyRevision as Revision,
     PortfolioAIReview as Review,
 )
-from services.portfolio_strategy_signals import ET
+from services.portfolio_strategy_signals import ET, utc
 from services.strategy_client import request, StrategyUnavailable
 from services.provider_resilience import AuditCancelled
 
@@ -108,64 +108,87 @@ def _drawdown(values):
     return worst
 
 
+def assess_active_experiments(user_id):
+    """A weak paper experiment rolls back to the prior rule; trading continues."""
+    for revision in Revision.query.filter_by(user_id=user_id, status='ACTIVE').all():
+        validation = json.loads(revision.validation_json or '{}')
+        if validation.get('mode') != 'PAPER_EXPERIMENT' or not revision.activated_at:
+            continue
+        lots = Lot.query.filter(Lot.user_id == user_id, Lot.module == revision.module,
+            Lot.opened_at >= revision.activated_at, Lot.closed_at.isnot(None)).order_by(Lot.closed_at).limit(20).all()
+        observed = [lot for lot in lots if json.loads(lot.details_json or '{}').get('code_sha256') == revision.candidate_sha256]
+        if len(observed) < 5:
+            continue
+        net = round(sum(lot.realized_pnl for lot in observed), 2)
+        wins = sum(lot.realized_pnl > 0 for lot in observed)
+        validation['post_activation_closed'] = len(observed)
+        validation['post_activation_net_pnl_usd'] = net
+        validation['post_activation_wins'] = wins
+        revision.validation_json = json.dumps(validation)
+        if net < 0 and wins <= 1:
+            try:
+                request('rollback', module=revision.module, expected_sha256=revision.candidate_sha256)
+                revision.status = 'ROLLED_BACK'
+                revision.rollback_reason = 'Paper experiment lost money on its first five or more closed trades with at most one winner; prior rule restored.'
+            except StrategyUnavailable as exc:
+                revision.rollback_reason = 'Rollback unavailable: ' + str(exc)[:180]
+        else:
+            validation['post_activation_status'] = 'CONTINUE_OBSERVING'
+            revision.validation_json = json.dumps(validation)
+        db.session.commit()
+
+
 def promote_mature_shadows(user_id, cfg):
-    """Require future paper outcomes; no candidate is judged on its proposal date."""
+    """Activate a validated, restricted paper experiment after fresh decisions."""
     from services.portfolio_engine import settings_for
     min_ivr = settings_for(cfg)['options']['min_ivr']
     for revision in Revision.query.filter_by(user_id=user_id, status='SHADOW').order_by(Revision.id).limit(10):
-        scope = (Decision.user_id == user_id, Decision.module == revision.module,
-                 Decision.evaluated_at > revision.created_at)
-        sessions = db.session.query(func.count(func.distinct(func.date(Decision.evaluated_at)))).filter(*scope).scalar() or 0
-        closed = db.session.query(Decision, Lot).join(Lot, Decision.lot_id == Lot.id).filter(
-            *scope, Lot.closed_at.isnot(None)).order_by(Decision.id).limit(1000).all()
-        if sessions < 30 or len(closed) < 20:
+        active_versions = [active for active in Revision.query.filter_by(user_id=user_id, status='ACTIVE')
+                           if active.module == revision.module]
+        if any(json.loads(active.validation_json or '{}').get('post_activation_closed', 0) < 5
+               for active in active_versions):
             continue
-        # Two deterministic observations per symbol/session sample the
-        # complete future period without running tens of thousands of
-        # restricted subprocesses. All observed closed fills are included.
+        next_day = datetime.combine(utc(revision.created_at).astimezone(ET).date() + timedelta(days=1),
+                                    datetime.min.time(), tzinfo=ET).astimezone(timezone.utc).replace(tzinfo=None)
+        scope = (Decision.user_id == user_id, Decision.module == revision.module,
+                 Decision.evaluated_at >= next_day)
+        sessions = db.session.query(func.count(func.distinct(func.date(Decision.evaluated_at)))).filter(*scope).scalar() or 0
+        if sessions < 1 or utc(revision.created_at).astimezone(ET).date() >= datetime.now(ET).date():
+            continue
         edges = db.session.query(func.min(Decision.id), func.max(Decision.id)).filter(
             *scope).group_by(func.date(Decision.evaluated_at), Decision.symbol).all()
         sample_ids = {row_id for first, last in edges for row_id in (first, last)}
-        sample_ids.update(row.id for row, _ in closed)
-        if len(sample_ids) > 2000 or len(closed) >= 1000:
-            revision.status, revision.rollback_reason = 'REJECTED', 'Forward holdout exceeds bounded replay capacity.'
+        if len(sample_ids) > 2000:
+            revision.status, revision.rollback_reason = 'REJECTED', 'Forward decision sample exceeds bounded replay capacity.'
             db.session.commit()
             continue
         heldout = Decision.query.filter(Decision.id.in_(sample_ids)).order_by(Decision.id).all()
-        selected = []
-        added = 0
+        if not heldout:
+            continue
+        added = changed = breaches = 0
         try:
             for row in heldout:
                 reply = request('evaluate_candidate', module=revision.module,
                     candidate_sha256=revision.candidate_sha256, features=_features(row, min_ivr))
+                changed += reply['enter'] != (row.proposed_action == 'ENTER')
                 if reply['enter'] and row.proposed_action != 'ENTER':
                     added += 1
-                if reply['enter'] and row.lot_id:
-                    selected.append(row.lot_id)
+                if reply['enter'] and row.disposition in ('RISK_HELD', 'RISK_BLOCKED'):
+                    breaches += 1
         except (StrategyUnavailable, KeyError, ValueError) as exc:
             revision.status, revision.rollback_reason = 'REJECTED', 'Shadow replay failed: ' + str(exc)[:180]
             db.session.commit()
             continue
-        ordered = [lot for _, lot in sorted(closed, key=lambda pair: (pair[1].closed_at, pair[1].id))]
-        selected_ids = set(selected)
-        baseline = [lot.realized_pnl for lot in ordered]
-        candidate = [lot.realized_pnl for lot in ordered if lot.id in selected_ids]
-        breaches = Decision.query.filter(*scope, Decision.disposition.in_(
-            ('RISK_HELD', 'RISK_BLOCKED'))).count()
-        baseline_score = sum(baseline) - _drawdown(baseline)
-        candidate_score = sum(candidate) - _drawdown(candidate)
-        complete = (added == 0 and breaches == 0 and len(candidate) >= max(10, len(baseline) // 2)
-                    and candidate_score > baseline_score and _drawdown(candidate) <= _drawdown(baseline))
-        validation = {'observation_sessions': sessions, 'closed_trades': len(closed),
-                      'risk_breaches': breaches,
-                      'selected_closed_trades': len(candidate), 'new_unobserved_entries': added,
-                      'baseline_score': baseline_score, 'candidate_score': candidate_score,
-                      'baseline_drawdown_usd': _drawdown(baseline),
-                      'candidate_drawdown_usd': _drawdown(candidate),
-                      'scope': 'Forward-only suppression replay on observed paper fills; no credit for hypothetical new fills.'}
+        validation = {'mode': 'PAPER_EXPERIMENT', 'observation_sessions': sessions,
+                      'sampled_decisions': len(heldout), 'changed_decisions': changed,
+                      'new_unobserved_entries': added, 'risk_breaches': breaches,
+                      'scope': 'Forward decision replay only. New entries have no counterfactual outcome; paper results are measured after activation.'}
         revision.validation_json = json.dumps(validation)
-        if not complete:
-            revision.status, revision.rollback_reason = 'REJECTED', 'Forward holdout did not improve the net-risk score within observable fill support.'
+        if changed == 0:
+            db.session.commit()
+            continue  # Wait for a forward decision the candidate actually changes.
+        if breaches:
+            revision.status, revision.rollback_reason = 'REJECTED', 'Candidate attempted an entry on a recorded per-trade risk hold.'
             db.session.commit()
             continue
         try:
@@ -173,9 +196,11 @@ def promote_mature_shadows(user_id, cfg):
                 parent_sha256=revision.parent_sha256,
                 candidate_sha256=revision.candidate_sha256,
                 evidence_sha256=_hash(validation),
-                gates={'observation_sessions': sessions, 'closed_trades': len(closed),
-                       'risk_breaches': breaches, 'holdout_fresh': True,
-                       'baseline_score': baseline_score, 'candidate_score': candidate_score})
+                gates={'mode': 'PAPER_EXPERIMENT', 'paper_only': True,
+                       'observation_sessions': sessions, 'sampled_decisions': len(heldout),
+                       'risk_breaches': breaches, 'holdout_fresh': True})
+            for active in active_versions:
+                active.status = 'SUPERSEDED'
             revision.status, revision.activated_at = result['status'], datetime.utcnow()
             db.session.commit()
         except StrategyUnavailable as exc:
@@ -189,23 +214,33 @@ def review_user(user_id, day=None):
     from services.portfolio_engine import audit_ai_kwargs
     day = day or datetime.now(ET).date()
     previous = Review.query.filter_by(user_id=user_id, review_day=day).first()
-    if previous and (previous.status != 'RUNNING' or
-                     datetime.utcnow() - previous.started_at <= timedelta(minutes=45)):
-        return previous
     cfg = Config.query.filter_by(user_id=user_id).first()
     if not cfg or not cfg.enabled or cfg.mode != 'PAPER':
         return None
-    if previous and previous.request_count:
-        previous.status, previous.message = 'FAILED', 'Worker interrupted after an AI provider attempt; daily request ceiling preserved.'
-        previous.completed_at = datetime.utcnow()
-        db.session.commit()
-        return previous
+    daily_limit = max(1, min(3, int(json.loads(cfg.master_ai_config or '{}').get('daily_strategy_requests', 1))))
+    if previous:
+        if previous.status in ('NO_CHANGE', 'CANDIDATE_SHADOW', 'CANDIDATE_REJECTED',
+                               'AI_UNAVAILABLE', 'AI_BUDGET_EXHAUSTED'):
+            return previous
+        if previous.status == 'RUNNING' and datetime.utcnow() - previous.started_at <= timedelta(minutes=45):
+            return previous
+        if previous.status == 'FAILED' and previous.completed_at and datetime.utcnow() - previous.completed_at < timedelta(minutes=15):
+            return previous
+        if previous.request_count >= daily_limit:
+            previous.status = 'AI_BUDGET_EXHAUSTED'
+            previous.message = 'Daily request ceiling reached; measured evidence remains saved.'
+            previous.completed_at = datetime.utcnow()
+            db.session.commit()
+            return previous
     row = previous or Review(user_id=user_id, review_day=day, status='RUNNING')
     row.started_at = datetime.utcnow()
+    row.completed_at = None
+    row.status = 'RUNNING'
     if previous is None:
         db.session.add(row)
     db.session.commit()
     try:
+        assess_active_experiments(user_id)
         promote_mature_shadows(user_id, cfg)
         payload = evidence(user_id, cfg)
         for active_revision in Revision.query.filter_by(user_id=user_id, status='ACTIVE').all():
@@ -217,6 +252,21 @@ def review_user(user_id, day=None):
         row.summary_json = json.dumps({'modules': payload['modules'], 'source_hashes':
                                        {module: value['sha256'] for module, value in payload['active_sources'].items()}})
         db.session.commit()
+        if previous is None:
+            prior = Review.query.filter(Review.user_id == user_id, Review.review_day < day,
+                Review.status.in_(('NO_CHANGE', 'CANDIDATE_SHADOW', 'CANDIDATE_REJECTED'))).order_by(Review.review_day.desc()).first()
+            if prior and prior.completed_at:
+                new_entry = Decision.query.filter(Decision.user_id == user_id,
+                    Decision.proposed_action == 'ENTER', Decision.evaluated_at > prior.completed_at).first()
+                new_exit = Lot.query.filter(Lot.user_id == user_id, Lot.closed_at > prior.completed_at).first()
+                source_hashes = {module: value['sha256'] for module, value in payload['active_sources'].items()}
+                prior_hashes = json.loads(prior.summary_json or '{}').get('source_hashes')
+                if not new_entry and not new_exit and source_hashes == prior_hashes:
+                    row.status = 'NO_CHANGE'
+                    row.message = 'No new qualified paper decision or closed trade since the prior review; AI request skipped.'
+                    row.completed_at = datetime.utcnow()
+                    db.session.commit()
+                    return row
         user = db.session.get(User, user_id)
         if not user or not is_ai_enabled(user.username):
             row.status, row.message = 'AI_UNAVAILABLE', 'Configured AI is disabled or unavailable; measured review evidence was saved.'
@@ -230,10 +280,10 @@ def review_user(user_id, day=None):
             'Choose null if evidence does not justify a concrete, safe code experiment. '
             'Source may use only plain if/assign/return, indexing, arithmetic and comparisons; '
             'no imports, attributes, loops, network, risk policy, orders or credentials. '
-            'The source is a proposal for forward shadow evaluation; do not claim profitability. '
+            'The source is a proposal for a restricted paper experiment; do not claim profitability. '
             'Do not ask for lower risk limits or guaranteed trade frequency.'
         )
-        attempts = {'count': 0}
+        attempts = {'count': row.request_count or 0}
         limit = payload['daily_request_limit']
         def observe_attempt(**event):
             if event.get('event') == 'started':
@@ -313,7 +363,7 @@ def strategy_review_loop(app, stop_event=None):
                 from credentials import User
                 from event_algo import is_event_strategy_admin
                 local = datetime.now(ET)
-                if (local.hour, local.minute) >= (0, 30):
+                if (local.hour, local.minute) >= (17, 30):
                     for cfg in Config.query.filter_by(mode='PAPER', enabled=True).all():
                         if is_event_strategy_admin(db.session.get(User, cfg.user_id)):
                             review_user(cfg.user_id, local.date())

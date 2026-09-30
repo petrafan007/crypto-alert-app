@@ -1,5 +1,7 @@
 # Quantitative Strategy Engine v4.5.0
 
+This describes the historical v4.5.0 behavior. The current v4.6.0 policy and schedule are documented in [quant_strategy_v4.6.0.md](quant_strategy_v4.6.0.md).
+
 The quantitative engine makes and grades **paper** decisions. Its saved annual target is 18.5%; that is a research objective, not a trade quota or return promise. The app still owns quote validation, allocation, sizing, fees, stops, Event settlement, and the fixed risk policies. Neither the independent strategy service nor the AI review can place a live order.
 
 ## Why the old engine went quiet

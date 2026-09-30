@@ -83,7 +83,6 @@ const ASSET_MODULE_DEFS = {
     defaultWeight: 10.0,
     paramLabels: [
       { key: 'opening_range_minutes', label: 'ORB Horizon', defaultVal: '15 Minutes (9:30 ET)' },
-      { key: 'max_intraday_loss', label: 'Max Daily Loss Ceiling', defaultVal: '$250.00' },
       { key: 'vwap_filter', label: 'VWAP Reversion Anchor', defaultVal: 'Active' },
       { key: 'contracts', label: 'Micro Indices & Commodities', defaultVal: 'MES, MNQ, MGC' },
     ],
@@ -294,7 +293,7 @@ export default function QuantitativeStrategyEngine({
           watchlists: config.watchlists,
           module_settings: config.module_settings,
           master_ai_prompt: masterAIPromptDraft,
-          master_ai_config: { cadence: config?.master_ai_config?.cadence || 'off', daily_strategy_requests: config?.master_ai_config?.daily_strategy_requests || 1 },
+          master_ai_config: { daily_strategy_requests: config?.master_ai_config?.daily_strategy_requests || 1 },
         },
         { withCredentials: true }
       );
@@ -462,7 +461,7 @@ export default function QuantitativeStrategyEngine({
         <div style={{ margin: '0 20px 16px', padding: 14, border: '1px solid rgba(148,163,184,0.3)', borderRadius: 8 }}>
           <strong>Paper decisions and report health</strong>
           <p style={{ margin: '8px 0' }}>
-            Master report: {engineStatus?.master_report_health?.cadence === 'six_hours' ? 'every six hours' : engineStatus?.master_report_health?.cadence || 'off'}
+            Master report: 5:00 p.m. Eastern on NYSE trading days
             {' · '}Next due: {engineStatus?.master_report_health?.next_due_at ? formatEasternDateTime(engineStatus.master_report_health.next_due_at) : '—'}
             {' · '}Latest: {engineStatus?.master_report_health?.last_status || 'none'}
             {engineStatus?.master_report_health?.last_completed_at && <> at {formatEasternDateTime(engineStatus.master_report_health.last_completed_at)}</>}
@@ -497,9 +496,7 @@ export default function QuantitativeStrategyEngine({
               : engineStatus?.passive_benchmark?.reason || 'unavailable'}.
             {' '}Cash comparison: 0% before interest.</p>
           {engineStatus?.modules?.events?.status === 'RISK_BLOCKED' && <p role="alert">
-            Event entries blocked: measured realized drawdown {formatCurrency(engineStatus.modules.events.risk_policy?.realized_drawdown)}
-            {' '}versus the saved {formatCurrency(engineStatus.modules.events.risk_policy?.limits?.max_drawdown)} drawdown ceiling.
-            {' '}Existing contracts are still monitored and settled. {engineStatus.modules.events.messages?.[0]}
+            Event entries blocked by an individual-trade or open-exposure limit. {engineStatus.modules.events.messages?.[0]}
           </p>}
           {(engineStatus?.modules?.options?.prerequisites || []).map(item => (
             <p key={item.symbol} style={{ margin: '6px 0' }}>Options {item.symbol}: {item.valid_iv_sessions}/30 verified IV sessions for short history,
@@ -1156,22 +1153,6 @@ export default function QuantitativeStrategyEngine({
                           }))}
                         />
                       </label>
-                      <label className="settings-form-group">Max Daily Loss Stop ($)
-                        <input
-                          type="number"
-                          min="100"
-                          max="250"
-                          step="25"
-                          value={config?.module_settings?.futures?.max_intraday_loss || 250.0}
-                          onChange={(e) => setConfig((prev) => ({
-                            ...prev,
-                            module_settings: {
-                              ...(prev.module_settings || {}),
-                              futures: { ...(prev.module_settings?.futures || {}), max_intraday_loss: parseFloat(e.target.value) || 250.0 }
-                            }
-                          }))}
-                        />
-                      </label>
                     </>
                   )}
                 </div>
@@ -1317,18 +1298,14 @@ export default function QuantitativeStrategyEngine({
                 </button>
               </div>
 
-              <label className="settings-form-group">Autonomous audit cadence
-                <select value={config?.master_ai_config?.cadence || 'off'} onChange={(e) => setConfig(prev => ({ ...prev, master_ai_config: { cadence: e.target.value } }))}>
-                  <option value="off">Off</option><option value="six_hours">Every 6 hours, including weekends</option><option value="daily">Daily after US market close</option><option value="weekly">Weekly after the first available market close</option>
-                </select>
-              </label>
+              <p>Scheduled report check: 5:00 p.m. Eastern on NYSE trading days. AI analysis runs only when paper decisions or outcomes materially change.</p>
               <label className="settings-form-group">Daily strategy AI request ceiling
                 <select value={config?.master_ai_config?.daily_strategy_requests || 1}
                   onChange={(e) => setConfig(prev => ({ ...prev, master_ai_config: { ...prev.master_ai_config, daily_strategy_requests: Number(e.target.value) } }))}>
                   <option value={1}>1 provider request per day</option><option value={2}>2 provider requests per day</option><option value={3}>3 provider requests per day</option>
                 </select>
               </label>
-              <button className="btn-quant-save" disabled={saving} onClick={handleSavePortfolioConfig}>Save mandate &amp; cadence</button>
+              <button className="btn-quant-save" disabled={saving} onClick={handleSavePortfolioConfig}>Save mandate</button>
               <p style={{ fontSize: 12 }}>Specialist prompts inform the CIO review. Strategy entries follow the saved mathematical parameters.</p>
               <label className="settings-form-group">Audit archive (latest 50)
                 <select value={masterAIAuditResult?.id || ''} onChange={e => setMasterAIAuditResult(auditHistory.find(a => String(a.id) === e.target.value) || null)}>

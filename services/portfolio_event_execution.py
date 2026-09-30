@@ -271,7 +271,7 @@ def _consume(user_id, *, decision_ids, quote_loader):
                 status, reason = 'REJECTED', rejections[0] if rejections else 'Paper ledger rejected the entry.'
         processed.append(record_disposition(decision, generation, status, reason, now, **details))
         event_signal = {'enter': bool(assessment and assessment.get('strategy_version')), 'setup': details.get('setup') or 'EVENT_EDGE_V1',
-                        'strategy_version': details.get('strategy_version') or '4.5.0-fixed-risk',
+                        'strategy_version': details.get('strategy_version') or '4.6.0-app-gate',
                         'code_sha256': details.get('code_sha256'),
                         'checks': {'event_decision_id': decision.id, 'confidence': decision.confidence,
                                    'net_edge': assessment.get('net_edge') if assessment else None,

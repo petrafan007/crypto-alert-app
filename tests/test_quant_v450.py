@@ -70,17 +70,15 @@ class Quant450SignalTests(unittest.TestCase):
                     server.handle({'schema': 1, 'op': 'activate', 'module': 'crypto',
                         'parent_sha256': base['sha256'],
                         'candidate_sha256': proposed['candidate_sha256'],
-                        'evidence_sha256': 'test', 'gates': {'observation_sessions': 29,
-                            'closed_trades': 20, 'risk_breaches': 0,
-                            'holdout_fresh': True, 'baseline_score': 1,
-                            'candidate_score': 2}})
+                        'evidence_sha256': 'test', 'gates': {'mode': 'PAPER_EXPERIMENT',
+                            'paper_only': True, 'observation_sessions': 0,
+                            'sampled_decisions': 1, 'risk_breaches': 0, 'holdout_fresh': True}})
                 active = server.handle({'schema': 1, 'op': 'activate', 'module': 'crypto',
                     'parent_sha256': base['sha256'],
                     'candidate_sha256': proposed['candidate_sha256'],
-                    'evidence_sha256': 'test', 'gates': {'observation_sessions': 30,
-                        'closed_trades': 20, 'risk_breaches': 0,
-                        'holdout_fresh': True, 'baseline_score': 1,
-                        'candidate_score': 2}})
+                    'evidence_sha256': 'test', 'gates': {'mode': 'PAPER_EXPERIMENT',
+                        'paper_only': True, 'observation_sessions': 1,
+                        'sampled_decisions': 1, 'risk_breaches': 0, 'holdout_fresh': True}})
                 self.assertEqual(active['status'], 'ACTIVE')
                 rolled = server.handle({'schema': 1, 'op': 'rollback', 'module': 'crypto',
                     'expected_sha256': active['sha256']})

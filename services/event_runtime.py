@@ -81,11 +81,11 @@ def job_slot(user_id, job):
 
 
 def event_maintenance_loop(app, stop_event=None, *, job):
-    """Settlement and report threads never wait for each other's AI work."""
+    """Settle Event paper contracts independently of scheduled portfolio reports."""
+    if job != 'settlement':
+        raise ValueError('The separate interval-based Event AI report was retired in v4.6.0.')
     import event_algo as event
-    from credentials import User, UserSetting
-    from event_algo_models import EventStrategyReport
-    from portfolio_algo_models import PortfolioEngineState
+    from credentials import User
     stop = stop_event or threading.Event()
     last = {}
     while not stop.is_set():
@@ -96,38 +96,24 @@ def event_maintenance_loop(app, stop_event=None, *, job):
                     config = db.session.get(Config, config_id)
                     if not config or not event.is_event_strategy_admin(db.session.get(User, config.user_id)):
                         continue
-                    seconds = 180
-                    if job == 'report':
-                        state = db.session.get(PortfolioEngineState, config.user_id)
-                        if not config.enabled or config.kill_switch or (state and state.kill_switch) or not event.quantitative_event_entries_enabled(config.user_id):
-                            continue
-                        setting = UserSetting.query.filter_by(user_id=config.user_id).first()
-                        hours = max(1, min(72, int(getattr(setting, 'event_strategy_audit_hours', 6) or 6)))
-                        seconds = hours*3600
-                        latest = EventStrategyReport.query.filter_by(config_id=config.id, user_id=config.user_id).order_by(EventStrategyReport.created_at.desc()).first()
-                        if latest and (datetime.utcnow()-latest.created_at).total_seconds() < seconds:
-                            continue
-                    if time.monotonic()-last.get(config_id, -1e10) < seconds:
+                    if time.monotonic()-last.get(config_id, -1e10) < 180:
                         continue
                     last[config_id] = time.monotonic()
                     user_id = config.user_id
                     db.session.commit()
                     try:
-                        if job == 'settlement':
-                            with job_slot(user_id, job):
-                                result = event.resolve_event_outcomes(user_id, config=config, limit=100)
-                        else:
-                            result = event.generate_event_strategy_report(user_id, config=config, hours=hours)
+                        with job_slot(user_id, 'settlement'):
+                            event.resolve_event_outcomes(user_id, config=config, limit=100)
                     except (AIRequestDeferred, AuditCancelled) as exc:
                         db.session.rollback()
-                        event._record_engine_log(user_id, job.upper()+'_DEFERRED', str(exc)[:500], config_id=config_id)
+                        event._record_engine_log(user_id, 'SETTLEMENT_DEFERRED', str(exc)[:500], config_id=config_id)
                         db.session.commit()
                     except Exception as exc:
                         db.session.rollback()
-                        event.logger.warning('Event %s job failed: %s', job, type(exc).__name__)
+                        event.logger.warning('Event settlement job failed: %s', type(exc).__name__)
             except Exception as exc:
                 db.session.rollback()
-                event.logger.warning('Event %s supervisor error: %s', job, type(exc).__name__)
+                event.logger.warning('Event settlement supervisor error: %s', type(exc).__name__)
             finally:
                 db.session.remove()
-        stop.wait(15 if job == 'settlement' else 30)
+        stop.wait(15)

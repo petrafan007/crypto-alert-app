@@ -125,7 +125,6 @@ def get_user_ai_settings(username: str) -> dict:
             'copilot_chat_pre': DEFAULT_COPILOT_SEARCH_PROMPT,
             'copilot_chat_post': DEFAULT_COPILOT_RESPONSE_PROMPT,
             'copilot_title_prompt': "You are an AI tasked with generating a concise 3-8 word title for this chat based on the user's first message. Respond ONLY with the title and nothing else, no quotes, no formatting.",
-            'event_strategy_audit_hours': 6,
             'event_strategy_audit_prompt': (
                 "You are a principal quantitative trading auditor and AI reliability engineer. "
                 "Your task is to analyze telemetry, execution logs, and decision traces from an autonomous "
@@ -287,8 +286,6 @@ def get_user_ai_settings(username: str) -> dict:
                     settings['copilot_chat_post'] = user_setting.copilot_chat_post
                 if hasattr(user_setting, 'copilot_title_prompt') and user_setting.copilot_title_prompt:
                     settings['copilot_title_prompt'] = user_setting.copilot_title_prompt
-                if hasattr(user_setting, 'event_strategy_audit_hours') and user_setting.event_strategy_audit_hours:
-                    settings['event_strategy_audit_hours'] = user_setting.event_strategy_audit_hours
                 if hasattr(user_setting, 'event_strategy_audit_prompt') and user_setting.event_strategy_audit_prompt:
                     settings['event_strategy_audit_prompt'] = user_setting.event_strategy_audit_prompt
 

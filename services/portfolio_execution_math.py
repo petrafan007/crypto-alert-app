@@ -28,7 +28,7 @@ def entry_quantity(module, price, budget, equity, stop=None, *, multiplier=1,
     """Quantity after caller's cash/module/position budget and optional loss cap.
 
     ``price`` is the already-slipped execution price. ``max_loss`` is the
-    remaining futures daily risk allowance, when applicable. Callers retain
+    individual-entry risk allowance, when applicable. Callers retain
     ownership, capacity, duplicate-signal, and kill-switch enforcement.
     """
     unit = price * multiplier if unit is None else unit

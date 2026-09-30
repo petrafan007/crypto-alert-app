@@ -60,6 +60,8 @@ export function selectPortfolioAudit(audits, id) {
 
 export function auditOutcomeMessage(audit) {
   if (audit?.status === 'SUCCESS') return 'Portfolio AI audit completed.';
+  if (audit?.status === 'NO_CHANGE') return 'Scheduled report check completed: no material change; no AI request was made.';
+  if (audit?.status === 'DATA_STALE') return 'Scheduled report check found stale worker data; AI analysis was skipped.';
   if (audit?.status === 'PARTIAL') return 'Portfolio report completed with module limitations. Review the report and module errors.';
   if (audit?.status === 'PENDING') return 'Audit queued. This window updates automatically; you can close it and return later.';
   return cleanHumanText(audit?.content_markdown) || 'The audit did not complete. Review its saved diagnostics.';
@@ -71,7 +73,7 @@ export function portfolioAuditProgress(audit) {
   const modules = Object.keys(evidence.specialist_mandates || {});
   const failed = modules.filter((module) => Object.hasOwn(evidence.module_audit_errors || {}, module));
   const completed = modules.filter((module) => evidence.module_audits?.[module] || failed.includes(module));
-  const finished = ['SUCCESS', 'PARTIAL'].includes(audit?.status);
+  const finished = ['SUCCESS', 'PARTIAL', 'NO_CHANGE', 'DATA_STALE'].includes(audit?.status);
   return {
     percent: finished ? 100 : modules.length ? Math.round(5 + 80 * completed.length / modules.length) : 0,
     stage: finished ? 'complete' : audit?.status && audit.status !== 'PENDING' ? 'failed' : !modules.length ? 'queued' : completed.length === modules.length ? 'master' : 'module',
@@ -123,7 +125,14 @@ export function buildExecutiveSummary(audit) {
   let isOperatingProperly = false;
   let statusExplanation = 'This report does not contain sufficient structured evidence to establish engine health. Check current telemetry.';
 
-  if (reportStatus === 'PENDING') {
+  if (reportStatus === 'NO_CHANGE') {
+    healthLabel = '⚪ No Material Change';
+    statusExplanation = 'The scheduled check ran without an AI request. Use current telemetry for engine health.';
+  } else if (reportStatus === 'DATA_STALE') {
+    healthStatus = 'degraded';
+    healthLabel = '🟡 Data Stale';
+    statusExplanation = 'The scheduled check skipped AI because recent worker evidence was unavailable.';
+  } else if (reportStatus === 'PENDING') {
     healthStatus = 'pending';
     healthLabel = '🔵 Generating Report…';
     statusExplanation = 'The audit is still being generated. Engine health has not been established by this report.';
@@ -161,6 +170,8 @@ export function buildExecutiveSummary(audit) {
     if (error) {
       status = 'error';
       humanStatus = cleanHumanText(error);
+    } else if (evidence.module_audits_skipped?.includes(modName)) {
+      humanStatus = 'No new specialist assessment; category activity was unchanged.';
     } else if (modAudit) {
       const summaryText = typeof modAudit === 'string' ? modAudit : (modAudit.summary || modAudit.status || 'Active');
       humanStatus = cleanHumanText(summaryText);

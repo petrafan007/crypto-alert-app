@@ -222,8 +222,8 @@ def handle(request):
         if digest(candidate) != candidate_sha:
             raise ValueError('Candidate checksum mismatch.')
         gates = request.get('gates')
-        if not isinstance(gates, dict) or gates.get('observation_sessions', 0) < 30 or gates.get('closed_trades', 0) < 20 or gates.get('risk_breaches') != 0 or gates.get('holdout_fresh') is not True or gates.get('candidate_score', 0) <= gates.get('baseline_score', 0):
-            raise ValueError('Outcome, risk or fresh chronological holdout gate did not pass.')
+        if not isinstance(gates, dict) or gates.get('mode') != 'PAPER_EXPERIMENT' or gates.get('paper_only') is not True or gates.get('observation_sessions', 0) < 1 or gates.get('sampled_decisions', 0) < 1 or gates.get('risk_breaches') != 0 or gates.get('holdout_fresh') is not True:
+            raise ValueError('Validated paper experiment needs a fresh forward decision sample and no risk breaches.')
         if request.get('evidence_sha256') is None:
             raise ValueError('Activation requires immutable evidence hash.')
         if meta.get('activated_at', '')[:10] == datetime.now(timezone.utc).date().isoformat():

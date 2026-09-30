@@ -949,7 +949,7 @@ def api_ai_settings():
                 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours',
                 'volatility_hours', 'automated_trigger_confirmation_minutes', 'ai_outcome_neutral_threshold_pct', 'copilot_chat_pre',
                 'copilot_chat_post', 'sentiment_chart_default_range',
-                'event_strategy_audit_hours', 'event_strategy_audit_prompt',
+                'event_strategy_audit_prompt',
                 *SENTIMENT_THRESHOLD_FIELDS
             ]
 
@@ -984,11 +984,9 @@ def api_ai_settings():
                     if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled']:
                          setattr(user_setting, key, bool(value))
                     # For int fields
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours', 'automated_trigger_confirmation_minutes', 'event_strategy_audit_hours']:
+                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours', 'automated_trigger_confirmation_minutes']:
                         try:
                             parsed_value = int(value)
-                            if key == 'event_strategy_audit_hours':
-                                parsed_value = max(1, min(72, parsed_value))
                             setattr(user_setting, key, parsed_value)
                         except:
                             pass
