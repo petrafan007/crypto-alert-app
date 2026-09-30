@@ -1402,6 +1402,26 @@ def audit_ai_kwargs(cfg):
     return {'custom_tier_configs': tiers, 'custom_api_keys': keys} if tiers else {}
 
 
+def deterministic_audit_report(evidence, issue):
+    """Publish measured paper facts when AI interpretation cannot complete."""
+    account = evidence['account']
+    performance = evidence['performance']
+    lines = ['## 1. Executive Summary',
+             'The scheduled paper portfolio report completed its measured evidence, but AI interpretation was unavailable: ' + str(issue)[:180] + '.',
+             f"Measured equity: ${account['total_equity']:,.2f}; measured maximum drawdown: {performance['max_drawdown_pct']:.2f}%.",
+             'No forecast or profitability conclusion is inferred from this run.',
+             '', '## 2. Category status']
+    for module in ('equities', 'options', 'crypto', 'events'):
+        detail = evidence.get('modules', {}).get(module, {})
+        if detail:
+            lines.append(f"- {module.title()}: {detail.get('status', 'UNKNOWN')}; "
+                         f"{detail.get('evaluated', 0)} evaluated, "
+                         f"{detail.get('qualified_signals', 0)} qualified, "
+                         f"{detail.get('entries', 0)} entries.")
+    lines.extend(['', 'The saved evidence includes decisions, data gaps, risk holds, closed paper outcomes and the 18.5% research target.'])
+    return '\n'.join(lines)
+
+
 def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
     if audit_id is None:
         audit_id = reserve_audit(user_id, scheduled)
@@ -1651,8 +1671,10 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             db.session.rollback()
             row = db.session.get(Audit, audit_id, populate_existing=True)
             return audit_dict(row) if row else None
+        measured = isinstance(evidence.get('account'), dict) and isinstance(evidence.get('performance'), dict)
         row.status = 'FAILED'
-        row.content = f'AI audit failed: {str(exc)[:300]}. No quantitative verdict was generated. Preserved evidence and completed module assessments are available below.'
+        row.content = (deterministic_audit_report(evidence, str(exc)) if measured else
+                       f'AI audit failed: {str(exc)[:300]}. Preserved evidence is available below.')
         evidence['audit_error'] = str(exc)[:300]
         evidence.setdefault('audit_progress', {})['finished_at'] = datetime.utcnow().isoformat()+'Z'
         if getattr(exc, 'partial_text', None):

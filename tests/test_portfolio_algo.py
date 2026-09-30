@@ -650,6 +650,18 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertNotIn('0.32', audit['content'])
         self.assertIsNone(audit['evidence']['correlations'][0]['pearson_r'])
 
+    def test_master_report_keeps_measured_facts_when_ai_provider_fails(self):
+        from credentials import User
+        db.session.add(User(id=self.user_id, username='quant-audit-'+str(self.user_id), pwd_hash='test'))
+        db.session.commit()
+        with patch('services.ai_service.is_ai_enabled', return_value=True), \
+             patch('services.ai_service.call_ai_with_web_search', side_effect=RuntimeError('provider unavailable')):
+            report = e.run_audit(self.user_id)
+        self.assertEqual(report['status'], 'FAILED')
+        self.assertIn('Measured equity:', report['content'])
+        self.assertIn('Category status', report['content'])
+        self.assertEqual(report['evidence']['audit_error'], 'provider unavailable')
+
     def test_full_crypto_worker_entry_trailing_stop_and_history_failure_exit(self):
         from unittest.mock import MagicMock
         self.cfg.watchlists_json = json.dumps({m: (['BTC'] if m=='crypto' else []) for m in e.MODULES})

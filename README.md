@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.5.1
+**Version:** 4.5.2
 
 ## Recent Updates
+
+### v4.5.2
+* **Resilient six-hour reports:** When an AI provider fails after portfolio evidence is collected, save a factual category-by-category report while marking the AI attempt `FAILED` instead of losing the measured facts. Keep the provider error and measured evidence visible.
 
 ### v4.5.1
 * **Daily AI review clarity:** When the configured provider does not return a usable response within the saved daily request ceiling, retain the measured review evidence and show `AI_BUDGET_EXHAUSTED` with the actual allowed request count. The request ceiling still prevents extra provider calls.
