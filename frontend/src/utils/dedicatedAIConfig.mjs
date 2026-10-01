@@ -1,4 +1,4 @@
-const DEDICATED_AI_TIERS = ['primary', 'secondary', 'tertiary'];
+const DEDICATED_AI_TIERS = ['primary', 'secondary', 'tertiary', 'quaternary'];
 
 const optionValue = (option) => (
   option && typeof option === 'object' ? option.value : option

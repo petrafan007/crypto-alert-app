@@ -27,7 +27,7 @@ const TOC_GROUPS = [
     {
         title: 'AI Integration',
         items: [
-            { id: 'ai-tiers', label: '3-Tier AI Integration & Failover' },
+            { id: 'ai-tiers', label: '4-Tier AI Integration & Failover' },
         ]
     },
     {
@@ -198,7 +198,7 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
             </div>
             <p style={{ color: textColor, marginBottom: '28px', lineHeight: '1.7', opacity: 0.85 }}>
                 The Quantitative Strategy Engine is a paper-ledger simulation system for testing and validating multi-asset
-                trading algorithms. This guide covers the end-to-end pipeline, module algorithm mechanics, the 3-Tier AI
+                trading algorithms. This guide covers the end-to-end pipeline, module algorithm mechanics, the 4-Tier AI
                 integration cascade, and the administrative safeguards built into the engine.
             </p>
 
@@ -396,16 +396,17 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
             </Section>
 
             {/* Section 7: AI Tiers */}
-            <Section id="ai-tiers" icon={<FaBrain />} title="3-Tier AI Integration & Failover">
+            <Section id="ai-tiers" icon={<FaBrain />} title="4-Tier AI Integration & Failover">
                 <p style={{ marginBottom: '16px', lineHeight: '1.7' }}>
                     The engine supports retries and fallback for autonomous reporting by routing AI calls through
-                    a 3-Tier failover system configured in <strong>Master AI Configuration</strong>.
+                    a 4-Tier failover system configured in <strong>Master AI Configuration</strong>.
                 </p>
                 <SubHeading>Configuring the Tiers</SubHeading>
                 <ul style={{ paddingLeft: '20px', lineHeight: '2.2', marginBottom: '16px' }}>
                     <li><strong>Primary</strong> — your configured first provider and model.</li>
-                    <li><strong>Secondary</strong> — your configured backup.</li>
-                    <li><strong>Tertiary</strong> — your final configured fallback, including an available local model if selected.</li>
+                    <li><strong>Secondary</strong> — your configured first backup.</li>
+                    <li><strong>Tertiary</strong> — your configured second backup.</li>
+                    <li><strong>Quaternary</strong> — your final configured failover redundancy, including an available local or cloud model if selected.</li>
                 </ul>
                 <SubHeading>Failover Execution Logic</SubHeading>
                 <p style={{ lineHeight: '1.7' }}>
@@ -413,8 +414,8 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                 </p>
                 <ol style={{ paddingLeft: '24px', lineHeight: '2.2' }}>
                     <li>For each active module, the engine calls the <strong>Primary</strong> localized AI agent.</li>
-                    <li>If the call fails (timeout, rate limit, model error), it automatically falls over to <strong>Secondary</strong>, then <strong>Tertiary</strong>.</li>
-                    <li>After all module audits complete, the same 3-tier failover applies to the <strong>Master CIO</strong> synthesis call.</li>
+                    <li>If the call fails (timeout, rate limit, model error), it automatically falls over to <strong>Secondary</strong>, then <strong>Tertiary</strong>, then <strong>Quaternary</strong>.</li>
+                    <li>After all module audits complete, the same 4-tier failover applies to the <strong>Master CIO</strong> synthesis call.</li>
                     <li>Each module's agent uses its own custom <SettingTag>auditor_prompt</SettingTag> from Module Settings and receives only isolated, module-scoped evidence — never the full portfolio payload.</li>
                 </ol>
                 <Note>

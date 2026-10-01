@@ -1406,7 +1406,7 @@ def audit_ai_kwargs(cfg):
     from credential_security import decrypt_secret
     config = loads(cfg.master_ai_config, {})
     tiers, keys = [], {}
-    for name in ('primary', 'secondary', 'tertiary'):
+    for name in ('primary', 'secondary', 'tertiary', 'quaternary'):
         tier = config.get(name)
         if not isinstance(tier, dict) or not tier.get('provider'):
             continue
@@ -1501,7 +1501,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                 if evidence['account']['total_equity'] > 0 else None),
         }
         evidence['target_annual_return'] = cfg.target_annual_return
-        evidence['audit_schema_version'] = '4.6.1'
+        evidence['audit_schema_version'] = '4.6.11'
         evidence['audit_guidance'] = loads(cfg.master_ai_config, {}).get('audit_guidance')
         evidence['goal_tracking'].pop('curve', None)
         evidence['audit_context_version'] = 3

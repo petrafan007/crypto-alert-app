@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.6.1
+**Version:** 4.6.11
 
 ## Recent Updates
+
+### v4.6.11
+* **Quaternary AI Failover Integration**: Added a full 4th-tier (Quaternary) AI integration to the Quantitative Strategy Engine dedicated AI configuration modal, providing complete 4-level failover redundancy (Primary, Secondary, Tertiary, Quaternary) across multi-asset portfolio audits and specialist evaluations.
+* **Dedicated Quaternary Key & Model Management**: Integrated isolated API credential storage, masked input toggling, and dedicated connection testing for Quaternary providers with automatic credential fallback to global user keys.
+* **Dynamic 4-Tier Model Reconciliation & Fallback**: Updated client-side and server-side cascade reconciliation to validate 4 tiers, dynamically select default models (including Ollama `nemotron-3-ultra:cloud`), and preserve custom configurations across restarts.
+* **Quantitative Strategy Documentation Update**: Updated administrator strategy documentation and failover architecture diagrams to reflect the 4-tier cascade and sequential audit failover mechanics.
 
 ### v4.6.1
 * **Engine Health & Cadence Classification**: Prevented scheduled Event contract evaluation cadences from misclassifying as `MODEL_UNAVAILABLE`, ensuring background throttle intervals preserve engine `RUNNING` status instead of falsely degrading.

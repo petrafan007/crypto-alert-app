@@ -143,12 +143,16 @@ def validate_master_ai_config(ai_config):
     """Reject a dedicated cascade that references unavailable local models."""
     allowed_providers = {'gemini', 'openai', 'zai', 'perplexity', 'inception', 'ollama'}
     ollama_models = None
-    for tier_name in ('primary', 'secondary', 'tertiary'):
+    for tier_name in ('primary', 'secondary', 'tertiary', 'quaternary'):
         tier = ai_config.get(tier_name)
+        if tier is None and tier_name == 'quaternary':
+            continue
         if not isinstance(tier, dict):
             raise ValueError(f'{tier_name.title()} AI integration is required.')
         provider = str(tier.get('provider') or '').strip().lower()
         model = str(tier.get('model') or '').strip()
+        if not provider and tier_name == 'quaternary':
+            continue
         if provider not in allowed_providers:
             raise ValueError(f'{tier_name.title()} AI provider is invalid.')
         if not model:
@@ -468,7 +472,7 @@ def portfolio_algo_ai_config():
             merged_ai = existing_ai.copy()
             if 'audit_guidance' in new_ai:
                 merged_ai['audit_guidance'] = new_ai['audit_guidance'].strip()
-            for tier in ("primary", "secondary", "tertiary"):
+            for tier in ("primary", "secondary", "tertiary", "quaternary"):
                 new_tier = new_ai.get(tier) or {}
                 old_tier = existing_ai.get(tier) or {}
                 raw_key = new_tier.get("api_key")
@@ -645,7 +649,10 @@ def portfolio_algo_ai_test():
             from credentials import Credential
             cred = Credential.query.filter_by(user_id=current_user.id).first()
             if cred and provider != "ollama":
+                suffix = '_quaternary' if tier == 'quaternary' else ('_tertiary' if tier == 'tertiary' else ('_fallback' if tier == 'secondary' else ''))
                 api_key = (
+                    decrypt_secret(getattr(cred, f"_{provider}_key{suffix}", None)) or
+                    decrypt_secret(getattr(cred, f"{provider}_key{suffix}", None)) or
                     decrypt_secret(getattr(cred, f"_{provider}_key", None)) or
                     decrypt_secret(getattr(cred, f"{provider}_key", None))
                 )

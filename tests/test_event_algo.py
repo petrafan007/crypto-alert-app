@@ -606,18 +606,21 @@ class EventAlgoTests(unittest.TestCase):
             get_event_strategy_ai_tiers_and_keys,
             sanitize_event_ai_config,
         )
-        # Default cascade: primary=gemini (3.8-flash), secondary=ollama (gpt-oss:120b-cloud), tertiary=ollama (qwen2.5:14b)
+        # Default cascade: primary=gemini (3.8-flash), secondary=ollama (gpt-oss:120b-cloud), tertiary=ollama (qwen2.5:14b), quaternary=ollama (nemotron-3-ultra:cloud)
         self.assertEqual(DEFAULT_EVENT_AI_CONFIG["primary"]["provider"], "gemini")
         self.assertEqual(DEFAULT_EVENT_AI_CONFIG["primary"]["model"], "gemini-3.8-flash")
         self.assertEqual(DEFAULT_EVENT_AI_CONFIG["secondary"]["provider"], "ollama")
         self.assertEqual(DEFAULT_EVENT_AI_CONFIG["secondary"]["model"], "gpt-oss:120b-cloud")
         self.assertEqual(DEFAULT_EVENT_AI_CONFIG["tertiary"]["provider"], "ollama")
         self.assertEqual(DEFAULT_EVENT_AI_CONFIG["tertiary"]["model"], "qwen2.5:14b")
+        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["quaternary"]["provider"], "ollama")
+        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["quaternary"]["model"], "nemotron-3-ultra:cloud")
 
         sanitized = sanitize_event_ai_config({})
         self.assertEqual(sanitized["primary"]["model"], "gemini-3.8-flash")
         self.assertEqual(sanitized["secondary"]["model"], "gpt-oss:120b-cloud")
         self.assertEqual(sanitized["tertiary"]["model"], "qwen2.5:14b")
+        self.assertEqual(sanitized["quaternary"]["model"], "nemotron-3-ultra:cloud")
         self.assertFalse(sanitized["primary"]["has_key"])
 
     def test_update_config_persists_ai_config(self):
@@ -635,6 +638,7 @@ class EventAlgoTests(unittest.TestCase):
                         "primary": {"provider": "gemini", "model": "gemini-3.8-flash", "reasoning_level": "medium", "api_key": "test-gemini-key"},
                         "secondary": {"provider": "ollama", "model": "gpt-oss:120b-cloud", "reasoning_level": "medium", "api_key": ""},
                         "tertiary": {"provider": "ollama", "model": "qwen2.5:14b", "reasoning_level": "medium", "api_key": ""},
+                        "quaternary": {"provider": "ollama", "model": "nemotron-3-ultra:cloud", "reasoning_level": "medium", "api_key": ""},
                     }
                 })
                 parsed = json.loads(config.ai_config)
@@ -642,6 +646,7 @@ class EventAlgoTests(unittest.TestCase):
                 self.assertEqual(parsed["primary"]["model"], "gemini-3.8-flash")
                 self.assertEqual(parsed["secondary"]["model"], "gpt-oss:120b-cloud")
                 self.assertEqual(parsed["tertiary"]["model"], "qwen2.5:14b")
+                self.assertEqual(parsed["quaternary"]["model"], "nemotron-3-ultra:cloud")
                 self.assertTrue(parsed["primary"]["api_key"])
 
                 sanitized = sanitize_event_ai_config(config.ai_config)
@@ -654,6 +659,7 @@ class EventAlgoTests(unittest.TestCase):
                         "primary": {"provider": "gemini", "model": "gemini-3.8-flash", "reasoning_level": "high", "api_key": "********"},
                         "secondary": {"provider": "ollama", "model": "gpt-oss:120b-cloud", "reasoning_level": "medium", "api_key": ""},
                         "tertiary": {"provider": "ollama", "model": "qwen2.5:14b", "reasoning_level": "medium", "api_key": ""},
+                        "quaternary": {"provider": "ollama", "model": "nemotron-3-ultra:cloud", "reasoning_level": "medium", "api_key": ""},
                     }
                 })
                 parsed2 = json.loads(config.ai_config)

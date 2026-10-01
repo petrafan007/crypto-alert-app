@@ -279,13 +279,14 @@ export default function Settings({ isLightMode }) {
       primary: { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
       secondary: { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
       tertiary: { provider: 'ollama', model: 'qwen2.5:14b', reasoning_level: 'medium', api_key: '', has_key: false },
+      quaternary: { provider: 'ollama', model: 'nemotron-3-ultra:cloud', reasoning_level: 'medium', api_key: '', has_key: false },
     }
   });
   const [eventStrategyAILoading, setEventStrategyAILoading] = useState(false);
   const [eventStrategyAISaving, setEventStrategyAISaving] = useState(false);
-  const [eventStrategyAITesting, setEventStrategyAITesting] = useState({ primary: false, secondary: false, tertiary: false });
-  const [eventStrategyAITestResults, setEventStrategyAITestResults] = useState({ primary: null, secondary: null, tertiary: null });
-  const [showEventStrategyApiKey, setShowEventStrategyApiKey] = useState({ primary: false, secondary: false, tertiary: false });
+  const [eventStrategyAITesting, setEventStrategyAITesting] = useState({ primary: false, secondary: false, tertiary: false, quaternary: false });
+  const [eventStrategyAITestResults, setEventStrategyAITestResults] = useState({ primary: null, secondary: null, tertiary: null, quaternary: null });
+  const [showEventStrategyApiKey, setShowEventStrategyApiKey] = useState({ primary: false, secondary: false, tertiary: false, quaternary: false });
   // Keep the duration draft in a ref as well as React state. This makes a
   // checkbox change available to Save immediately, even when the user clicks
   // Save before React has committed the next render.
@@ -566,10 +567,12 @@ export default function Settings({ isLightMode }) {
           master_ai_prompt: response.data.master_ai_prompt ?? '',
           default_master_ai_prompt: response.data.default_master_ai_prompt || '',
           audit_prompt_policy: response.data.audit_prompt_policy,
-          ai_config: response.data.ai_config || {
-            primary: { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
-            secondary: { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
-            tertiary: { provider: 'ollama', model: 'qwen2.5:14b', reasoning_level: 'medium', api_key: '', has_key: false },
+          ai_config: {
+            primary: response.data.ai_config?.primary || { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
+            secondary: response.data.ai_config?.secondary || { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
+            tertiary: response.data.ai_config?.tertiary || { provider: 'ollama', model: 'qwen2.5:14b', reasoning_level: 'medium', api_key: '', has_key: false },
+            quaternary: response.data.ai_config?.quaternary || { provider: 'ollama', model: 'nemotron-3-ultra:cloud', reasoning_level: 'medium', api_key: '', has_key: false },
+            ...(response.data.ai_config?.audit_guidance !== undefined ? { audit_guidance: response.data.ai_config.audit_guidance } : {}),
           },
         };
         setEventStrategyAIConfig(reconcileDedicatedAIConfig(loadedConfig, modelOptions));
@@ -583,7 +586,7 @@ export default function Settings({ isLightMode }) {
 
   const openEventStrategyAIModal = () => {
     setShowEventStrategyAIModal(true);
-    setEventStrategyAITestResults({ primary: null, secondary: null, tertiary: null });
+    setEventStrategyAITestResults({ primary: null, secondary: null, tertiary: null, quaternary: null });
     loadEventStrategyAIConfig();
   };
 
@@ -663,7 +666,7 @@ export default function Settings({ isLightMode }) {
         } else if (value === 'gemini') {
           updatedTier.model = 'gemini-3.8-flash';
         } else if (value === 'ollama') {
-          updatedTier.model = tierKey === 'tertiary' ? 'qwen2.5:14b' : 'gpt-oss:120b-cloud';
+          updatedTier.model = tierKey === 'quaternary' ? 'nemotron-3-ultra:cloud' : (tierKey === 'tertiary' ? 'qwen2.5:14b' : 'gpt-oss:120b-cloud');
         } else if (value === 'openai') {
           updatedTier.model = 'gpt-5.4-mini';
         }
@@ -4305,7 +4308,7 @@ export default function Settings({ isLightMode }) {
                   <span>🤖</span> Master Quantitative Strategy Engine AI Configuration
                 </h3>
                 <div style={{ fontSize: '0.82rem', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4 }}>
-                  Dedicated 3-tier AI integration cascade, isolated API credentials, and autonomous operational audit controls.
+                  Dedicated 4-tier AI integration cascade, isolated API credentials, and autonomous operational audit controls.
                 </div>
               </div>
               <button
@@ -4426,13 +4429,13 @@ export default function Settings({ isLightMode }) {
                     </div>
                   </div>
 
-                  {/* BOTTOM SECTION: Segregated 3-Tier AI Integration */}
+                  {/* BOTTOM SECTION: Segregated 4-Tier AI Integration */}
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontSize: '1.2rem' }}>🧠</span>
                         <h4 style={{ margin: 0, fontSize: '1rem', color: isLightMode ? '#0f172a' : '#f8fafc' }}>
-                          Segregated 3-Tier AI Integration
+                          Segregated 4-Tier AI Integration
                         </h4>
                       </div>
                       <span style={{
@@ -4458,7 +4461,7 @@ export default function Settings({ isLightMode }) {
                       marginBottom: 16,
                       lineHeight: 1.45
                     }}>
-                      🛡️ <strong>Complete Isolation:</strong> This 3-tier cascade and its dedicated API keys are used exclusively by the Quantitative Strategy Engine (autonomous multi-asset portfolio evaluations, cross-asset correlation analysis, and rebalancing audits). Global Copilot, Portfolio Review, and Watchlist Sentiment remain completely separate and unaffected.
+                      🛡️ <strong>Complete Isolation:</strong> This 4-tier cascade and its dedicated API keys are used exclusively by the Quantitative Strategy Engine (autonomous multi-asset portfolio evaluations, cross-asset correlation analysis, and rebalancing audits). Global Copilot, Portfolio Review, and Watchlist Sentiment remain completely separate and unaffected.
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: 16 }}>
@@ -4467,6 +4470,7 @@ export default function Settings({ isLightMode }) {
                         { key: 'primary', label: 'Primary AI Integration', badge: 'Tier 1' },
                         { key: 'secondary', label: 'Secondary AI Integration', badge: 'Tier 2 (Failover)' },
                         { key: 'tertiary', label: 'Tertiary AI Integration', badge: 'Tier 3 (Failover)' },
+                        { key: 'quaternary', label: 'Quaternary AI Integration', badge: 'Tier 4 (Failover)' },
                       ].map(({ key: tierKey, label: tierLabel, badge: tierBadge }) => {
                         const tier = eventStrategyAIConfig?.ai_config?.[tierKey] || {};
                         const provider = tier.provider || (tierKey === 'primary' ? 'gemini' : 'ollama');

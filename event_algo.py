@@ -224,6 +224,12 @@ DEFAULT_EVENT_AI_CONFIG = {
         "reasoning_level": "medium",
         "api_key": None,
     },
+    "quaternary": {
+        "provider": "ollama",
+        "model": "nemotron-3-ultra:cloud",
+        "reasoning_level": "medium",
+        "api_key": None,
+    },
 }
 
 
@@ -231,7 +237,7 @@ def sanitize_event_ai_config(raw_config):
     """Return event AI config with masked api keys and has_key flags."""
     raw = _json_load(raw_config, {}) if not isinstance(raw_config, dict) else raw_config
     sanitized = {}
-    for tier_key in ("primary", "secondary", "tertiary"):
+    for tier_key in ("primary", "secondary", "tertiary", "quaternary"):
         tier_data = raw.get(tier_key) if isinstance(raw.get(tier_key), dict) else {}
         default_tier = DEFAULT_EVENT_AI_CONFIG.get(tier_key, {})
         has_key = bool(tier_data.get("api_key"))
@@ -264,7 +270,7 @@ def get_event_strategy_ai_tiers_and_keys(config, user_id=None):
     tier_configs = []
     custom_api_keys = {}
 
-    for tier_name in ("primary", "secondary", "tertiary"):
+    for tier_name in ("primary", "secondary", "tertiary", "quaternary"):
         tier_data = raw_ai_config.get(tier_name)
         if not tier_data or not isinstance(tier_data, dict):
             tier_data = DEFAULT_EVENT_AI_CONFIG.get(tier_name, {})
@@ -281,7 +287,10 @@ def get_event_strategy_ai_tiers_and_keys(config, user_id=None):
                 decrypted_key = decrypt_secret(stored_key)
             # If no dedicated key set for this tier, fall back to user's global credential for this provider
             if not decrypted_key and user_cred and provider != "ollama":
+                suffix = '_quaternary' if tier_name == 'quaternary' else ('_tertiary' if tier_name == 'tertiary' else ('_fallback' if tier_name == 'secondary' else ''))
                 decrypted_key = (
+                    decrypt_secret(getattr(user_cred, f"_{provider}_key{suffix}", None)) or
+                    decrypt_secret(getattr(user_cred, f"{provider}_key{suffix}", None)) or
                     decrypt_secret(getattr(user_cred, f"_{provider}_key", None)) or
                     decrypt_secret(getattr(user_cred, f"{provider}_key", None))
                 )
@@ -1858,7 +1867,7 @@ def update_config(config, payload):
         new_ai = payload["ai_config"]
         from credential_security import encrypt_secret
         merged_ai = {}
-        for tier in ("primary", "secondary", "tertiary"):
+        for tier in ("primary", "secondary", "tertiary", "quaternary"):
             new_tier = new_ai.get(tier) or {}
             old_tier = existing_ai.get(tier) or {}
             raw_key = new_tier.get("api_key")

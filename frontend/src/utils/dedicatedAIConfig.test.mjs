@@ -9,6 +9,7 @@ const savedConfig = {
     primary: { provider: 'gemini', model: 'gemini-3.8-flash' },
     secondary: { provider: 'ollama', model: 'nemotron-3-ultra:cloud' },
     tertiary: { provider: 'ollama', model: 'lfm2-cpu:latest' },
+    quaternary: { provider: 'ollama', model: 'unknown-model:latest' },
   },
 };
 
@@ -24,7 +25,9 @@ test('replaces an unavailable saved model with the model rendered by the select'
 
   assert.equal(result.ai_config.secondary.model, 'nemotron-3-ultra:cloud');
   assert.equal(result.ai_config.tertiary.model, 'gemma4:26b');
+  assert.equal(result.ai_config.quaternary.model, 'gemma4:26b');
   assert.equal(savedConfig.ai_config.tertiary.model, 'lfm2-cpu:latest');
+  assert.equal(savedConfig.ai_config.quaternary.model, 'unknown-model:latest');
 });
 
 test('preserves saved models while provider discovery is unavailable', () => {
