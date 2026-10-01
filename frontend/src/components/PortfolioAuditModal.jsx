@@ -9,6 +9,7 @@ import {
   buildExecutiveSummary,
   cleanHumanText,
   humanizeAuditSlug,
+  extractExecutiveSummaryContent,
 } from '../utils/portfolioAudit.mjs';
 
 function formatEasternDateTime(timestamp) {
@@ -83,6 +84,7 @@ export default function PortfolioAuditModal({
   if (!isOpen) return null;
 
   const executiveSummary = buildExecutiveSummary(report);
+  const { execSummary, remainingMarkdown } = extractExecutiveSummaryContent(report?.content_markdown);
   const isBusy = generating || pending;
 
   const healthBadgeStyle = {
@@ -489,10 +491,10 @@ export default function PortfolioAuditModal({
                   </span>
                 </div>
 
-                {/* Plain English Status Explanation */}
+                {/* Plain English Status Explanation & Executive Summary */}
                 <div
                   style={{
-                    padding: '12px 14px',
+                    padding: '14px 16px',
                     borderRadius: 8,
                     marginBottom: 14,
                     background: isLightMode ? '#fff' : 'rgba(15, 23, 42, 0.6)',
@@ -502,51 +504,23 @@ export default function PortfolioAuditModal({
                   <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: isLightMode ? '#64748b' : '#94a3b8', marginBottom: 4 }}>
                     What the Strategy Engine is Doing Right Now:
                   </div>
-                  <div style={{ fontSize: '0.92rem', lineHeight: 1.5, color: isLightMode ? '#1e293b' : '#f1f5f9' }}>
+                  <div style={{ fontSize: '0.92rem', lineHeight: 1.5, color: isLightMode ? '#1e293b' : '#f1f5f9', marginBottom: execSummary ? 14 : 0 }}>
                     {executiveSummary.statusExplanation}
                   </div>
-                </div>
 
-                {/* Specialist Modules Grid */}
-                {executiveSummary.modules.length > 0 && (
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: isLightMode ? '#64748b' : '#94a3b8', marginBottom: 8 }}>
-                      Strategy Specialist Modules:
+                  {execSummary && (
+                    <div style={{ paddingTop: 14, borderTop: isLightMode ? '1px solid #e2e8f0' : '1px solid rgba(148, 163, 184, 0.2)' }}>
+                      <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: isLightMode ? '#64748b' : '#94a3b8', marginBottom: 8 }}>
+                        Executive Summary:
+                      </div>
+                      <div className="event-strategy-report-markdown" style={{ fontSize: '0.92rem', lineHeight: 1.6 }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {execSummary}
+                        </ReactMarkdown>
+                      </div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
-                      {executiveSummary.modules.map((mod) => (
-                        <div
-                          key={mod.name}
-                          style={{
-                            padding: '10px 12px',
-                            borderRadius: 6,
-                            background: isLightMode ? '#fff' : 'rgba(15, 23, 42, 0.45)',
-                            border: isLightMode ? '1px solid #e2e8f0' : '1px solid rgba(148, 163, 184, 0.15)',
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                            <strong style={{ fontSize: '0.84rem' }}>{mod.label}</strong>
-                            <span
-                              style={{
-                                fontSize: '0.7rem',
-                                fontWeight: 700,
-                                padding: '2px 6px',
-                                borderRadius: 4,
-                                background: mod.status === 'error' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.15)',
-                                color: mod.status === 'error' ? '#f87171' : '#4ade80',
-                              }}
-                            >
-                              {mod.status === 'error' ? 'ISSUE' : 'OK'}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: '0.8rem', color: isLightMode ? '#475569' : '#cbd5e1' }}>
-                            {mod.humanStatus}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Actionable Recommendations to Improve or Repair */}
                 {executiveSummary.recommendations.length > 0 && (
@@ -608,27 +582,107 @@ export default function PortfolioAuditModal({
                 </p>
               )}
 
-              {/* Detailed Markdown Report Content */}
-              <div className="event-strategy-report-markdown" style={{ lineHeight: 1.65, fontSize: '0.92rem' }}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {cleanHumanText(report.content_markdown)}
-                </ReactMarkdown>
-              </div>
+              {/* Detailed Markdown Report Content (remaining sections after executive summary) */}
+              {(remainingMarkdown || (!execSummary && report.content_markdown)) && (
+                <div className="event-strategy-report-markdown" style={{ lineHeight: 1.65, fontSize: '0.92rem' }}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {cleanHumanText(remainingMarkdown || report.content_markdown)}
+                  </ReactMarkdown>
+                </div>
+              )}
 
-              {/* Collapsible Module Details */}
-              {Object.entries(report.evidence?.module_audits || {}).map(([module, content]) => (
-                <details key={module} style={{ marginTop: 16 }}>
-                  <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-                    {module.toUpperCase()} specialist assessment
-                    {report.evidence?.module_audit_errors?.[module] ? ' — unavailable' : ''}
-                  </summary>
-                  <div style={{ marginTop: 8, paddingLeft: 12 }}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {cleanHumanText(content || report.evidence?.module_audit_errors?.[module] || 'No module assessment was returned.')}
-                    </ReactMarkdown>
+              {/* Strategy Specialist Assessments & Specialist Module Information */}
+              {(() => {
+                const allModuleNames = Array.from(
+                  new Set([
+                    ...executiveSummary.modules.map((m) => m.name),
+                    ...Object.keys(report.evidence?.module_audits || {}),
+                    ...Object.keys(report.evidence?.module_audit_errors || {}),
+                  ])
+                );
+                if (allModuleNames.length === 0) return null;
+                return (
+                  <div style={{ marginTop: 24 }}>
+                    <div style={{ fontSize: '0.82rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: isLightMode ? '#64748b' : '#94a3b8', marginBottom: 12 }}>
+                      Strategy Specialist Assessments & Module Information:
+                    </div>
+                    {allModuleNames.map((modName) => {
+                      const mod = executiveSummary.modules.find((m) => m.name === modName) || {
+                        name: modName,
+                        label: humanizeAuditSlug(modName),
+                        status: report.evidence?.module_audit_errors?.[modName] ? 'error' : 'ready',
+                        humanStatus: report.evidence?.module_audit_errors?.[modName]
+                          ? cleanHumanText(report.evidence.module_audit_errors[modName])
+                          : 'Specialist assessment available.',
+                      };
+                      const content = report.evidence?.module_audits?.[modName];
+                      const modError = report.evidence?.module_audit_errors?.[modName] || mod.error;
+
+                      return (
+                        <details
+                          key={modName}
+                          style={{
+                            marginTop: 12,
+                            padding: '12px 16px',
+                            borderRadius: 8,
+                            background: isLightMode ? '#f8fafc' : 'rgba(30, 41, 59, 0.5)',
+                            border: isLightMode ? '1px solid #e2e8f0' : '1px solid rgba(148, 163, 184, 0.2)',
+                          }}
+                        >
+                          <summary style={{ cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span>
+                              {mod.label} Specialist Assessment
+                              {modError ? ' — unavailable' : ''}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: 4,
+                                background: mod.status === 'error' || modError ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.15)',
+                                color: mod.status === 'error' || modError ? '#f87171' : '#4ade80',
+                              }}
+                            >
+                              {mod.status === 'error' || modError ? 'ISSUE' : 'OK'}
+                            </span>
+                          </summary>
+
+                          {/* Specialist Module Operational Information */}
+                          <div
+                            style={{
+                              marginTop: 12,
+                              padding: '10px 12px',
+                              borderRadius: 6,
+                              background: isLightMode ? '#fff' : 'rgba(15, 23, 42, 0.6)',
+                              border: isLightMode ? '1px solid #e2e8f0' : '1px solid rgba(148, 163, 184, 0.15)',
+                            }}
+                          >
+                            <div style={{ fontSize: '0.76rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, color: isLightMode ? '#64748b' : '#94a3b8', marginBottom: 4 }}>
+                              Operational Status:
+                            </div>
+                            <div style={{ fontSize: '0.86rem', color: isLightMode ? '#334155' : '#cbd5e1' }}>
+                              {mod.humanStatus || 'Active & evaluating market data'}
+                            </div>
+                            {modError && (
+                              <div style={{ marginTop: 6, fontSize: '0.82rem', color: '#f87171' }}>
+                                <strong>Error:</strong> {cleanHumanText(modError)}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Specialist Assessment Report Markdown */}
+                          <div className="event-strategy-report-markdown" style={{ marginTop: 12, fontSize: '0.9rem', lineHeight: 1.6 }}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {cleanHumanText(content || modError || 'No module assessment was returned.')}
+                            </ReactMarkdown>
+                          </div>
+                        </details>
+                      );
+                    })}
                   </div>
-                </details>
-              ))}
+                );
+              })()}
 
               {Object.keys(report.evidence || {}).length > 0 && (
                 <details style={{ marginTop: 16 }}>

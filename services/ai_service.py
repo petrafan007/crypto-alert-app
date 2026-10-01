@@ -1443,6 +1443,32 @@ def _call_generative_with_web_search(
             error=err_str,
         )
 
+        # Dispatch immediate toast notification for AI failure / failover
+        has_next_tier = ('tier_configs' in locals() and (tier_index + 1) < len(tier_configs) and bool(tier_configs[tier_index + 1][1]))
+        try:
+            target_user = user_id or username
+            if target_user:
+                tier_label = str(locals().get('current_tier_name') or f'Tier {tier_index + 1}').upper()
+                prov_label = str(locals().get('provider') or 'AI').title()
+                model_label = f" ({locals().get('model')})" if locals().get('model') else ""
+                fail_msg = f"{tier_label} ({prov_label}{model_label}) failed: {short_err}"
+                if has_next_tier:
+                    next_t_name = str(tier_configs[tier_index + 1][0]).upper()
+                    next_p_name = str(tier_configs[tier_index + 1][1]).title()
+                    fail_msg += f". Failing over to {next_t_name} ({next_p_name})."
+                    notif_cat = 'warning'
+                else:
+                    fail_msg += ". All configured AI providers exhausted."
+                    notif_cat = 'system_error'
+                create_system_notification(
+                    user_id_or_name=target_user,
+                    category=notif_cat,
+                    symbol=str(symbol or 'AI')[:10].upper(),
+                    message=fail_msg
+                )
+        except Exception as notif_err:
+            logger.warning("Failed to create AI failure notification: %s", notif_err)
+
         # Check if another tier is configured and available
         next_tier_index = tier_index + 1
         if 'tier_configs' in locals() and next_tier_index < len(tier_configs):

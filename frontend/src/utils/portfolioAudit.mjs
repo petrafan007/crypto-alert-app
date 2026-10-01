@@ -212,3 +212,19 @@ export function buildExecutiveSummary(audit) {
     recommendations,
   };
 }
+
+export function extractExecutiveSummaryContent(markdown) {
+  if (!markdown || typeof markdown !== 'string') {
+    return { execSummary: '', remainingMarkdown: '' };
+  }
+  const cleaned = cleanHumanText(markdown);
+  // Match heading like ## 1. Executive Summary or ## Executive Summary up to the next ## section
+  const execRegex = /(?:^|\n)##?\s*(?:1\.?\s*)?Executive Summary[^\n]*\n([\s\S]*?)(?=(?:\n##?\s+[2-9]|\n##?\s+[A-Z]|$))/i;
+  const match = cleaned.match(execRegex);
+  if (match) {
+    const execSummary = match[1].trim();
+    const remainingMarkdown = cleaned.replace(match[0], '').trim();
+    return { execSummary, remainingMarkdown };
+  }
+  return { execSummary: '', remainingMarkdown: cleaned };
+}

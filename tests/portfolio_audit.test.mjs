@@ -5,6 +5,7 @@ import {
   cleanHumanText,
   buildExecutiveSummary,
   normalizePortfolioAudit,
+  extractExecutiveSummaryContent,
 } from '../frontend/src/utils/portfolioAudit.mjs';
 
 test('humanizeAuditSlug maps known technical slugs to human phrases', () => {
@@ -105,4 +106,19 @@ test('health uses structured evidence, never narrative or report success alone',
     assert.equal(result.isOperatingProperly, expected === 'healthy');
     assert.ok(!result.headline.includes('Engine Healthy'));
   }
+});
+
+test('extractExecutiveSummaryContent splits Section 1 Executive Summary from remaining markdown', () => {
+  const markdown = `## 1. Executive Summary
+The Quantitative Strategy Engine is actively operating.
+All metrics are within risk limits.
+
+## 2. Module Health & Performance Diagnostics
+Events module is active.`;
+
+  const { execSummary, remainingMarkdown } = extractExecutiveSummaryContent(markdown);
+  assert.ok(execSummary.includes('Quantitative Strategy Engine is actively operating.'));
+  assert.ok(execSummary.includes('All metrics are within risk limits.'));
+  assert.ok(!execSummary.includes('## 2.'));
+  assert.ok(remainingMarkdown.startsWith('## 2. Module Health & Performance Diagnostics'));
 });

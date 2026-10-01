@@ -1501,7 +1501,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                 if evidence['account']['total_equity'] > 0 else None),
         }
         evidence['target_annual_return'] = cfg.target_annual_return
-        evidence['audit_schema_version'] = '4.6.0'
+        evidence['audit_schema_version'] = '4.6.1'
         evidence['audit_guidance'] = loads(cfg.master_ai_config, {}).get('audit_guidance')
         evidence['goal_tracking'].pop('curve', None)
         evidence['audit_context_version'] = 3
@@ -1676,6 +1676,16 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                         evidence.setdefault('incomplete_module_outputs', {})[module] = exc.partial_text
                     _record_portfolio_log(user_id, 'AUDIT_MODULE_FAILED',
                                           f'{module} assessment unavailable: {module_errors[module]}', level='WARNING')
+                    try:
+                        from services.notification_service import create_system_notification
+                        create_system_notification(
+                            user_id_or_name=user_id,
+                            category='warning',
+                            symbol=str(module).upper(),
+                            message=f"Strategy Specialist ({module.upper()}) AI failed: {module_errors[module]}"
+                        )
+                    except Exception as notif_e:
+                        logger.warning("Failed to dispatch module audit notification: %s", notif_e)
                 save_audit_progress(audit_id, evidence)
                 last_prompt_finished_at = time.monotonic()
                 save_audit_progress(audit_id, evidence, event='spacing', provider=None, model=None,
@@ -1737,6 +1747,16 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
         row.evidence_json = json.dumps(evidence)
         _record_portfolio_log(user_id, 'AUDIT_FAILED', f'Portfolio audit {audit_id} failed: {str(exc)[:300]}', level='ERROR')
         db.session.commit()
+        try:
+            from services.notification_service import create_system_notification
+            create_system_notification(
+                user_id_or_name=user_id,
+                category='system_error',
+                symbol='PORTFOLIO',
+                message=f"Quantitative Strategy AI Audit failed: {str(exc)[:250]}"
+            )
+        except Exception as notif_e:
+            logger.warning("Failed to dispatch master audit notification: %s", notif_e)
     return audit_dict(row)
 
 

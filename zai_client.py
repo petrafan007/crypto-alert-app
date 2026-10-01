@@ -135,9 +135,9 @@ class ZAIClient:
 				last_error = f"{endpoint_base}: {resp.status_code} - {err_msg}"
 				logger.warning(f"Z.AI request to {endpoint} returned {resp.status_code}: {err_msg}")
 
-				# Fast-fail on 429/overloaded so backup tiers can take over immediately
+				# Try backup candidate endpoint on 429/overload before exhausting
 				if resp.status_code == 429 or "overloaded" in str(err_msg).lower() or "1305" in str(err_msg):
-					break
+					continue
 
 			except requests.exceptions.RequestException as req_err:
 				last_error = f"{endpoint_base}: {req_err}"
@@ -154,7 +154,13 @@ class ZAIClient:
 		Send chat completion request to Z.AI using multi-endpoint HTTP client.
 		"""
 		try:
-			return self._http_chat_completion(messages, model, max_tokens, temperature)
+			res = self._http_chat_completion(messages, model, max_tokens, temperature)
+			if not res.get('success') and model != 'glm-4.5-flash':
+				err = str(res.get('error') or '')
+				if '429' in err or 'overload' in err.lower() or '1305' in err or 'rate limit' in err.lower():
+					logger.warning(f"Z.AI model {model} rate-limited/overloaded ({err}). Retrying with resilient model glm-4.5-flash...")
+					res = self._http_chat_completion(messages, 'glm-4.5-flash', max_tokens, temperature)
+			return res
 		except Exception as e:
 			logger.error(f"Z.AI API error: {e}")
 			return {

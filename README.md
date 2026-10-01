@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.6.0
+**Version:** 4.6.1
 
 ## Recent Updates
+
+### v4.6.1
+* **Engine Health & Cadence Classification**: Prevented scheduled Event contract evaluation cadences from misclassifying as `MODEL_UNAVAILABLE`, ensuring background throttle intervals preserve engine `RUNNING` status instead of falsely degrading.
+* **AI Failover & Multi-Provider Resilience**: Enhanced Z.AI integration with automatic multi-endpoint candidate fallback and instant fallback to `glm-4.5-flash` on HTTP 429 rate limit or capacity spikes, ensuring secondary tier resilience before failover.
+* **Instant Toast Notifications on AI Failures**: Dispatched immediate system warning and error toast notifications on any AI provider tier failure, failover attempt, specialist module timeout, or master audit failure across the Quantitative Strategy Engine.
+* **Strategy Audit Modal Reorganization**: Relocated the Executive Summary markdown report directly beneath "What the Strategy Engine is Doing Right Now" for instant visibility at the top of the report, and moved Strategy Specialist Module operational cards and diagnostic statuses to the bottom under each respective specialist assessment.
 
 ### v4.6.0
 * **Continuous paper decisions through losses:** Event hourly, daily and high-water loss values and the portfolio 10% floor are measurements, not entry stops. Existing paper history is retained. Per-trade size, cash, open exposure, quote quality, duplicate-entry checks and the manual kill switch still apply. Futures aggregate daily-loss gating is retired too.

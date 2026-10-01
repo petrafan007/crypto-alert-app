@@ -1939,7 +1939,7 @@ def evaluate_market(market, config, *, now=None):
             reasons.append("AI_PROVIDER_ERROR")
         elif model_status == "invalid":
             reasons.append("AI_RESPONSE_INVALID")
-        elif model_status == "skipped" or "budget" in model_err:
+        elif model_status in ("skipped", "deferred", "stale") or any(k in model_err for k in ("budget", "cadence", "deferred", "scheduled")):
             if "budget" in model_err:
                 reasons.append("AI_BUDGET_EXHAUSTED")
             else:
