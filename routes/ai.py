@@ -27,7 +27,7 @@ from log import logger
 from services.helpers import format_eastern_datetime, get_eastern_now, format_eastern_datetime_ampm, get_eastern_datetime, get_eastern_now_iso
 from services.credential_service import get_user_credentials
 from services.analysis_service import (
-    get_ai_cache, set_ai_cache, get_user_ai_settings, is_ai_enabled, get_user_ai_prompts, log_ai_communication, 
+    get_ai_cache, set_ai_cache, get_user_ai_settings, is_ai_enabled, get_user_ai_prompts, log_ai_communication,
     calculate_symbol_snapshot, calculate_volatility
 )
 from services.webull_service import WebullConnectionError
@@ -345,8 +345,8 @@ def test_inception_connection():
 
         cred = get_user_credentials(username)
         api_key = key if (key and key != '********') else (
-            getattr(cred, 'inception_key_tertiary', None) or 
-            getattr(cred, 'inception_key_fallback', None) or 
+            getattr(cred, 'inception_key_tertiary', None) or
+            getattr(cred, 'inception_key_fallback', None) or
             getattr(cred, 'inception_key', None)
         )
         if not api_key:
@@ -418,13 +418,13 @@ def test_ai_connection_generic():
                     )
                 elif tier == 'tertiary':
                     api_key = (
-                        decrypt_secret(getattr(cred, f'_{provider}_key_tertiary', None)) or 
-                        decrypt_secret(getattr(cred, f'_{provider}_key_fallback', None)) or 
+                        decrypt_secret(getattr(cred, f'_{provider}_key_tertiary', None)) or
+                        decrypt_secret(getattr(cred, f'_{provider}_key_fallback', None)) or
                         decrypt_secret(getattr(cred, f'_{provider}_key', None))
                     )
                 elif tier == 'secondary':
                     api_key = (
-                        decrypt_secret(getattr(cred, f'_{provider}_key_fallback', None)) or 
+                        decrypt_secret(getattr(cred, f'_{provider}_key_fallback', None)) or
                         decrypt_secret(getattr(cred, f'_{provider}_key', None))
                     )
                 else:
@@ -433,11 +433,29 @@ def test_ai_connection_generic():
         if not provider or not api_key:
             return jsonify(success=False, message='Provider and API key are required'), 400
 
+        # Dynamically resolve missing model from user config before falling back to system defaults
+        if not model:
+            from credentials import UserSetting
+            from services.analysis_service import default_models
+            us = UserSetting.query.filter_by(user_id=current_user.id).first()
+            if us:
+                if tier == 'quaternary':
+                    model = getattr(us, 'ai_model_quaternary', None)
+                elif tier == 'tertiary':
+                    model = getattr(us, 'ai_model_tertiary', None)
+                elif tier == 'secondary':
+                    model = getattr(us, 'ai_model_secondary', None)
+                else:
+                    model = getattr(us, 'ai_model', None)
+
+            if not model:
+                model = default_models.get(provider)
+
         if provider == 'openai':
             try:
                 from openai import OpenAI
                 client = OpenAI(api_key=api_key, timeout=10.0)
-                test_model = model or 'gpt-4o-mini'
+                test_model = model
                 resp = client.chat.completions.create(
                     model=test_model,
                     messages=[{"role":"user","content":"ping"}],
@@ -451,7 +469,7 @@ def test_ai_connection_generic():
             try:
                 from zai_client import ZAIClient
                 client = ZAIClient(api_key)
-                test_model = model or 'glm-4.5-flash'
+                test_model = model
                 resp = client.chat_completion(
                     messages=[{"role":"user","content":"ping"}],
                     model=test_model,
@@ -466,7 +484,7 @@ def test_ai_connection_generic():
 
         elif provider == 'perplexity':
             try:
-                test_model = model or 'sonar'
+                test_model = model
                 r = requests.post(
                     'https://api.perplexity.ai/chat/completions',
                     headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
@@ -481,7 +499,7 @@ def test_ai_connection_generic():
 
         elif provider == 'gemini':
             try:
-                test_model = model or 'gemini-3.5-flash'
+                test_model = model
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{test_model}:generateContent?key={api_key}"
                 r = requests.post(
                     url,
@@ -497,7 +515,7 @@ def test_ai_connection_generic():
 
         elif provider == 'inception':
             try:
-                test_model = model or 'mercury-2'
+                test_model = model
                 r = requests.post(
                     'https://api.inceptionlabs.ai/v1/chat/completions',
                     headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
@@ -520,19 +538,19 @@ def test_ai_connection_generic():
 def _get_latest_conversation_row(user_id, prompt_type, sender):
     try:
         query = AIConversation.query.filter_by(
-            user_id=user_id, 
-            prompt_type=prompt_type, 
+            user_id=user_id,
+            prompt_type=prompt_type,
             sender=sender
         ).filter(
             (AIConversation.is_hidden == 0) | (AIConversation.is_hidden == None)
         ).order_by(
             AIConversation.id.desc()
         )
-        
+
         row = query.first()
         if not row:
             return None
-        
+
         created_at = None
         if row.created_at:
             try:
@@ -554,7 +572,7 @@ def _get_latest_conversation_row(user_id, prompt_type, sender):
                 created_at = get_eastern_now_iso()
         else:
             created_at = get_eastern_now_iso()
-        
+
         return {
             'id': row.id,
             'user_id': row.user_id,
@@ -626,7 +644,7 @@ def force_sentiment_analysis():
         target = req_data.get('target', 'all')
         symbol = req_data.get('symbol', None)
         source = str(req_data.get('source') or '').strip().lower()
-        
+
         # Run in a separate thread so valid response returns immediately
         def run_async():
             with app.app_context():
@@ -687,10 +705,10 @@ def force_sentiment_analysis():
                                 _db.session.rollback()
                             except Exception:
                                 pass
-        
+
         thread = threading.Thread(target=run_async)
         thread.start()
-        
+
         return jsonify({
             'success': True,
             'message': f'Sentiment analysis started in background{" for " + symbol if symbol else ""}'
@@ -744,13 +762,13 @@ def api_ai_settings():
         username = current_user.username
         if not username:
             return jsonify({"error": "User not authenticated"}), 401
-        
+
         if request.method == "GET":
             # Return AI settings
             logger.error(f"=== DEBUG: api_ai_settings GET called for user: {username} ===")
             ai_settings = get_user_ai_settings(username)
             logger.error(f"=== DEBUG: Base AI settings loaded ===")
-            
+
             # Get user object to get user_id for AI prompts
             logger.error(f"=== DEBUG: Querying User with username: {username} ===")
             user_obj = User.query.filter_by(username=username).first()
@@ -782,14 +800,14 @@ def api_ai_settings():
                     logger.error("=== DEBUG: No AI prompts found, using defaults ===")
             else:
                 logger.error("=== DEBUG: User not found in database! ===")
-            
+
             # Remove the old ai_custom_prompts if it exists
             if 'ai_custom_prompts' in ai_settings:
                 del ai_settings['ai_custom_prompts']
-                
+
             logger.error("=== DEBUG: Final AI settings response generated ===")
             return jsonify(ai_settings)
-        
+
         elif request.method == "POST":
             # Save AI settings
             from services.credential_views import credential_changes
@@ -815,7 +833,7 @@ def api_ai_settings():
                         "success": False,
                         "message": "Ollama is available only to the administrator account.",
                     }), 403
-            
+
             # Update AI settings in database
             user_obj = User.query.filter_by(username=username).first()
             if not user_obj:
@@ -825,7 +843,7 @@ def api_ai_settings():
             if not cred:
                 cred = Credential(user_id=user_obj.id, username=username)
                 db.session.add(cred)
-            
+
             # Handle API keys separately
             if 'ai_gateway_key' in data:
                 cred.ai_gateway_key = data['ai_gateway_key']
@@ -931,7 +949,7 @@ def api_ai_settings():
                         "errors": {"automated_trigger_confirmation_minutes": "Enter a whole number from 1 through 1440."},
                     }), 400
                 data['automated_trigger_confirmation_minutes'] = confirmation_minutes
-            
+
             save_jev_settings(user_setting, data)
             # Map of allowed fields to update
             allowed_fields = [
@@ -974,7 +992,7 @@ def api_ai_settings():
                     for field in prompt_fields:
                         if field in value:
                             setattr(ai_prompts, field, value[field])
-                    continue 
+                    continue
 
                 # Explicit column updates
                 if key in allowed_fields:
@@ -1001,7 +1019,7 @@ def api_ai_settings():
                         setattr(user_setting, key, str(value))
             db.session.commit()
             return jsonify({"success": True, "message": "AI settings updated"})
-            
+
     except Exception as e:
         logger.error(f"Error in AI settings endpoint: {e}")
         db.session.rollback()
@@ -1027,7 +1045,7 @@ def get_ai_models():
     inception_models = {
         'mercury-2', 'mercury', 'mercury-2.5',
     }
-    
+
     # Create a dictionary of labels for the models
     model_labels = {
         'gpt-5.4-mini': '5.4 mini',
@@ -1056,7 +1074,7 @@ def get_ai_models():
         'mercury': 'Mercury (v1)',
         'mercury-2.5': 'Mercury 2.5',
     }
-    
+
     def get_model_options(models):
         return sorted([{'value': m, 'label': model_labels.get(m, m)} for m in models], key=lambda x: x['label'])
 
@@ -1101,7 +1119,7 @@ def api_test_binance_connection():
         api_key = None
         api_secret = None
         testnet = False  # Force production for US users
-        
+
         # Check if keys provided in request body (for testing new keys)
         if request.method == 'POST':
             data = request.get_json() or {}
@@ -1111,34 +1129,34 @@ def api_test_binance_connection():
         else:
             data = {}
             save_on_success = False
-        
+
         # Fallback to credentials from database
         if not api_key or not api_secret or api_key == '********' or api_secret == '********':
             # Get credentials from credentials table
             creds = Credential.query.filter_by(user_id=current_user.id).first()
-            
+
             if creds:
                 api_key = creds.api_key if not api_key or api_key == '********' else api_key
                 api_secret = creds.api_secret if not api_secret or api_secret == '********' else api_secret
-            
+
         if not api_key or not api_secret or api_key == '********' or api_secret == '********':
             return jsonify({
                 "success": False,
                 "message": "Binance API key and secret are required"
             }), 400
-            
+
         # Import Binance client
 
         from binance.client import Client
         from binance.exceptions import BinanceAPIException
-        
+
         # If we get a location restriction error, default to testnet and inform user
         location_restricted = False
         binance_type = "Binance"
-        
+
         # Connect to Binance.US only (US users cannot use regular Binance)
         connection_attempts = []
-        
+
         try:
             logger.info(f"Attempting Binance.US connection with testnet={testnet}")
             client = Client(
@@ -1153,11 +1171,11 @@ def api_test_binance_connection():
             binance_type = "Binance.US"
             account = client.get_account()
             logger.info("Binance.US connection successful")
-            
+
         except BinanceAPIException as api_e:
             connection_attempts.append(f"Binance.US: {api_e.message}")
             logger.warning(f"Binance.US failed: {api_e.message}")
-            
+
             return jsonify({
                 "success": False,
                 "message": "Binance.US connection failed",
@@ -1165,11 +1183,11 @@ def api_test_binance_connection():
                 "suggestion": "For US users: 1) Verify your Binance.US API keys are correct, 2) Ensure your Binance.US account is verified, 3) Check API permissions include 'Read Info'",
                 "attempts": connection_attempts
             }), 400
-                
+
         except Exception as e:
             connection_attempts.append(f"Binance.US: {str(e)}")
             logger.warning(f"Binance.US connection failed: {e}")
-            
+
             return jsonify({
                 "success": False,
                 "message": "Binance.US connection failed",
@@ -1177,7 +1195,7 @@ def api_test_binance_connection():
                 "suggestion": "For US users: 1) Verify your Binance.US API keys are correct, 2) Check your network connection, 3) Ensure your Binance.US account is verified",
                 "attempts": connection_attempts
             }), 400
-            
+
         if not account.get('canTrade'):
             return jsonify({
                 'success': False,
@@ -1188,10 +1206,10 @@ def api_test_binance_connection():
         # Get balances (filter out zero balances)
         balances = [
             {"asset": b['asset'], "free": b['free'], "locked": b['locked']}
-            for b in account['balances'] 
+            for b in account['balances']
             if float(b['free']) > 0 or float(b['locked']) > 0
         ]
-        
+
         if save_on_success:
             try:
                 cred = Credential.query.filter_by(user_id=current_user.id).first()
@@ -1228,11 +1246,11 @@ def api_test_binance_connection():
                 db.session.commit()
         except Exception as e:
             logger.warning(f"Could not update connection timestamp: {e}")
-        
+
         success_message = f"{binance_type} {'Testnet ' if testnet else ''}API connection successful"
         if location_restricted:
             success_message += " (automatically switched to testnet due to location restrictions)"
-        
+
         return jsonify({
             "success": True,
             "message": success_message,
@@ -1249,7 +1267,7 @@ def api_test_binance_connection():
                 "balances": balances
             }
         })
-        
+
     except BinanceAPIException as e:
         logger.error(f"Binance API error: {e.message}")
         return jsonify({
@@ -1258,7 +1276,7 @@ def api_test_binance_connection():
             "code": e.code,
             "suggestion": "Check your API credentials and try enabling testnet mode"
         }), 400
-        
+
     except Exception as e:
         logger.error(f"Binance connection test failed: {str(e)}")
         return jsonify({
@@ -1276,17 +1294,17 @@ def api_test_trading_connection():
         data = request.get_json()
         trading_api_key = data.get('trading_api_key')
         trading_api_secret = data.get('trading_api_secret')
-        
+
         if not trading_api_key or not trading_api_secret:
             return jsonify({
                 "success": False,
                 "message": "Trading API key and secret are required"
             }), 400
-        
+
         # Import Binance client
         from binance.client import Client
         from binance.exceptions import BinanceAPIException
-        
+
         try:
             logger.info(f"Testing Binance.US Trading API connection for user {current_user.username}")
             client = Client(
@@ -1298,21 +1316,21 @@ def api_test_trading_connection():
                     'timeout': 15,
                 }
             )
-            
+
             # Test API connection and permissions
             account = client.get_account()
-            
+
             # Check if trading is enabled
             can_trade = account.get('canTrade', False)
-            
+
             if not can_trade:
                 return jsonify({
                     "success": False,
                     "message": "Trading is not enabled for this API key. Please enable SPOT trading permissions."
                 }), 400
-            
+
             logger.info("Binance.US Trading API connection successful")
-            
+
             return jsonify({
                 "success": True,
                 "message": "Trading API connection successful! SPOT trading is enabled.",
@@ -1322,7 +1340,7 @@ def api_test_trading_connection():
                     "canDeposit": account.get('canDeposit')
                 }
             })
-            
+
         except BinanceAPIException as api_e:
             logger.warning(f"Binance.US Trading API failed: {api_e.message}")
             return jsonify({
@@ -1330,7 +1348,7 @@ def api_test_trading_connection():
                 "message": f"Binance.US API Error: {api_e.message}",
                 "suggestion": "Verify your Trading API credentials are correct and have SPOT trading permissions"
             }), 400
-            
+
     except Exception as e:
         logger.error(f"Trading connection test failed: {str(e)}")
         return jsonify({
@@ -1364,7 +1382,7 @@ def api_ai_symbol_analysis(symbol):
         price_data = get_last_7d_prices(symbol)
         if not price_data or len(price_data) < 2:
             return jsonify({"error": "Insufficient price data"}), 400
-        
+
         snapshot = calculate_symbol_snapshot(symbol)
         if not snapshot:
             return jsonify({"error": "Insufficient price data"}), 400
@@ -1407,7 +1425,7 @@ def api_ai_symbol_analysis(symbol):
                 "points": len(price_data)
             }
         })
-        
+
     except Exception as e:
         logger.error(f"Error in symbol analysis: {e}")
         return jsonify({"error": str(e)}), 500
@@ -1531,12 +1549,12 @@ def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_
     """Retrieve filtered and paginated AI conversations for user using SQLAlchemy ORM"""
     from models import AIConversation
     query = AIConversation.query.filter(AIConversation.user_id == user_id)
-    
+
     if not include_hidden:
         query = query.filter(db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden.is_(None)))
         # Exclude background JSON cache records from the visible sidebar
         query = query.filter(~AIConversation.prompt_type.endswith('_workflow'))
-    
+
     if prompt_type_filter:
         query = query.filter(AIConversation.prompt_type == prompt_type_filter)
 
@@ -1545,15 +1563,15 @@ def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_
             AIConversation.prompt_type == 'manual',
             AIConversation.conversation_id == conversation_id,
         )
-        
+
     if filter_sentiment and not (prompt_type_filter == 'sentiment_analysis'):
         query = query.filter(AIConversation.prompt_type != 'sentiment_analysis')
-        
+
     if search_term:
         query = query.filter(AIConversation.body.ilike(f"%{search_term}%"))
-        
+
     rows = query.order_by(AIConversation.id.desc()).offset(offset).limit(limit).all()
-    
+
     result = []
     for r in rows:
         result.append({
@@ -1579,11 +1597,11 @@ def get_ai_conversations_count(user_id, search_term=None, include_hidden=False, 
     """Get total count of filtered AI conversations for user"""
     from models import AIConversation
     query = AIConversation.query.filter(AIConversation.user_id == user_id)
-    
+
     if not include_hidden:
         query = query.filter(db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden.is_(None)))
         query = query.filter(~AIConversation.prompt_type.endswith('_workflow'))
-    
+
     if prompt_type_filter:
         query = query.filter(AIConversation.prompt_type == prompt_type_filter)
 
@@ -1592,13 +1610,13 @@ def get_ai_conversations_count(user_id, search_term=None, include_hidden=False, 
             AIConversation.prompt_type == 'manual',
             AIConversation.conversation_id == conversation_id,
         )
-        
+
     if filter_sentiment and not (prompt_type_filter == 'sentiment_analysis'):
         query = query.filter(AIConversation.prompt_type != 'sentiment_analysis')
-        
+
     if search_term:
         query = query.filter(AIConversation.body.ilike(f"%{search_term}%"))
-        
+
     return query.count()
 
 
@@ -1610,7 +1628,7 @@ def api_ai_conversations():
         if not current_user.is_authenticated:
             logger.error("User not authenticated for AI conversations")
             return jsonify({'error': 'User not authenticated'}), 401
-        
+
         limit = request.args.get('limit', 20, type=int)
         offset = request.args.get('offset', 0, type=int)
         search_term = request.args.get('search', None)
@@ -1621,27 +1639,27 @@ def api_ai_conversations():
 
         if conversation_id and not _get_owned_copilot_session(current_user.id, conversation_id):
             return jsonify({'error': 'Copilot session not found'}), 404
-        
+
         conversations = get_ai_conversations(
-            current_user.id, 
-            limit, 
-            offset, 
-            search_term, 
+            current_user.id,
+            limit,
+            offset,
+            search_term,
             include_hidden,
             filter_sentiment,
             prompt_type_filter,
             conversation_id,
         )
-        
+
         total_count = get_ai_conversations_count(
-            current_user.id, 
-            search_term, 
+            current_user.id,
+            search_term,
             include_hidden,
             filter_sentiment,
             prompt_type_filter,
             conversation_id,
         )
-        
+
         return jsonify({
             'conversations': conversations,
             'total': total_count,
@@ -1649,7 +1667,7 @@ def api_ai_conversations():
             'limit': limit,
             'offset': offset
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting AI conversations: {e}", exc_info=True)
         return jsonify({
@@ -1714,7 +1732,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
 
     def money(value, decimals=2):
         return f"${value:,.{decimals}f}" if value is not None else "unavailable"
-    
+
     user = db.session.get(User, user_id)
     if not user:
         raise ValueError('Copilot user not found')
@@ -1735,7 +1753,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
     ).order_by(AIConversation.id.desc()).limit(8).all()
     is_first_message = not prior_records
     prior_user_messages = [record.body for record in reversed(prior_records) if record.body]
-    
+
     # Log user message immediately so conversation history is never lost
     user_message_id = None
     ai_message_id = None
@@ -1756,7 +1774,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         ).first():
             raise CopilotRequestInProgress('This Copilot request is already processing.')
         raise RuntimeError('Unable to persist the Copilot request.')
-    
+
     market_only = copilot_question_scope(message, prior_user_messages) == 'market'
     coins, wl_coins, webull_holdings, active_real, completed_activities = [], [], [], [], []
     webull_snapshot, oco_groups = {}, {}
@@ -2180,7 +2198,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         {"role": "user", "content": context_payload}
     ]
 
-    
+
     try:
         response, actual_stage3_prompt = call_ai_with_web_search(
             username=username,
@@ -2190,7 +2208,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
             symbol=target_symbol,
             model=None
         )
-        
+
         if hasattr(response, 'choices') and response.choices:
             ai_content = response.choices[0].message.content
         elif hasattr(response, 'text'):
@@ -2206,12 +2224,12 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         session.updated_at = datetime.utcnow()
         db.session.commit()
 
-        
+
         resp_tier = getattr(response, 'tier', 'primary')
         resp_provider = getattr(response, 'provider', None)
         resp_model = getattr(response, 'model', None)
         resp_search_status = getattr(response, 'search_status', None)
-        
+
         if resp_search_status and resp_model:
             # Append search status to model so it shows in the tooltip
             resp_model = f"{resp_model} (Search: {resp_search_status})"
@@ -2236,7 +2254,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         )
     except Exception as log_err:
         logger.error(f"Error logging Copilot AI response: {log_err}")
-    
+
     return (
         ai_content, conversation_id, resp_tier, resp_provider, resp_model,
         _serialize_copilot_session(session), user_message_id, ai_message_id,
@@ -2255,7 +2273,7 @@ def api_ai_conversation():
         conversation_id = data.get('conversation_id', None)
         include_all_sessions = data.get('include_all_sessions', False) is True
         request_id = str(data.get('request_id') or '').strip()
-        
+
         if not message:
             return jsonify({'error': 'Message is required'}), 400
         if not is_ai_enabled(current_user.username):
@@ -2309,7 +2327,7 @@ def api_ai_conversation():
                     'ai_created_at': format_iso_utc(existing_ai.created_at),
                     'replayed': True,
                 })
-        
+
         # Process the conversation
         (ai_response, conversation_id, resp_tier, resp_provider, resp_model,
          session, user_message_id, ai_message_id) = process_ai_conversation(
@@ -2326,7 +2344,7 @@ def api_ai_conversation():
             conversation_id=conversation_id,
             prompt_type='manual',
         ).count()
-        
+
         return jsonify({
             'response': ai_response,
             'conversation_id': conversation_id,
@@ -2365,16 +2383,16 @@ def api_delete_ai_conversation(message_id):
         from models import AIConversation
         # Find the message and verify ownership
         message = AIConversation.query.filter_by(id=message_id, user_id=current_user.id).first()
-        
+
         if not message:
             return jsonify({'error': 'Message not found or access denied'}), 404
-        
+
         # Delete the message
         db.session.delete(message)
         db.session.commit()
-        
+
         return jsonify({'success': True})
-        
+
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error deleting AI conversation: {e}")
@@ -2389,16 +2407,16 @@ def api_archive_ai_conversation(message_id):
         from models import AIConversation
         # Find the message and verify ownership
         message = AIConversation.query.filter_by(id=message_id, user_id=current_user.id).first()
-        
+
         if not message:
             return jsonify({'error': 'Message not found or access denied'}), 404
-        
+
         # Archive the message (set is_hidden = True)
         message.is_hidden = True
         db.session.commit()
-        
+
         return jsonify({'success': True})
-        
+
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error archiving AI conversation: {e}")
@@ -2413,16 +2431,16 @@ def api_ai_news_analysis():
         data = request.get_json() or {}
         symbol = data.get('symbol', '').upper()
         force_fresh = data.get('force_fresh', False)
-        
+
         if not symbol:
             return jsonify({'error': 'Symbol is required'}), 400
-        
+
         # Check if AI is enabled
         if not is_ai_enabled(current_user.username):
             return jsonify({
                 'error': 'AI analysis is disabled. Enable AI in Settings to use this feature.'
             }), 400
-        
+
         # Get coin_id for this symbol
         from models import Coin, WatchlistCoin
         coin_obj = Coin.query.filter_by(user_id=current_user.id, symbol=symbol, hidden=False).first()
@@ -2435,7 +2453,7 @@ def api_ai_news_analysis():
             try:
                 import pytz
                 today_et = get_eastern_now().date()
-                
+
                 cached_row = AIConversation.query.filter(
                     AIConversation.user_id == current_user.id,
                     AIConversation.coin_id == coin_id,
@@ -2448,7 +2466,7 @@ def api_ai_news_analysis():
                     if not dt.tzinfo:
                         dt = dt.replace(tzinfo=timezone.utc)
                     cached_et = dt.astimezone(pytz.timezone('US/Eastern'))
-                    
+
                     if cached_et.date() == today_et:
                         timestamp_formatted = format_eastern_datetime(cached_row.created_at, "%B %d, %Y at %I:%M %p EST")
                         return jsonify({
@@ -2467,7 +2485,7 @@ def api_ai_news_analysis():
             return jsonify({
                 'error': 'No AI prompts configured. Please check your settings.'
             }), 400
-            
+
         coin_pre_prompt = ai_prompts_obj.coin_analysis_pre
         coin_post_prompt = ai_prompts_obj.coin_analysis_post
         if not coin_pre_prompt or not coin_post_prompt:
@@ -2533,7 +2551,7 @@ def api_ai_news_analysis():
             return jsonify({
                 'error': f'AI analysis failed: {str(analysis_error)}'
             }), 500
-            
+
     except Exception as e:
         logger.error(f"Error in news analysis endpoint: {e}")
         return jsonify({'error': str(e)}), 500
@@ -2552,49 +2570,49 @@ def api_ai_coin_analysis():
         if request.method == 'GET':
             # Get all coin analysis for current user (both portfolio and watchlist) using ORM
             from models import Coin, WatchlistCoin
-            
+
             # Get portfolio coins (excluding hidden)
             portfolio_coins = Coin.query.filter_by(user_id=current_user.id, hidden=False).order_by(Coin.symbol).all()
-            
+
             # Get watchlist coins (excluding hidden)
             watchlist_coins = WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False).order_by(WatchlistCoin.symbol).all()
-            
+
             # Coin analysis table was removed - all AI conversations are now in ai_conversations table
             # Return empty analysis list since the coin_analysis table no longer exists
             coin_analyses = []
-                    
+
             return jsonify({'coin_analyses': coin_analyses})
-            
+
         elif request.method == 'POST':
             # POST method: Run new analysis for a specific coin
             data = request.get_json()
             source = data.get('source', 'portfolio')  # 'portfolio' or 'watchlist'
             coin_id = data.get('coin_id')
             watchlist_coin_id = data.get('watchlist_coin_id')
-            
+
             # Validate parameters
             if source == 'portfolio' and not coin_id:
                 return jsonify({"error": "coin_id is required for portfolio analysis"}), 400
             elif source == 'watchlist' and not watchlist_coin_id:
                 return jsonify({"error": "watchlist_coin_id is required for watchlist analysis"}), 400
-            
+
             # Get coin symbol from database using ORM
             from models import Coin, WatchlistCoin
-            
+
             if source == 'portfolio':
                 coin = Coin.query.filter_by(id=coin_id, user_id=current_user.id).first()
             else:  # watchlist
                 coin = WatchlistCoin.query.filter_by(id=watchlist_coin_id, user_id=current_user.id).first()
-            
+
             if not coin:
                 return jsonify({"error": "Coin not found"}), 404
-            
+
             symbol = coin.symbol
-            
+
             # Check if AI is enabled
             if not is_ai_enabled(current_user.username):
                 return jsonify({"error": "AI is disabled"}), 403
-            
+
             # Get AI settings and prompts from database - never hardcode prompts per instructions
             user_settings = get_user_ai_settings(current_user.username)
 
@@ -2605,7 +2623,7 @@ def api_ai_coin_analysis():
                 f"symbol: {symbol}\n"
                 f"datetime: {current_datetime}\n"
             )
-            
+
             # Enhanced logging for debugging
             logger.info("=== COIN ANALYSIS DEBUG ===")
             logger.info(f"Symbol: {symbol}")
@@ -2615,14 +2633,14 @@ def api_ai_coin_analysis():
             logger.info(f"Formatted Prompt: {formatted_prompt}")
             logger.info(f"Current Datetime: {current_datetime}")
             logger.info("=== END COIN ANALYSIS DEBUG ===")
-            
+
             # Call AI API
             try:
                 # Get user AI settings to determine provider and model
                 user_settings = get_user_ai_settings(current_user.username)
                 ai_provider = user_settings.get('ai_provider', 'openai')
                 model_name = user_settings.get('ai_model', 'gpt-5')
-                
+
                 # Log the full prompt being sent to AI
                 logger.info("=== FULL PROMPT TO AI ===")
                 # Get AI prompts from database
@@ -2630,13 +2648,13 @@ def api_ai_coin_analysis():
                 system_content = (ai_prompts_obj.coin_analysis_post or "").strip() if ai_prompts_obj else ""
                 if not system_content:
                     return jsonify({"error": "Missing coin analysis post prompt. Configure it in Settings."}), 400
-                
+
                 logger.info(f"System message: {system_content}")
                 logger.info(f"User message: {formatted_prompt}")
                 logger.info(f"Provider: {ai_provider}")
                 logger.info(f"Model: {model_name}")
                 logger.info("=== END FULL PROMPT TO AI ===")
-                
+
                 response, _ = call_ai_with_web_search(
                     username=current_user.username,
                     messages=[
@@ -2647,12 +2665,12 @@ def api_ai_coin_analysis():
                     prompt_type="coin_analysis",
                     symbol=symbol  # Pass the symbol for variable substitution
                 )
-                
+
                 # Handle different response formats
                 logger.info("=== AI RESPONSE DEBUG ===")
                 logger.info(f"Response type: {type(response)}")
                 logger.info(f"Response: {response}")
-                
+
                 if hasattr(response, 'choices') and response.choices:
                     # OpenAI format
                     analysis_report = response.choices[0].message.content
@@ -2672,23 +2690,23 @@ def api_ai_coin_analysis():
                     # Fallback for other formats
                     analysis_report = str(response)
                     logger.info(f"Fallback format - Analysis report: {analysis_report}")
-                
+
                 # Check if analysis report is empty
                 if not analysis_report or analysis_report.strip() == '':
                     logger.error(f"EMPTY ANALYSIS REPORT! Response was: {response}")
                     raise Exception("AI returned empty analysis report")
-                
+
                 logger.info("=== END AI RESPONSE DEBUG ===")
-                
+
                 # Log the conversation for sidebar display in proper order
                 try:
                     # Generate a shared conversation ID to group the request and response
                     conversation_id = generate_conversation_id()
-                    
+
                     # FIXED: Log the user's FULL request FIRST with timestamp to ensure proper order
                     import time
                     time.sleep(0.1)  # Small delay to ensure proper ordering
-                    
+
                     log_ai_conversation(
                         user_id=current_user.id,
                         prompt_type="coin_analysis",
@@ -2696,10 +2714,10 @@ def api_ai_coin_analysis():
                         body=formatted_prompt,  # Use the FULL prompt that was sent to AI, not just "Analyze {symbol}"
                         conversation_id=conversation_id
                     )
-                    
+
                     # Small delay to ensure the AI response comes after the user message
                     time.sleep(0.1)
-                    
+
                     # Log the AI's response SECOND
                     try:
                         log_ai_conversation(
@@ -2714,11 +2732,11 @@ def api_ai_coin_analysis():
                         logger.error(f"Error logging coin analysis conversation: {e}")
                 except Exception as e:
                     logger.error(f"Conversation logging failed: {e}")
-                
+
                 # Coin analysis storage removed - all AI conversations now stored in ai_conversations table
                 # The conversation is already logged above via log_ai_conversation()
                 # No need for separate coin_analysis table storage
-                
+
                 return jsonify({
                     "success": True,
                     "report": analysis_report,
@@ -2726,11 +2744,11 @@ def api_ai_coin_analysis():
                     "date": datetime.now().strftime('%Y-%m-%d'),
                     "time": datetime.now().strftime('%H:%M:%S')
                 })
-                
+
             except Exception as e:
                 logger.error(f"Error in coin analysis: {e}")
                 return jsonify({"error": f"Analysis failed: {str(e)}"}), 500
-                
+
     except Exception as e:
         logger.error(f"Error in coin analysis endpoint: {e}")
         return jsonify({"error": str(e)}), 500
@@ -2747,27 +2765,27 @@ def api_market_analysis_workflow():
         from models import AIConversation
         username = current_user.username
         user_id = current_user.id
-        
+
         # Get user's AI settings for cache and analysis window
         user_settings = get_user_ai_settings(username)
         cache_duration_hours = user_settings.get('ai_cache_duration_hours', 4)
         analysis_window_start = user_settings.get('ai_analysis_window_start', '08:00')
         analysis_window_end = user_settings.get('ai_analysis_window_end', '23:59')
-        
+
         logger.info(f"[AI_DEBUG] Settings for {username}: Window={analysis_window_start}-{analysis_window_end}, Cache={cache_duration_hours}h")
-        
+
         # Check if we're in the analysis window (unless manual request)
         manual_request = request.args.get('manual', 'false').lower() == 'true' or request.args.get('refresh', 'false').lower() == 'true'
         if not manual_request and not is_user_analysis_window_active(analysis_window_start, analysis_window_end):
             logger.info(f"[AI_DEBUG] User {username} outside analysis window ({analysis_window_start}-{analysis_window_end})")
-            
+
             # Identify most recent cache (expired or not) to show instead of blank
             last_conv = AIConversation.query.filter_by(
-                user_id=user_id, 
+                user_id=user_id,
                 prompt_type='market_analysis_workflow',
                 sender='ai'
             ).order_by(AIConversation.created_at.desc()).first()
-            
+
             if last_conv:
                 try:
                     cached_data = json.loads(last_conv.body)
@@ -2788,18 +2806,18 @@ def api_market_analysis_workflow():
                 "stage3": {"status": "skipped", "reason": "outside_analysis_window"},
                 "cache_info": {"status": "analysis_window_inactive"}
             })
-        
+
         # Check 4-hour scheduling (unless manual request)
         if not manual_request and not should_run_ai_analysis(user_id):
             logger.info(f"[AI_DEBUG] User {username} skipped due to schedule (run recently)")
-            
+
             # Identify most recent cache (expired or not) to show instead of blank
             last_conv = AIConversation.query.filter_by(
-                user_id=user_id, 
+                user_id=user_id,
                 prompt_type='market_analysis_workflow',
                 sender='ai'
             ).order_by(AIConversation.created_at.desc()).first()
-            
+
             if last_conv:
                 try:
                     cached_data = json.loads(last_conv.body)
@@ -2820,13 +2838,13 @@ def api_market_analysis_workflow():
                 "stage3": {"status": "skipped", "reason": "schedule_not_ready"},
                 "cache_info": {"status": "schedule_blocked"}
             })
-        
+
         # Check cache unless manual request
         if not manual_request:
             # Check for recent cached analysis
             from datetime import timedelta
             cache_timestamp = datetime.utcnow() - timedelta(hours=cache_duration_hours)
-            
+
             # models imported at top
             cached_result = AIConversation.query.filter(
                 AIConversation.user_id == user_id,
@@ -2834,7 +2852,7 @@ def api_market_analysis_workflow():
                 AIConversation.sender == 'ai',
                 AIConversation.created_at > cache_timestamp
             ).order_by(AIConversation.created_at.desc()).first()
-            
+
             if cached_result:
                 logger.info(f"[AI_DEBUG] Cache HIT for {username}")
                 try:
@@ -2849,12 +2867,12 @@ def api_market_analysis_workflow():
                     logger.warning(f"Failed to parse cached market analysis for user {user_id}")
             else:
                 logger.info(f"[AI_DEBUG] Cache MISS for {username}")
-        
+
         logger.info(f"=== MARKET ANALYSIS WORKFLOW START - User: {username} ===")
-        
+
         # Capture the start time for accurate "generated_at" timestamp
         analysis_start_time = get_eastern_now_iso()
-        
+
         # Execute 3-stage agentic workflow for market analysis
         # NOTE: call_ai_with_web_search will use the proper database prompts from ai_prompts table
         # We just need to provide a simple trigger message to start the workflow
@@ -2864,7 +2882,7 @@ def api_market_analysis_workflow():
                 "content": "Market analysis request"  # This gets replaced by the actual Stage 3 prompt
             }
         ]
-        
+
         # Execute the agentic workflow - this will return response and actual Stage 3 prompt
         response, actual_user_prompt = call_ai_with_web_search(
             username=username,
@@ -2874,7 +2892,7 @@ def api_market_analysis_workflow():
             symbol=None,
             model=None  # Use user's preferred model
         )
-        
+
         # Extract the analysis content
         if hasattr(response, 'choices') and response.choices:
             analysis_content = response.choices[0].message.content
@@ -2888,7 +2906,7 @@ def api_market_analysis_workflow():
             analysis_content = str(response)
         else:
             raise Exception("Invalid AI response format")
-        
+
         resp_tier = getattr(response, 'tier', 'primary')
         resp_provider = getattr(response, 'provider', None)
         resp_model = getattr(response, 'model', None)
@@ -2905,7 +2923,7 @@ def api_market_analysis_workflow():
                 "description": "Data Gathering - Generated targeted search queries for current market information"
             },
             "stage2": {
-                "status": "completed", 
+                "status": "completed",
                 "description": "Web Search - Executed searches for real-time market data and news"
             },
             "stage3": {
@@ -2927,26 +2945,26 @@ def api_market_analysis_workflow():
                 "expires_at": (get_eastern_now() + timedelta(hours=cache_duration_hours)).isoformat()
             }
         }
-        
+
         # Save conversations to AI Copilot sidebar using the ACTUAL Stage 3 prompt
         try:
             import time
-            
+
             # Use the ACTUAL Stage 3 prompt that was sent to AI (not hardcoded)
-            # Log user message first 
+            # Log user message first
             log_ai_conversation(user_id, "market_analysis", "user", actual_user_prompt, provider=resp_provider, model=resp_model, tier=resp_tier)
-            
+
             # Add small delay to ensure proper chronological order
             time.sleep(0.1)
-            
-            # Then log ai response 
+
+            # Then log ai response
             log_ai_conversation(user_id, "market_analysis", "ai", analysis_content, provider=resp_provider, model=resp_model, tier=resp_tier)
-            
+
             logger.info(f"Market analysis conversations saved to AI Copilot for user {user_id}")
-            
+
         except Exception as conversation_error:
             logger.error(f"Failed to save market analysis conversations: {conversation_error}")
-        
+
         # Store workflow result in AIConversation table for caching only
         try:
             now = get_eastern_now()
@@ -2963,18 +2981,18 @@ def api_market_analysis_workflow():
             db.session.add(ai_conversation)
             db.session.commit()
             logger.info(f"Market analysis workflow cache stored for user {user_id}")
-            
+
             # Update the AI analysis schedule based on user settings
             if request.args.get('update_schedule', 'true').lower() != 'false':
                 update_ai_analysis_schedule(user_id)
-            
+
         except Exception as db_error:
             logger.error(f"Failed to store market analysis cache: {db_error}")
             # Continue without caching
-        
+
         logger.info(f"=== MARKET ANALYSIS WORKFLOW COMPLETE - User: {username} ===")
         return jsonify(workflow_result)
-        
+
     except Exception as e:
         logger.error(f"Market analysis workflow error for user {username}: {e}")
         try:
@@ -3014,7 +3032,7 @@ def api_portfolio_review_workflow():
             if not is_user_analysis_window_active(analysis_window_start, analysis_window_end):
                 # Identify most recent cache (expired or not) to show instead of blank
                 last_conv = AIConversation.query.filter_by(
-                    user_id=user_id, 
+                    user_id=user_id,
                     prompt_type='portfolio_review_workflow',
                     sender='ai'
                 ).order_by(AIConversation.created_at.desc()).first()
@@ -3034,11 +3052,11 @@ def api_portfolio_review_workflow():
                     "message": f"Analysis window: {analysis_window_start} - {analysis_window_end}. Use manual refresh for off-hours analysis.",
                     "status": "outside_window"
                 })
-            
+
             if not should_run_ai_analysis(user_id):
                 # Identify most recent cache (expired or not) to show instead of blank
                 last_conv = AIConversation.query.filter_by(
-                    user_id=user_id, 
+                    user_id=user_id,
                     prompt_type='portfolio_review_workflow',
                     sender='ai'
                 ).order_by(AIConversation.created_at.desc()).first()
@@ -3117,7 +3135,7 @@ def api_portfolio_review_workflow():
             analysis_content = str(response)
         else:
             raise Exception("Invalid AI response format")
-        
+
         resp_tier = getattr(response, 'tier', 'primary')
         resp_provider = getattr(response, 'provider', None)
         resp_model = getattr(response, 'model', None)
@@ -3213,7 +3231,7 @@ def api_portfolio_review_workflow():
             "status": "error"
         }), 500
 
-        
+
 
 
 @ai_bp.route('/api/ai/portfolio-review-results', methods=['GET'])
@@ -3224,11 +3242,11 @@ def api_portfolio_review_results():
         from datetime import timedelta
         username = current_user.username
         user_id = current_user.id
-        
+
         # Get user's AI settings for cache duration
         user_settings = get_user_ai_settings(username)
         cache_duration_hours = user_settings.get('ai_cache_duration_hours', 4)
-        
+
         # Look for recent cached results
         cache_timestamp = datetime.utcnow() - timedelta(hours=cache_duration_hours)
         cached_result = db.session.query(AIConversation).filter(
@@ -3237,7 +3255,7 @@ def api_portfolio_review_results():
             AIConversation.sender == 'ai',
             AIConversation.created_at > cache_timestamp
         ).order_by(AIConversation.created_at.desc()).first()
-        
+
         if cached_result:
             try:
                 cached_data = json.loads(cached_result.body)
@@ -3249,18 +3267,18 @@ def api_portfolio_review_results():
                 if 'cache_info' in cached_data:
                     cached_data['cache_info']['generated_at'] = format_eastern_datetime_ampm(eastern_time)
                     cached_data['cache_info']['expires_at'] = (eastern_time + timedelta(hours=cache_duration_hours)).isoformat()
-                
+
                 return jsonify(cached_data)
             except json.JSONDecodeError:
                 logger.warning(f"Failed to parse cached portfolio review for user {user_id}")
-        
+
         # No cached results found
         return jsonify({
             "success": False,
             "message": "No recent portfolio review found. Click 'Refresh Portfolio Review' to generate new analysis.",
             "cache_info": {"status": "no_cache"}
         })
-        
+
     except Exception as e:
         logger.error(f"Portfolio review results error for user {username}: {e}")
         return jsonify({
@@ -3277,10 +3295,10 @@ def api_ai_copilot_results():
     try:
         username = current_user.username
         user_id = current_user.id
-        
+
         # Get recent workflow results from the last 24 hours
         since_timestamp = datetime.now() - timedelta(hours=24)
-        
+
         # Query active workflow types (market_analysis and portfolio_review)
         workflow_conversations = db.session.query(AIConversation).filter(
             AIConversation.user_id == user_id,
@@ -3289,22 +3307,22 @@ def api_ai_copilot_results():
             AIConversation.created_at > since_timestamp,
             AIConversation.is_hidden == 0
         ).order_by(AIConversation.created_at.desc()).all()
-        
+
         copilot_messages = []
-        
+
         # Process each workflow result for copilot display
         for conversation in workflow_conversations:
             try:
                 workflow_data = json.loads(conversation.body)
-                
+
                 # Extract workflow type and content
                 workflow_type = conversation.prompt_type.replace('_workflow', '').replace('_', ' ').title()
                 analysis_content = workflow_data.get('analysis', {}).get('content', '')
-                
+
                 if analysis_content:
                     # Format as user request followed by AI response
                     user_request = f"Run {workflow_type} using the 3-stage agentic workflow"
-                    
+
                     # Add user message
                     copilot_messages.append({
                         "sender": "user",
@@ -3313,10 +3331,10 @@ def api_ai_copilot_results():
                         "workflow_type": conversation.prompt_type,
                         "display_type": "workflow_request"
                     })
-                    
+
                     # Add AI response with workflow info
                     ai_response_body = f"🤖 **{workflow_type} Complete** (3-Stage Agentic Workflow)\n\n"
-                    
+
                     # Add stage information
                     if workflow_data.get('stage1', {}).get('status') == 'completed':
                         ai_response_body += "✅ **Stage 1:** " + workflow_data['stage1'].get('description', 'Data gathering completed') + "\n"
@@ -3324,19 +3342,19 @@ def api_ai_copilot_results():
                         ai_response_body += "✅ **Stage 2:** " + workflow_data['stage2'].get('description', 'Web search completed') + "\n"
                     if workflow_data.get('stage3', {}).get('status') == 'completed':
                         ai_response_body += "✅ **Stage 3:** " + workflow_data['stage3'].get('description', 'Analysis completed') + "\n\n"
-                    
+
                     # Add analysis content (truncated for sidebar)
                     if len(analysis_content) > 500:
                         ai_response_body += analysis_content[:500] + "...\n\n*Click to view full analysis*"
                     else:
                         ai_response_body += analysis_content
-                    
+
                     # Add cache information
                     cache_info = workflow_data.get('cache_info', {})
                     if cache_info.get('expires_at'):
                         expires_at = datetime.fromisoformat(cache_info['expires_at'].replace('Z', '+00:00'))
                         ai_response_body += f"\n\n📅 *Cache expires: {expires_at.strftime('%m/%d %I:%M %p')}*"
-                    
+
                     copilot_messages.append({
                         "sender": "agent",
                         "body": ai_response_body,
@@ -3346,14 +3364,14 @@ def api_ai_copilot_results():
                         "full_content": analysis_content,
                         "cache_expires": cache_info.get('expires_at')
                     })
-                    
+
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Failed to parse workflow conversation {conversation.id}: {e}")
                 continue
-        
+
         # Sort messages chronologically (oldest first for proper conversation flow)
         copilot_messages.sort(key=lambda x: x['created_at'])
-        
+
         # Add summary statistics
         workflow_stats = {
             "total_workflows": len(workflow_conversations),
@@ -3362,7 +3380,7 @@ def api_ai_copilot_results():
             "time_range": "24 hours",
             "last_updated": get_eastern_now().isoformat()
         }
-        
+
         # --- Add full transaction history for Copilot deep queries ---
         # Use get_comprehensive_crypto_data_for_user with no transaction limit
         try:
@@ -3382,7 +3400,7 @@ def api_ai_copilot_results():
 
         logger.info(f"AI Copilot results compiled for user {username}: {len(copilot_messages)} messages from {len(workflow_conversations)} workflows, {len(all_transactions)} transactions included")
         return jsonify(response_data)
-        
+
     except Exception as e:
         logger.error(f"AI Copilot results error for user {username}: {e}")
         return jsonify({

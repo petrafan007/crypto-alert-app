@@ -1460,10 +1460,12 @@ def _call_generative_with_web_search(
                 else:
                     fail_msg += ". All configured AI providers exhausted."
                     notif_cat = 'system_error'
+                raw_sym = str(symbol or 'AI')
+                display_sym = 'Event AI' if raw_sym == 'EVENT_BATCH' else raw_sym[:10].upper()
                 create_system_notification(
                     user_id_or_name=target_user,
                     category=notif_cat,
-                    symbol=str(symbol or 'AI')[:10].upper(),
+                    symbol=display_sym,
                     message=fail_msg
                 )
         except Exception as notif_err:

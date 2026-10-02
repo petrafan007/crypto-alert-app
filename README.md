@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.6.11
+**Version:** 4.6.12
 
 ## Recent Updates
+
+### v4.6.12
+* **Toast Notification Readability Fix**: Fixed an issue where the `EVENT_BATCH` internal symbol for Event Contract AI research was being aggressively truncated to `EVENT_BATC` in toast notifications. It is now properly mapped to a human-readable "Event AI" identifier.
+* **Eliminated Hardcoded AI Model Fallbacks**: Removed the hidden emergency fallback mechanism in the Quantitative Strategy Engine that silently injected hardcoded fallback models into the AI cascade when those providers weren't explicitly configured. Only explicitly user-configured tiers are now used in the AI failover cascade.
+* **Dynamic Connection Test Model Resolution**: Wired up the generic AI connection test endpoint to dynamically resolve the configured model for the tested tier (Primary, Secondary, Tertiary, Quaternary) from the global AI settings, preventing the test from using hardcoded test models.
 
 ### v4.6.11
 * **Quaternary AI Failover Integration**: Added a full 4th-tier (Quaternary) AI integration to the Quantitative Strategy Engine dedicated AI configuration modal, providing complete 4-level failover redundancy (Primary, Secondary, Tertiary, Quaternary) across multi-asset portfolio audits and specialist evaluations.
