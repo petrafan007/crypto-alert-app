@@ -1948,6 +1948,9 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
 
       // Add 2FA token to request if present
       const orderData = { ...orderForm };
+      if (isEmbeddedReplaceMode && embeddedOrder) {
+        orderData.replacing_order_id = embeddedOrder.order_id || embeddedOrder.orderId || embeddedOrder.id;
+      }
       if (twofaToken) {
         orderData.twofa_token = twofaToken;
       }
@@ -1993,6 +1996,10 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
           successMessage = settings.test_mode_enabled
             ? `Test order placed successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol.replace('USDT', '')} checked against Binance.US rules and simulated.\n\nYour test portfolio has been updated.`
             : `Real order placed successfully!\n\nOrder ID: ${response.data.binance_order_id}\n\nYour portfolio will be updated once the order is filled.`;
+        }
+
+        if (response.data.replaced_order_id) {
+          successMessage = `Old strategy ${response.data.replaced_order_id} cancelled and replacement created.\n\n${successMessage}`;
         }
 
         setFeedbackModal({

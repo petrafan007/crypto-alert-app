@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.6.12
+**Version:** 4.6.13
 
 ## Recent Updates
+
+### v4.6.13
+* **Smart Bracket replacement fix:** Replacing a Binance.US synthetic strategy now sends the original strategy ID, checks ownership and account details, and cancels it before creating the replacement. A pending broker cancellation or recorded fill stops replacement, preventing two active strategies from monitoring the same position.
 
 ### v4.6.12
 * **Toast Notification Readability Fix**: Fixed an issue where the `EVENT_BATCH` internal symbol for Event Contract AI research was being aggressively truncated to `EVENT_BATC` in toast notifications. It is now properly mapped to a human-readable "Event AI" identifier.

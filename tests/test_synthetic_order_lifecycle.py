@@ -282,6 +282,45 @@ class SyntheticLifecycleTests(unittest.TestCase):
             _, error = portfolio._synthetic_request_mode({'broker': 'binance', 'test_mode': False})
             self.assertEqual(error[1], 409)
 
+    def test_replacing_smart_bracket_cancels_old_before_creating_new(self):
+        from routes import portfolio
+        old = self.create()
+        payload = {'broker': 'binance', 'test_mode': True, 'symbol': 'BTCUSD', 'side': 'SELL',
+                   'total_quantity': 10, 'upside_mode': 'LADDER', 'downside_mode': 'NONE',
+                   'replacing_order_id': f'ladder_{old.id}'}
+        with self.app.test_request_context(method='POST', json=payload), patch.object(portfolio, 'current_user', SimpleNamespace(id=1)):
+            response = portfolio.api_create_ladder_order.__wrapped__()
+        body = response.get_json()
+        self.assertTrue(body['success'])
+        self.assertEqual(body['replaced_order_id'], f'ladder_{old.id}')
+        self.assertEqual(db.session.get(LadderOrder, old.id).status, 'CANCELLED')
+        self.assertEqual(db.session.get(LadderOrder, body['ladder_order']['id']).status, 'ACTIVE')
+        self.assertEqual(LadderOrder.query.count(), 2)
+
+    def test_replacement_refuses_mismatched_or_unconfirmed_old_order(self):
+        from routes import portfolio
+        old = self.create(test_mode=False)
+        payload = {'broker': 'binance', 'test_mode': False, 'symbol': 'BTCUSD', 'side': 'SELL',
+                   'total_quantity': 10, 'upside_mode': 'LADDER', 'downside_mode': 'NONE',
+                   'replacing_order_id': f'ladder_{old.id}'}
+        bad = {**payload, 'symbol': 'ETHUSD'}
+        with self.assertRaisesRegex(ValueError, 'same symbol'):
+            portfolio._cancel_replaced_synthetic_order(bad, 1, False)
+        self.assertEqual(old.status, 'ACTIVE')
+        db.session.add(SyntheticExecution(user_id=1, parent_kind='LADDER', parent_id=old.id,
+            leg='TAKE_PROFIT', quantity=10, client_order_id='pending-replace', filled_quantity=0, status='SUBMITTED'))
+        db.session.commit()
+        self.client.get_order.return_value = {'status': 'NEW', 'executedQty': '0'}
+        self.client.cancel_order.return_value = {'status': 'NEW', 'executedQty': '0'}
+        with self.app.test_request_context(method='POST', json=payload), \
+                patch.object(portfolio, 'current_user', SimpleNamespace(id=1)), \
+                patch.object(portfolio, '_synthetic_request_mode', return_value=(False, None)):
+            response, code = portfolio.api_create_ladder_order.__wrapped__()
+        self.assertEqual(code, 400)
+        self.assertIn('awaiting broker confirmation', response.get_json()['error'])
+        self.assertEqual(db.session.get(LadderOrder, old.id).status, 'CANCEL_PENDING')
+        self.assertEqual(LadderOrder.query.count(), 1)
+
     def test_live_synthetic_cancellation_requires_code_but_paper_does_not(self):
         from routes import portfolio
         paper = self.create(test_mode=True)

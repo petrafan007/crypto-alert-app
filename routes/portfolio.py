@@ -2062,6 +2062,8 @@ def place_test_order():
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
 
         replacing_order_id = data.get('replacing_order_id')
+        if str(replacing_order_id).startswith(('ladder_', 'trail_')):
+            return jsonify(success=False, error='Replace a synthetic strategy with another synthetic strategy, or cancel it before placing a standard order.'), 400
         if replacing_order_id:
             try:
                 # Cancel the old test order first
@@ -3103,6 +3105,8 @@ def place_real_order():
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
 
         replacing_order_id = data.get('replacing_order_id')
+        if str(replacing_order_id).startswith(('ladder_', 'trail_')):
+            return jsonify(success=False, error='Replace a synthetic strategy with another synthetic strategy, or cancel it before placing a standard order.'), 400
         if replacing_order_id:
             try:
                 # Cancel the old order first
@@ -3507,6 +3511,43 @@ def _synthetic_request_mode(data):
     return test_mode, None
 
 
+def _cancel_replaced_synthetic_order(data, user_id, test_mode):
+    """Cancel a verified old strategy before creating its replacement."""
+    replacing_id = data.get('replacing_order_id')
+    if not replacing_id:
+        return None
+    match = re.fullmatch(r'(ladder|trail)_(\d+)', str(replacing_id))
+    if not match:
+        raise ValueError('The order being replaced is not a synthetic strategy.')
+    from trading_models import LadderOrder, TrailingOrder
+    from services.synthetic_execution_service import WORKING_PARENTS
+    kind, number = match.groups()
+    model = LadderOrder if kind == 'ladder' else TrailingOrder
+    old = model.query.filter_by(id=int(number), user_id=user_id).first()
+    if old is None:
+        raise ValueError('The order being replaced was not found for this user.')
+    if (old.symbol.upper() != str(data.get('symbol') or '').strip().upper()
+            or old.side.upper() != str(data.get('side') or '').strip().upper()
+            or (old.broker or 'binance').lower() != str(data.get('broker') or 'binance').strip().lower()
+            or str(old.account_id or '') != str(data.get('account_id') or '')
+            or bool(old.test_mode) != bool(test_mode)):
+        raise ValueError('The replacement must use the same symbol, side, broker, account, and trading mode.')
+    details = old.to_dict()
+    if old.status not in WORKING_PARENTS or old.cancel_requested:
+        raise ValueError('The order being replaced is no longer active or cancellation is already pending.')
+    if not details['execution_history_verified'] or details['filled_quantity'] != 0:
+        raise ValueError('The old strategy has fills or unverified execution history. Review its remaining quantity before replacing it.')
+    if kind == 'ladder':
+        from services.ladder_order_service import cancel_ladder_order
+        result = cancel_ladder_order(old.id, user_id)
+    else:
+        from services.trailing_order_service import cancel_trailing_order
+        result = cancel_trailing_order(old.id, user_id)
+    if result['status'] != 'CANCELLED' or result['filled_quantity'] != 0:
+        raise ValueError('Cancellation of the old strategy is awaiting broker confirmation or recorded a fill. No replacement was placed.')
+    return str(replacing_id)
+
+
 def _synthetic_list_scope():
     raw_mode = request.args.get('test_mode')
     if raw_mode not in (None, 'true', 'false'):
@@ -3538,6 +3579,8 @@ def api_create_trailing_order():
         instrument_type = data.get('instrument_type', 'CRYPTO')
         trading_session = data.get('trading_session', 'CORE')
 
+        replaced_order_id = _cancel_replaced_synthetic_order(data, current_user.id, test_mode)
+
         order_dict = create_trailing_order(
             user_id=current_user.id,
             symbol=symbol,
@@ -3553,11 +3596,12 @@ def api_create_trailing_order():
             instrument_type=instrument_type,
             trading_session=trading_session
         )
-        return jsonify({'success': True, 'trailing_order': order_dict})
+        return jsonify({'success': True, 'trailing_order': order_dict, 'replaced_order_id': replaced_order_id})
     except Exception as e:
         db.session.rollback()
         logger.error(f"Failed to create trailing order: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 400
+        detail = f'Old strategy {replaced_order_id} was cancelled, but the replacement could not be created: {e}' if locals().get('replaced_order_id') else str(e)
+        return jsonify({'success': False, 'error': detail}), 400
 
 
 @portfolio_bp.route('/api/trading/trailing-orders', methods=['GET'])
@@ -3638,6 +3682,8 @@ def api_create_ladder_order():
         downside_preset = data.get('downside_preset', 'Moderate')
         downside_rungs = data.get('downside_rungs')
 
+        replaced_order_id = _cancel_replaced_synthetic_order(data, current_user.id, test_mode)
+
         ladder_dict = create_ladder_order(
             user_id=current_user.id,
             symbol=symbol,
@@ -3667,11 +3713,12 @@ def api_create_ladder_order():
             downside_preset=downside_preset,
             downside_rungs=downside_rungs
         )
-        return jsonify({'success': True, 'ladder_order': ladder_dict})
+        return jsonify({'success': True, 'ladder_order': ladder_dict, 'replaced_order_id': replaced_order_id})
     except Exception as e:
         db.session.rollback()
         logger.error(f"Failed to create ladder order: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 400
+        detail = f'Old strategy {replaced_order_id} was cancelled, but the replacement could not be created: {e}' if locals().get('replaced_order_id') else str(e)
+        return jsonify({'success': False, 'error': detail}), 400
 
 
 @portfolio_bp.route('/api/trading/ladder-orders', methods=['GET'])
