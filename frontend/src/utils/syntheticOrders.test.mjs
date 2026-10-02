@@ -41,6 +41,12 @@ test('portfolio bracket tooltip includes both branches, progress, units and next
   assert.ok(text.length<450);
 });
 test('portfolio tooltip mirrors BUY, identifies Webull and includes amount trail activation and cancel-only', () => {
- const text=syntheticOrderTooltip({type:'LADDER',asset:'SPY',synthetic_details:{broker:'webull',symbol:'SPY',side:'BUY',status:'ACTIVE',total_quantity:10,filled_quantity:0,remaining_quantity:10,upside_mode:'TRAILING',upside_trail_type:'AMOUNT',upside_trail_value:5,upside_activation_price:90,upside_current_stop_price:95,downside_mode:'SINGLE',downside_target_price:110,stop_loss_action:'CANCEL_REMAINING'}});
- assert.match(text,/Webull/);assert.match(text,/trail 5.00 USD/);assert.match(text,/activation ≤ 90.00 USD/);assert.match(text,/Protection: ≥ 110.00 USD · cancel remainder only/);
+ const text=syntheticOrderTooltip({type:'LADDER',asset:'SPY',synthetic_details:{broker:'webull',symbol:'SPY',side:'BUY',status:'ACTIVE',total_quantity:10,filled_quantity:0,remaining_quantity:10,upside_mode:'TRAILING',upside_trail_type:'AMOUNT',upside_trail_value:5,upside_activation_price:90,upside_current_stop_price:95,downside_mode:'SINGLE',downside_target_price:90,stop_loss_action:'CANCEL_REMAINING'}});
+ assert.match(text,/Webull/);assert.match(text,/trail 5.00 USD/);assert.match(text,/activation ≤ 90.00 USD/);assert.match(text,/Dip entry: ≤ 90.00 USD · cancel remainder only/);
+});
+
+test('BUY breakout and dip tooltip arrows follow market direction', () => {
+ const text = syntheticOrderTooltip({asset:'BTC',synthetic_details:{broker:'binance',symbol:'BTCUSDT',side:'BUY',status:'ACTIVE',total_quantity:1,filled_quantity:0,remaining_quantity:1,upside_mode:'SINGLE',upside_target_price:110,downside_mode:'SINGLE',downside_target_price:90}});
+ assert.match(text,/Breakout entry: ≥ 110.00 USDT/);
+ assert.match(text,/Dip entry: ≤ 90.00 USDT/);
 });

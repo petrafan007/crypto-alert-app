@@ -4,7 +4,7 @@ Ladders, single targets and trailing strategies support Binance.US spot crypto a
 
 ## Execution behavior
 
-- BUY and SELL use mirrored target, activation and trailing rules. SELL trails market highs; BUY trails market lows. A trailing trigger submits the full remaining strategy quantity.
+- In current ladder and single-target behavior, upside triggers above the reference price and downside triggers below it for both sides. BUY upside is a breakout entry; BUY downside is a buy-the-dip entry. SELL trails market highs and BUY trails market lows. A trailing trigger submits the full remaining strategy quantity.
 - Profit targets and protection share one total quantity. Each ladder distributes that quantity across its own steps; fills on either side reduce the available remainder on both sides. If both protection and profit conditions apply on a tick, protection is evaluated first.
 - A single protection stop can execute a market order in the strategy's direction or cancel the remaining strategy without trading. Earlier `SELL_ALL` action names are compatibility identifiers; BUY protection buys the remainder.
 - Each live submission has a durable intent and unique client ID saved before transmission. A timeout or uncertain response blocks additional submissions until broker reconciliation resolves it. The engine never automatically retransmits an uncertain intent. An unresolved intent may require checking broker history and account permissions.

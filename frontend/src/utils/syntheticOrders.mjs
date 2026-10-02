@@ -144,7 +144,7 @@ export function syntheticOrderTooltip(pending, asset = '') {
   else for (const prefix of ['upside', 'downside']) {
     const mode = order[prefix + '_mode'] || (prefix === 'upside' ? 'LADDER' : 'NONE');
     const label = prefix === 'upside' ? (order.side === 'BUY' ? 'Breakout entry' : 'Profit') : (order.side === 'BUY' ? 'Dip entry' : 'Protection');
-    const direction = (prefix === 'upside') === (order.side === 'SELL') ? '≥' : '≤';
+    const direction = prefix === 'upside' ? '≥' : '≤';
     if (mode === 'NONE') lines.push(`${label}: off`);
     else if (mode === 'TRAILING') lines.push(`${label}: ${trail(prefix + '_')}`);
     else if (mode === 'SINGLE') lines.push(`${label}: ${direction} ${money(order[prefix + '_target_price'], currency)}${prefix === 'downside' && order.stop_loss_action === 'CANCEL_REMAINING' ? ' · cancel remainder only' : ' · trade remainder'}`);

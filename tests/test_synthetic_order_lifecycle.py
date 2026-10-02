@@ -69,10 +69,10 @@ class SyntheticLifecycleTests(unittest.TestCase):
                 for down in ('SINGLE', 'LADDER', 'TRAILING'):
                     with self.subTest(side=side, upside=up, downside=down):
                         parent = self.create(side=side, upside_mode=up, downside_mode=down,
-                            upside_target_price=110 if side == 'SELL' else 90,
-                            downside_target_price=90 if side == 'SELL' else 110,
+                            upside_target_price=110,
+                            downside_target_price=90,
                             upside_trail_value=5, downside_trail_value=3)
-                        for price in ([104, 108, 120, 90, 80] if side == 'SELL' else [96, 92, 80, 110, 120]):
+                        for price in [104, 108, 120, 90, 80]:
                             self.tick(parent, price)
                         rows = ex.executions(parent, 'LADDER')
                         self.assertAlmostEqual(sum(r.filled_quantity for r in rows), 10, places=8)
@@ -133,9 +133,9 @@ class SyntheticLifecycleTests(unittest.TestCase):
         self.assertEqual(SyntheticExecution.query.count(), 0)
         self.client.create_order.assert_not_called()
 
-    def test_buy_protection_buys_and_paper_never_uses_live_client(self):
-        parent = self.create(side='BUY', downside_mode='SINGLE', downside_target_price=105)
-        self.tick(parent, 106)
+    def test_buy_dip_buys_and_paper_never_uses_live_client(self):
+        parent = self.create(side='BUY', downside_mode='SINGLE', downside_target_price=95)
+        self.tick(parent, 94)
         record = TestOrder.query.one()
         self.assertEqual(record.side, 'BUY'); self.assertEqual(record.quantity, 10)
         self.client.create_order.assert_not_called()
@@ -202,7 +202,7 @@ class SyntheticLifecycleTests(unittest.TestCase):
     def test_webull_paper_uses_its_own_positions_cash_and_ledger(self):
         db.session.add(WebullTestAccount(user_id=1, cash_balance=10000, currency='USD')); db.session.commit()
         parent = self.create(broker='webull', instrument_type='ETF', symbol='SPY', side='BUY',
-                             upside_mode='SINGLE', upside_target_price=90)
+                             upside_mode='NONE', downside_mode='SINGLE', downside_target_price=90)
         self.tick(parent, 89)
         self.assertEqual(parent.status, 'COMPLETED')
         self.assertEqual(WebullTestOrder.query.one().filled_quantity, 10)
@@ -213,7 +213,7 @@ class SyntheticLifecycleTests(unittest.TestCase):
 
     def test_paper_ledger_rolls_back_with_execution_failure(self):
         db.session.add(WebullTestAccount(user_id=1, cash_balance=10000, currency='USD')); db.session.commit()
-        parent = self.create(broker='webull', instrument_type='EQUITY', symbol='AAPL', side='BUY', upside_mode='SINGLE', upside_target_price=90)
+        parent = self.create(broker='webull', instrument_type='EQUITY', symbol='AAPL', side='BUY', upside_mode='NONE', downside_mode='SINGLE', downside_target_price=90)
         with patch.object(ex, 'apply_broker_result', side_effect=ValueError('invalid result')):
             self.tick(parent, 89)
         self.assertEqual(parent.status, 'FAILED')
@@ -251,7 +251,7 @@ class SyntheticLifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError): ladder.cancel_ladder_order(one.id, 2)
 
     def test_worker_holds_closed_market_and_pauses_legacy_orders(self):
-        parent = self.create(broker='webull', instrument_type='ETF', symbol='SPY', side='BUY')
+        parent = self.create(broker='webull', instrument_type='ETF', symbol='SPY', side='BUY', upside_mode='NONE', downside_mode='LADDER')
         identifier = parent.id
         with patch.object(ex, 'market_is_open', return_value=False): ladder.evaluate_active_ladder_orders()
         parent = db.session.get(LadderOrder, identifier)

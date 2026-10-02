@@ -33,8 +33,14 @@ class TestLadderAndWebullSynthetic(unittest.TestCase):
         total_qty = sum(r['quantity'] for r in rungs)
         self.assertAlmostEqual(total_qty, 1.0, places=4)
 
-    def test_calculate_ladder_rungs_aggressive_buy(self):
-        # 4 rungs: -5%, -10%, -15%, -20% on 100 shares at $200
+    def test_buy_presets_put_breakout_above_and_dip_below_market(self):
+        breakout = calculate_ladder_rungs('BUY', 100.0, 1.0)
+        dip = calculate_ladder_rungs('BUY', 100.0, 1.0, rung_type='STOP_LOSS')
+        self.assertEqual([r['target_price'] for r in breakout], [102.0, 104.0, 106.0])
+        self.assertEqual([r['target_price'] for r in dip], [97.0, 95.0, 92.0])
+
+    def test_calculate_ladder_rungs_aggressive_buy_dip(self):
+        # Buy-the-dip rungs: -5%, -10%, -15%, -20% on 100 shares at $200
         rungs_input = [
             {'price_offset_pct': -5.0, 'percentage_of_total': 25.0},
             {'price_offset_pct': -10.0, 'percentage_of_total': 25.0},
@@ -45,7 +51,8 @@ class TestLadderAndWebullSynthetic(unittest.TestCase):
             side='BUY',
             current_price=200.0,
             total_quantity=100.0,
-            custom_rungs=rungs_input
+            custom_rungs=rungs_input,
+            rung_type='STOP_LOSS'
         )
         self.assertEqual(len(rungs), 4)
         self.assertAlmostEqual(rungs[0]['target_price'], 190.0)

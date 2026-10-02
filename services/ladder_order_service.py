@@ -36,15 +36,15 @@ PRESET_TEMPLATES = {
     },
     'BUY': {
         'Conservative': [
-            {'offset_pct': -2.0, 'pct_of_total': 33.33},
-            {'offset_pct': -4.0, 'pct_of_total': 33.33},
-            {'offset_pct': -6.0, 'pct_of_total': 33.34},
+            {'offset_pct': 2.0, 'pct_of_total': 33.33},
+            {'offset_pct': 4.0, 'pct_of_total': 33.33},
+            {'offset_pct': 6.0, 'pct_of_total': 33.34},
         ],
         'Aggressive': [
-            {'offset_pct': -5.0, 'pct_of_total': 25.0},
-            {'offset_pct': -10.0, 'pct_of_total': 25.0},
-            {'offset_pct': -15.0, 'pct_of_total': 25.0},
-            {'offset_pct': -20.0, 'pct_of_total': 25.0},
+            {'offset_pct': 5.0, 'pct_of_total': 25.0},
+            {'offset_pct': 10.0, 'pct_of_total': 25.0},
+            {'offset_pct': 15.0, 'pct_of_total': 25.0},
+            {'offset_pct': 20.0, 'pct_of_total': 25.0},
         ]
     }
 }
@@ -64,14 +64,14 @@ DOWNSIDE_PRESET_TEMPLATES = {
     },
     'BUY': {
         'Tight': [
-            {'offset_pct': 1.5, 'pct_of_total': 33.33},
-            {'offset_pct': 3.0, 'pct_of_total': 33.33},
-            {'offset_pct': 4.5, 'pct_of_total': 33.34},
+            {'offset_pct': -1.5, 'pct_of_total': 33.33},
+            {'offset_pct': -3.0, 'pct_of_total': 33.33},
+            {'offset_pct': -4.5, 'pct_of_total': 33.34},
         ],
         'Moderate': [
-            {'offset_pct': 3.0, 'pct_of_total': 30.0},
-            {'offset_pct': 5.0, 'pct_of_total': 30.0},
-            {'offset_pct': 8.0, 'pct_of_total': 40.0},
+            {'offset_pct': -3.0, 'pct_of_total': 30.0},
+            {'offset_pct': -5.0, 'pct_of_total': 30.0},
+            {'offset_pct': -8.0, 'pct_of_total': 40.0},
         ]
     }
 }

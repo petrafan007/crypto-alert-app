@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.6.13
+**Version:** 4.6.14
 
 ## Recent Updates
+
+### v4.6.14
+* **BUY Smart Bracket presets:** Corrected server-side BUY upside and downside ladder preset directions so breakout steps are above the reference price and buy-the-dip steps are below it.
+* **Synthetic order clarity and coverage:** Corrected BUY trigger arrows in portfolio tooltips and aligned BUY lifecycle tests with the current strategy behavior. The synthetic lifecycle and review suites now pass.
 
 ### v4.6.13
 * **Smart Bracket replacement fix:** Replacing a Binance.US synthetic strategy now sends the original strategy ID, checks ownership and account details, and cancels it before creating the replacement. A pending broker cancellation or recorded fill stops replacement, preventing two active strategies from monitoring the same position.
