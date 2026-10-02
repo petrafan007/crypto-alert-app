@@ -1416,7 +1416,8 @@ def audit_ai_kwargs(cfg):
         if tier.get('api_key'):
             keys[(name, provider)] = decrypt_secret(tier['api_key'])
     # Legacy portfolios with no dedicated tiers keep their configured global cascade.
-    return {'custom_tier_configs': tiers, 'custom_api_keys': keys} if tiers else {}
+    dedicated = any(name in config for name in ('primary', 'secondary', 'tertiary', 'quaternary'))
+    return {'custom_tier_configs': tiers, 'custom_api_keys': keys} if dedicated else {}
 
 
 def deterministic_audit_report(evidence, issue):

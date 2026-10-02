@@ -5,7 +5,6 @@ from log import logger
 from core.extensions import db
 from models import AICache, AIPrompt, AIAnalysisSchedule, AIConversation
 from credentials import UserSetting
-from event_algo import is_event_strategy_admin
 from services.copilot_context import DEFAULT_COPILOT_RESPONSE_PROMPT, DEFAULT_COPILOT_SEARCH_PROMPT
 
 def get_ai_cache(user_id, cache_key, cache_type):
@@ -84,8 +83,8 @@ def get_user_ai_settings(username: str) -> dict:
 
         settings = {
             'ai_enabled': True,
-            'ai_provider': 'openai',
-            'ai_model': 'gpt-5',
+            'ai_provider': '',
+            'ai_model': '',
             'ai_reasoning_level': 'medium',
             'ai_provider_fallback': '',
             'ai_model_fallback': '',
@@ -252,13 +251,12 @@ def get_user_ai_settings(username: str) -> dict:
                 settings['ai_model'] = user_setting.ai_model
                 settings['ai_reasoning_level'] = getattr(user_setting, 'ai_reasoning_level', 'medium') or 'medium'
                 
-                settings['ai_provider_fallback'] = getattr(user_setting, 'ai_provider_secondary', None) or user_setting.ai_provider_fallback
-                settings['ai_model_fallback'] = getattr(user_setting, 'ai_model_secondary', None) or user_setting.ai_model_fallback
-                settings['ai_reasoning_level_fallback'] = getattr(user_setting, 'ai_reasoning_level_secondary', None) or getattr(user_setting, 'ai_reasoning_level_fallback', 'medium') or 'medium'
-                
-                settings['ai_provider_secondary'] = settings['ai_provider_fallback']
-                settings['ai_model_secondary'] = settings['ai_model_fallback']
-                settings['ai_reasoning_level_secondary'] = settings['ai_reasoning_level_fallback']
+                secondary = getattr(user_setting, 'ai_provider_secondary', None)
+                prefix = 'secondary' if secondary is not None else 'fallback'
+                for field in ('provider', 'model', 'reasoning_level'):
+                    value = getattr(user_setting, f'ai_{field}_{prefix}', None)
+                    settings[f'ai_{field}_secondary'] = value
+                    settings[f'ai_{field}_fallback'] = value
 
                 settings['ai_provider_tertiary'] = getattr(user_setting, 'ai_provider_tertiary', '')
                 settings['ai_model_tertiary'] = getattr(user_setting, 'ai_model_tertiary', '')
@@ -350,83 +348,11 @@ def get_user_ai_settings(username: str) -> dict:
                 settings['toast_notifications_enabled'] = bool(b_enabled)
                 settings['telegram_notifications_enabled'] = getattr(user_setting, 'telegram_notifications_enabled', True) is not False
 
-        provider = str(settings.get('ai_provider', 'openai') or 'openai').strip().lower()
-        settings['ai_provider'] = provider
-        model = settings.get('ai_model')
-
-        for provider_field in ('ai_provider_fallback', 'ai_provider_secondary', 'ai_provider_tertiary', 'ai_provider_quaternary'):
-            current_provider = settings.get(provider_field)
-            settings[provider_field] = str(current_provider or '').strip().lower()
-
-        ollama_allowed = bool(user_obj and is_event_strategy_admin(user_obj))
-        valid_providers = {'openai', 'zai', 'perplexity', 'gemini', 'inception'}
-        if ollama_allowed:
-            valid_providers.add('ollama')
-        if provider not in valid_providers:
-            provider = 'openai'
-            settings['ai_provider'] = provider
-
-        openai_models = {
-            'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'gpt-4.1-mini',
-            'gpt-4.1-nano', 'o4-mini', 'o3', 'o3-mini',
-        }
-        zai_models = {
-            'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-4.7-flash', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash',
-        }
-        perplexity_models = {
-            'sonar-pro', 'sonar', 'sonar-reasoning',
-        }
-        gemini_models = {
-            'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash',
-        }
-        inception_models = {
-            'mercury-2', 'mercury', 'mercury-2.5'
-        }
-        default_models = {
-            'openai': 'gpt-5',
-            'zai': 'glm-4.5-flash',
-            'perplexity': 'sonar-pro',
-            'gemini': 'gemini-3.7-flash',
-            'inception': 'mercury-2',
-        }
-
-        if provider == 'openai':
-            if model not in openai_models:
-                settings['ai_model'] = default_models['openai']
-        elif provider == 'zai':
-            if model not in zai_models:
-                settings['ai_model'] = default_models['zai']
-        elif provider == 'perplexity':
-            if model not in perplexity_models:
-                settings['ai_model'] = 'sonar-pro'
-        elif provider == 'gemini':
-            if model not in gemini_models:
-                settings['ai_model'] = default_models['gemini']
-        elif provider == 'inception':
-            if model not in inception_models:
-                settings['ai_model'] = default_models['inception']
-        elif provider == 'ollama':
-            # Ollama models are discovered from the administrator's local
-            # service. Do not replace a selected local model with a cloud
-            # default or require an API key.
-            settings['ai_model'] = str(model or '').strip()
-        else:
-            settings['ai_model'] = default_models['openai']
-
-        # A saved value or forged request must never make Ollama available to
-        # another account. Empty fallback tiers remain unconfigured.
-        if not ollama_allowed:
-            for provider_field, model_field, default_value in (
-                ('ai_provider_secondary', 'ai_model_secondary', ''),
-                ('ai_provider_tertiary', 'ai_model_tertiary', ''),
-                ('ai_provider_quaternary', 'ai_model_quaternary', ''),
-            ):
-                if str(settings.get(provider_field) or '').strip().lower() == 'ollama':
-                    settings[provider_field] = ''
-                    settings[model_field] = default_value
-            if str(settings.get('ai_provider') or '').strip().lower() == 'ollama':
-                settings['ai_provider'] = 'openai'
-                settings['ai_model'] = default_models['openai']
+        # Saved provider/model values are authoritative. Do not reinterpret an
+        # unavailable model or a restricted provider as an OpenAI selection.
+        for suffix in ('', '_fallback', '_secondary', '_tertiary', '_quaternary'):
+            settings[f'ai_provider{suffix}'] = str(settings.get(f'ai_provider{suffix}') or '').strip().lower()
+            settings[f'ai_model{suffix}'] = str(settings.get(f'ai_model{suffix}') or '').strip()
 
         def _fix_time(s: str, default: str) -> str:
             try:

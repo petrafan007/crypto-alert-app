@@ -145,13 +145,13 @@ def validate_master_ai_config(ai_config):
     ollama_models = None
     for tier_name in ('primary', 'secondary', 'tertiary', 'quaternary'):
         tier = ai_config.get(tier_name)
-        if tier is None and tier_name == 'quaternary':
+        if tier is None:
             continue
         if not isinstance(tier, dict):
             raise ValueError(f'{tier_name.title()} AI integration is required.')
         provider = str(tier.get('provider') or '').strip().lower()
         model = str(tier.get('model') or '').strip()
-        if not provider and tier_name == 'quaternary':
+        if not provider:
             continue
         if provider not in allowed_providers:
             raise ValueError(f'{tier_name.title()} AI provider is invalid.')

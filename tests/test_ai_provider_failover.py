@@ -135,6 +135,100 @@ class AIProviderFailoverTests(unittest.TestCase):
             ],
         )
 
+    def test_settings_loader_preserves_saved_models_and_disabled_secondary(self):
+        from credentials import UserSetting
+        from services.analysis_service import get_user_ai_settings
+        saved = UserSetting(
+            ai_provider='gemini', ai_model='saved-custom-gemini',
+            ai_provider_secondary='', ai_model_secondary='',
+            ai_provider_fallback='openai', ai_model_fallback='gpt-4o',
+        )
+        with patch('credentials.User') as users, patch('credentials.UserSetting') as settings, \
+                patch('services.analysis_service.get_user_ai_prompts', return_value=None):
+            users.query.filter_by.return_value.first.return_value = SimpleNamespace(id=1)
+            settings.query.filter_by.return_value.first.return_value = saved
+            result = get_user_ai_settings('admin')
+        self.assertEqual(result['ai_provider'], 'gemini')
+        self.assertEqual(result['ai_model'], 'saved-custom-gemini')
+        self.assertEqual(result['ai_provider_secondary'], '')
+        self.assertEqual(result['ai_provider_fallback'], '')
+
+    def test_event_provider_failure_uses_selected_model_and_exact_fallback(self):
+        from services.ai_service import call_ai_with_web_search
+        tiers = [('primary', 'gemini', 'selected-gemini', 'medium'),
+                 ('secondary', 'ollama', 'selected-ollama', 'low')]
+        with patch('services.ai_service.User') as users, \
+                patch('services.ai_service.get_user_ai_settings', return_value={'ai_web_search_enabled': False}), \
+                patch('services.ai_service.get_user_credentials', return_value=SimpleNamespace(gemini_key='synthetic', openai_key='unused')), \
+                patch('services.ai_service.get_user_ai_prompts', return_value=None), \
+                patch('services.ai_service._is_equity_asset', return_value=False), \
+                patch('services.event_runtime.reserve_provider_call'), \
+                patch('services.ai_service.call_gemini_chat', side_effect=RuntimeError('quota reached')) as gemini, \
+                patch('services.ai_service.call_ollama_chat', return_value=CompletionText('Complete prediction')) as ollama, \
+                patch('services.ai_service.create_system_notification') as notifications, \
+                patch('openai.OpenAI') as openai:
+            users.query.filter_by.return_value.first.return_value = SimpleNamespace(id=1, username='admin', is_admin=True)
+            response, _ = call_ai_with_web_search(
+                username='admin', user_id=1, symbol='EVENT_BATCH',
+                prompt_type='webull_event_contract_batch_analysis',
+                messages=[{'role': 'user', 'content': 'Estimate these contract probabilities.'}],
+                custom_tier_configs=tiers, use_cache=False, include_db_context=False,
+            )
+        self.assertEqual(response.tier, 'secondary')
+        self.assertEqual(response.model, 'selected-ollama')
+        self.assertEqual(gemini.call_args.args[1], 'selected-gemini')
+        self.assertEqual(ollama.call_args.args[0], 'selected-ollama')
+        self.assertIn('SECONDARY (Ollama)', notifications.call_args.kwargs['message'])
+        openai.assert_not_called()
+
+    def test_disabled_secondary_does_not_resurrect_legacy_openai_alias(self):
+        self.assertEqual(build_configured_ai_tiers({
+            'ai_provider_secondary': '', 'ai_model_secondary': '',
+            'ai_provider_fallback': 'openai', 'ai_model_fallback': 'gpt-4o',
+        }), [])
+        self.assertEqual(build_configured_ai_tiers({
+            'ai_provider_secondary': 'zai', 'ai_model_secondary': '',
+            'ai_provider_fallback': 'openai', 'ai_model_fallback': 'gpt-4o',
+        }), [('secondary', 'zai', '', 'medium')])
+        self.assertEqual(build_configured_ai_tiers({
+            'ai_provider_secondary': None,
+            'ai_provider_fallback': 'inception', 'ai_model_fallback': 'mercury-2.5',
+        }), [('secondary', 'inception', 'mercury-2.5', 'medium')])
+
+    def test_ollama_timeout_never_substitutes_an_unselected_model(self):
+        import requests
+        with patch('services.ai_service.requests.post', side_effect=requests.Timeout('slow')) as post, \
+                patch('services.ai_service.get_ollama_models', return_value=['llama3.2:3b']) as inventory:
+            with self.assertRaises(requests.Timeout):
+                call_ollama_chat('selected-model', [])
+        post.assert_called_once()
+        inventory.assert_not_called()
+        self.assertEqual(post.call_args.kwargs['json']['model'], 'selected-model')
+
+    def test_zai_rate_limit_never_substitutes_an_unselected_model(self):
+        from zai_client import ZAIClient
+        with patch('zai_client.ZaiClient', None):
+            client = ZAIClient('synthetic')
+        with patch.object(client, '_http_chat_completion', return_value={
+            'success': False, 'error': '429 rate limit',
+        }) as request:
+            self.assertFalse(client.chat_completion([], 'selected-glm')['success'])
+        request.assert_called_once_with([], 'selected-glm', 1000, 0.7)
+
+    def test_explicit_empty_cascade_never_inherits_global_openai(self):
+        from services.ai_service import call_ai_with_web_search
+        with patch('services.ai_service.User') as users, \
+                patch('services.ai_service.get_user_ai_settings', return_value={
+                    'ai_provider': 'openai', 'ai_model': 'gpt-4o',
+                }), \
+                patch('services.ai_service.get_user_credentials', return_value=SimpleNamespace()), \
+                patch('services.ai_service.create_system_notification'), \
+                patch('services.ai_service.build_configured_ai_tiers') as global_tiers:
+            users.query.filter_by.return_value.first.return_value = SimpleNamespace(id=1, username='admin')
+            with self.assertRaisesRegex(RuntimeError, 'No more fallback tiers'):
+                call_ai_with_web_search(username='admin', user_id=1, prompt_type='copilot', messages=[], custom_tier_configs=[])
+        global_tiers.assert_not_called()
+
     def test_attempt_observer_receives_exact_failure_metadata(self):
         events = []
         _notify_ai_attempt(

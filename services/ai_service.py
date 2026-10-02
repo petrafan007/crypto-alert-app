@@ -253,45 +253,12 @@ def call_ollama_chat(model, messages, max_tokens=600, timeout=180, reasoning_lev
             "num_predict": max(1, int(max_tokens or 600)),
         },
     }
-    try:
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
-            json=request_payload,
-            timeout=timeout,
-        )
-    except (requests.Timeout, requests.ConnectionError) as req_err:
-        # If a heavy local model timed out on CPU (e.g. qwen2.5:14b), attempt
-        # a fallback to an installed fast lightweight model (e.g. llama3.2:3b)
-        # so the caller gets a valid response instead of failing the entire scan.
-        fast_fallbacks = ["llama3.2:3b", "lfm2.5-thinking:1.2b"]
-        fallback_success = False
-        for fallback_model in fast_fallbacks:
-            if fallback_model != model_name:
-                try:
-                    models_installed = get_ollama_models(timeout=3)
-                except Exception:
-                    models_installed = []
-                if fallback_model in models_installed:
-                    logger.warning(
-                        "Ollama model %s timed out (%s); attempting fast local fallback model %s...",
-                        model_name, req_err, fallback_model
-                    )
-                    try:
-                        fallback_payload = dict(request_payload)
-                        fallback_payload["model"] = fallback_model
-                        fallback_payload.pop("think", None)
-                        response = requests.post(
-                            f"{OLLAMA_BASE_URL}/api/chat",
-                            json=fallback_payload,
-                            timeout=60,
-                        )
-                        if response.status_code == 200:
-                            fallback_success = True
-                            break
-                    except Exception as fb_err:
-                        logger.warning("Ollama fast fallback %s also failed: %s", fallback_model, fb_err)
-        if not fallback_success:
-            raise
+    # A timeout advances the configured tier cascade; never substitute a model.
+    response = requests.post(
+        f"{OLLAMA_BASE_URL}/api/chat",
+        json=request_payload,
+        timeout=timeout,
+    )
 
     # Older/local models may not recognize the thinking parameter. Retry the
     # same request without it so adding cloud-model support never regresses
@@ -336,6 +303,11 @@ def build_configured_ai_tiers(user_ai_settings):
     settings = user_ai_settings or {}
     tiers = []
 
+    # A blank modern secondary is an explicit disable. Only a missing/null
+    # modern field may inherit the legacy alias, together with its model.
+    secondary_prefix = (
+        'secondary' if settings.get('ai_provider_secondary') is not None else 'fallback'
+    )
     configured_tiers = (
         (
             "primary",
@@ -345,10 +317,9 @@ def build_configured_ai_tiers(user_ai_settings):
         ),
         (
             "secondary",
-            settings.get("ai_provider_secondary") or settings.get("ai_provider_fallback"),
-            settings.get("ai_model_secondary") or settings.get("ai_model_fallback"),
-            settings.get("ai_reasoning_level_secondary")
-            or settings.get("ai_reasoning_level_fallback")
+            settings.get(f"ai_provider_{secondary_prefix}"),
+            settings.get(f"ai_model_{secondary_prefix}"),
+            settings.get(f"ai_reasoning_level_{secondary_prefix}")
             or "medium",
         ),
         (
@@ -874,7 +845,7 @@ def _call_generative_with_web_search(
 
         # Fail over only through the tiers the user explicitly configured.
         # Provider keys outside this chain are never used implicitly.
-        if custom_tier_configs:
+        if custom_tier_configs is not None:
             tier_configs = list(custom_tier_configs)
         else:
             tier_configs = build_configured_ai_tiers(user_ai_settings)
@@ -891,7 +862,9 @@ def _call_generative_with_web_search(
         if provider == "ollama" and not is_ollama_admin(user_obj or username or user_id):
             raise PermissionError("Ollama is restricted to the administrator account")
 
-        model = configured_model or model or 'gpt-5'
+        model = str(configured_model or '').strip()
+        if not model:
+            raise ValueError(f'{current_tier_name.title()} AI model is not configured')
 
         if tier_index > 0:
             logger.info(f"⚠️ USING {current_tier_name.upper()} AI PROVIDER: {provider} / {model} (reasoning: {ai_reasoning_level})")

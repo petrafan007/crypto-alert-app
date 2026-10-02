@@ -13,7 +13,7 @@ const savedConfig = {
   },
 };
 
-test('replaces an unavailable saved model with the model rendered by the select', () => {
+test('preserves unavailable saved models instead of silently selecting another model', () => {
   const options = {
     gemini: [{ value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' }],
     ollama: [
@@ -24,8 +24,8 @@ test('replaces an unavailable saved model with the model rendered by the select'
   const result = reconcileDedicatedAIConfig(savedConfig, options);
 
   assert.equal(result.ai_config.secondary.model, 'nemotron-3-ultra:cloud');
-  assert.equal(result.ai_config.tertiary.model, 'gemma4:26b');
-  assert.equal(result.ai_config.quaternary.model, 'gemma4:26b');
+  assert.equal(result.ai_config.tertiary.model, 'lfm2-cpu:latest');
+  assert.equal(result.ai_config.quaternary.model, 'unknown-model:latest');
   assert.equal(savedConfig.ai_config.tertiary.model, 'lfm2-cpu:latest');
   assert.equal(savedConfig.ai_config.quaternary.model, 'unknown-model:latest');
 });

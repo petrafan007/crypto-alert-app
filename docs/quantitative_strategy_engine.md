@@ -548,3 +548,9 @@ Remaining **research/data work**: obtain independent timestamp/depth observation
 ## v4.0.0 Jev shadow observations
 
 The crypto engine can queue frozen setup observations for TypeSafe Jev through Vercel AI Gateway. Enable this under **Settings → AI Providers & Models → Jev Decision Engine**. Provider evaluation happens after the baseline paper decision commits, in a separate worker. Jev cannot change entries, exits, position size, kill switches or risk limits; paper gates remain unavailable. Quant telemetry includes the recorded baseline action, Jev answers and fixed-horizon outcomes. See [Jev setup, migration and validation details](jev_v4.0.0.md).
+
+## Provider selection in v4.6.15
+
+Event predictions (single-contract and batch), Event reports, portfolio specialist audits, and daily strategy reviews share the saved Quantitative Strategy Engine cascade managed in Settings. The retired Event-only `ai_config` is retained as historical configuration but no longer routes requests. Without dedicated Quant tiers, engines inherit the saved global Settings cascade. Explicitly disabled tiers are never repopulated, including an explicitly empty dedicated cascade. Dedicated keys remain scoped to their tier/provider, with same-provider global credentials available when no dedicated key exists.
+
+Provider/model choices are preserved even when model discovery omits a saved model. The settings form shows the saved value; availability validation can reject a save instead of silently changing it. Ollama timeouts and Z.AI rate limits advance only through the configured cascade; neither transport substitutes a hardcoded model. New global settings no longer default to OpenAI. Existing settings, keys, paper trading data, and historical reports are retained; no data migration is required.

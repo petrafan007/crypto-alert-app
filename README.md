@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.6.14
+**Version:** 4.6.15
 
 ## Recent Updates
+
+### v4.6.15
+* **Honor selected AI providers:** Event contract predictions and reports now use the Quantitative Strategy Engine's saved four-tier provider/model cascade. Retired Event-only settings can no longer route calls to an old OpenAI fallback. Engines without dedicated tiers inherit global Settings.
+* **Preserve selected models:** Removed hidden Ollama and Z.AI model substitutions and automatic model changes in the dedicated settings form. Disabled tiers stay disabled, and missing model selections fail through the configured cascade without inventing a provider or model.
 
 ### v4.6.14
 * **BUY Smart Bracket presets:** Corrected server-side BUY upside and downside ladder preset directions so breakout steps are above the reference price and buy-the-dip steps are below it.

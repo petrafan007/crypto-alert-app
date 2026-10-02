@@ -129,7 +129,7 @@ export default function Settings({ isLightMode }) {
     perplexity_key: '',
     gemini_key: '',
     inception_key: '',
-    ai_provider: 'openai',
+    ai_provider: '',
     ai_model: '',
     ai_reasoning_level: 'medium',
 
@@ -276,10 +276,10 @@ export default function Settings({ isLightMode }) {
   const [eventStrategyAIConfig, setEventStrategyAIConfig] = useState({
     audit_prompt: '',
     ai_config: {
-      primary: { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
-      secondary: { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
-      tertiary: { provider: 'ollama', model: 'qwen2.5:14b', reasoning_level: 'medium', api_key: '', has_key: false },
-      quaternary: { provider: 'ollama', model: 'nemotron-3-ultra:cloud', reasoning_level: 'medium', api_key: '', has_key: false },
+      primary: { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
+      secondary: { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
+      tertiary: { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
+      quaternary: { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
     }
   });
   const [eventStrategyAILoading, setEventStrategyAILoading] = useState(false);
@@ -568,10 +568,10 @@ export default function Settings({ isLightMode }) {
           default_master_ai_prompt: response.data.default_master_ai_prompt || '',
           audit_prompt_policy: response.data.audit_prompt_policy,
           ai_config: {
-            primary: response.data.ai_config?.primary || { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
-            secondary: response.data.ai_config?.secondary || { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
-            tertiary: response.data.ai_config?.tertiary || { provider: 'ollama', model: 'qwen2.5:14b', reasoning_level: 'medium', api_key: '', has_key: false },
-            quaternary: response.data.ai_config?.quaternary || { provider: 'ollama', model: 'nemotron-3-ultra:cloud', reasoning_level: 'medium', api_key: '', has_key: false },
+            primary: response.data.ai_config?.primary || { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
+            secondary: response.data.ai_config?.secondary || { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
+            tertiary: response.data.ai_config?.tertiary || { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
+            quaternary: response.data.ai_config?.quaternary || { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
             ...(response.data.ai_config?.audit_guidance !== undefined ? { audit_guidance: response.data.ai_config.audit_guidance } : {}),
           },
         };
@@ -669,6 +669,8 @@ export default function Settings({ isLightMode }) {
           updatedTier.model = tierKey === 'quaternary' ? 'nemotron-3-ultra:cloud' : (tierKey === 'tertiary' ? 'qwen2.5:14b' : 'gpt-oss:120b-cloud');
         } else if (value === 'openai') {
           updatedTier.model = 'gpt-5.4-mini';
+        } else {
+          updatedTier.model = '';
         }
       }
       return {
@@ -730,21 +732,21 @@ export default function Settings({ isLightMode }) {
           ...sanitizedSettingsResponse,
         };
 
-        const provider = mergedSettings.ai_provider || prev.ai_provider || 'openai';
+        const provider = mergedSettings.ai_provider || '';
         let model = mergedSettings.ai_model;
-        const sanitizedModel = sanitizeModel(provider, model, currentModelOptions);
+        const sanitizedModel = model || '';
 
-        const secondaryProvider = mergedSettings.ai_provider_secondary || mergedSettings.ai_provider_fallback || prev.ai_provider_secondary || prev.ai_provider_fallback || '';
-        let secondaryModel = mergedSettings.ai_model_secondary || mergedSettings.ai_model_fallback;
-        const sanitizedSecondaryModel = secondaryProvider ? sanitizeModel(secondaryProvider, secondaryModel, currentModelOptions) : (secondaryModel || '');
+        const secondaryProvider = mergedSettings.ai_provider_secondary ?? mergedSettings.ai_provider_fallback ?? '';
+        let secondaryModel = mergedSettings.ai_provider_secondary != null ? mergedSettings.ai_model_secondary : mergedSettings.ai_model_fallback;
+        const sanitizedSecondaryModel = secondaryModel || '';
 
-        const tertiaryProvider = mergedSettings.ai_provider_tertiary || prev.ai_provider_tertiary || '';
+        const tertiaryProvider = mergedSettings.ai_provider_tertiary || '';
         let tertiaryModel = mergedSettings.ai_model_tertiary;
-        const sanitizedTertiaryModel = tertiaryProvider ? sanitizeModel(tertiaryProvider, tertiaryModel, currentModelOptions) : (tertiaryModel || '');
+        const sanitizedTertiaryModel = tertiaryModel || '';
 
-        const quaternaryProvider = mergedSettings.ai_provider_quaternary || prev.ai_provider_quaternary || '';
+        const quaternaryProvider = mergedSettings.ai_provider_quaternary || '';
         let quaternaryModel = mergedSettings.ai_model_quaternary;
-        const sanitizedQuaternaryModel = quaternaryProvider ? sanitizeModel(quaternaryProvider, quaternaryModel, currentModelOptions) : (quaternaryModel || '');
+        const sanitizedQuaternaryModel = quaternaryModel || '';
 
         return {
           ...prev,
@@ -794,21 +796,6 @@ export default function Settings({ isLightMode }) {
         if (!active || !response.data) return;
         const nextOptions = response.data;
         setModelOptions(nextOptions);
-        const ollamaModels = Array.isArray(nextOptions.ollama) ? nextOptions.ollama : [];
-        if (ollamaModels.length) {
-          setSettings((prev) => {
-            const next = { ...prev };
-            const firstModel = ollamaModels[0]?.value || ollamaModels[0];
-            if (prev.ai_provider === 'ollama' && !prev.ai_model) next.ai_model = firstModel;
-            if ((prev.ai_provider_secondary || prev.ai_provider_fallback) === 'ollama' && !(prev.ai_model_secondary || prev.ai_model_fallback)) {
-              next.ai_model_secondary = firstModel;
-              next.ai_model_fallback = firstModel;
-            }
-            if (prev.ai_provider_tertiary === 'ollama' && !prev.ai_model_tertiary) next.ai_model_tertiary = firstModel;
-            if (prev.ai_provider_quaternary === 'ollama' && !prev.ai_model_quaternary) next.ai_model_quaternary = firstModel;
-            return next;
-          });
-        }
       })
       .catch((error) => console.error('Failed to refresh Ollama models:'));
     return () => { active = false; };
@@ -2569,9 +2556,10 @@ export default function Settings({ isLightMode }) {
           <div className="settings-form-group">
             <label>AI Provider</label>
             <select
-              value={settings.ai_provider || 'openai'}
+              value={settings.ai_provider || ''}
               onChange={(e) => handleInputChange('ai_provider', e.target.value)}
             >
+              <option value="">-- Select Primary Provider --</option>
               <option value="openai">OpenAI</option>
               <option value="zai">Z.AI</option>
               <option value="perplexity">Perplexity</option>
@@ -2590,6 +2578,9 @@ export default function Settings({ isLightMode }) {
               value={settings.ai_model || ''}
               onChange={(e) => handleInputChange('ai_model', e.target.value)}
             >
+              {(settings.ai_model) && !(modelOptions[settings.ai_provider] || []).some(option => (option.value || option) === (settings.ai_model)) && (
+                <option value={settings.ai_model}>{settings.ai_model} (saved selection)</option>
+              )}
               {(modelOptions[settings.ai_provider] || []).map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
@@ -2750,6 +2741,9 @@ export default function Settings({ isLightMode }) {
               value={settings.ai_model_secondary || settings.ai_model_fallback || ''}
               onChange={(e) => handleInputChange('ai_model_secondary', e.target.value)}
             >
+              {(settings.ai_model_secondary || settings.ai_model_fallback) && !(modelOptions[settings.ai_provider_secondary || settings.ai_provider_fallback] || []).some(option => (option.value || option) === (settings.ai_model_secondary || settings.ai_model_fallback)) && (
+                <option value={settings.ai_model_secondary || settings.ai_model_fallback}>{settings.ai_model_secondary || settings.ai_model_fallback} (saved selection)</option>
+              )}
               {(modelOptions[settings.ai_provider_secondary || settings.ai_provider_fallback] || []).map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
@@ -2910,6 +2904,9 @@ export default function Settings({ isLightMode }) {
               value={settings.ai_model_tertiary || ''}
               onChange={(e) => handleInputChange('ai_model_tertiary', e.target.value)}
             >
+              {(settings.ai_model_tertiary) && !(modelOptions[settings.ai_provider_tertiary] || []).some(option => (option.value || option) === (settings.ai_model_tertiary)) && (
+                <option value={settings.ai_model_tertiary}>{settings.ai_model_tertiary} (saved selection)</option>
+              )}
               {(modelOptions[settings.ai_provider_tertiary] || []).map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
@@ -3072,6 +3069,9 @@ export default function Settings({ isLightMode }) {
               disabled={!settings.ai_provider_quaternary}
             >
               <option value="">-- Select a model --</option>
+              {(settings.ai_model_quaternary) && !(modelOptions[settings.ai_provider_quaternary] || []).some(option => (option.value || option) === (settings.ai_model_quaternary)) && (
+                <option value={settings.ai_model_quaternary}>{settings.ai_model_quaternary} (saved selection)</option>
+              )}
               {(modelOptions[settings.ai_provider_quaternary] || []).map((option) => (
                 <option key={option.value || option} value={option.value || option}>{option.label || option.value || option}</option>
               ))}
@@ -4461,7 +4461,7 @@ export default function Settings({ isLightMode }) {
                       marginBottom: 16,
                       lineHeight: 1.45
                     }}>
-                      🛡️ <strong>Complete Isolation:</strong> This 4-tier cascade and its dedicated API keys are used exclusively by the Quantitative Strategy Engine (autonomous multi-asset portfolio evaluations, cross-asset correlation analysis, and rebalancing audits). Global Copilot, Portfolio Review, and Watchlist Sentiment remain completely separate and unaffected.
+                      🛡️ <strong>Complete Isolation:</strong> This 4-tier cascade and its dedicated API keys are used exclusively by the Quantitative Strategy Engine (Event contract predictions, autonomous multi-asset portfolio evaluations, cross-asset correlation analysis, and rebalancing audits). Global Copilot, Portfolio Review, and Watchlist Sentiment remain completely separate and unaffected.
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: 16 }}>
@@ -4473,7 +4473,7 @@ export default function Settings({ isLightMode }) {
                         { key: 'quaternary', label: 'Quaternary AI Integration', badge: 'Tier 4 (Failover)' },
                       ].map(({ key: tierKey, label: tierLabel, badge: tierBadge }) => {
                         const tier = eventStrategyAIConfig?.ai_config?.[tierKey] || {};
-                        const provider = tier.provider || (tierKey === 'primary' ? 'gemini' : 'ollama');
+                        const provider = tier.provider || '';
                         const model = tier.model || '';
                         const reasoningLevel = tier.reasoning_level || 'medium';
                         const isOllama = provider === 'ollama';
@@ -4528,6 +4528,7 @@ export default function Settings({ isLightMode }) {
                                   fontSize: '12px'
                                 }}
                               >
+                                <option value="">Not configured</option>
                                 <option value="gemini">Gemini</option>
                                 <option value="openai">OpenAI</option>
                                 <option value="zai">Z.AI</option>
@@ -4555,6 +4556,9 @@ export default function Settings({ isLightMode }) {
                                   fontSize: '12px'
                                 }}
                               >
+                                {model && !(modelOptions[provider] || []).some(opt => opt.value === model) && (
+                                  <option value={model}>{model} (saved selection)</option>
+                                )}
                                 {(modelOptions[provider] || []).length > 0 ? (
                                   (modelOptions[provider] || []).map((opt) => (
                                     <option key={opt.value} value={opt.value}>{opt.label}</option>

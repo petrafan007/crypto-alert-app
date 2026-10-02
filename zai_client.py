@@ -155,11 +155,6 @@ class ZAIClient:
 		"""
 		try:
 			res = self._http_chat_completion(messages, model, max_tokens, temperature)
-			if not res.get('success') and model != 'glm-4.5-flash':
-				err = str(res.get('error') or '')
-				if '429' in err or 'overload' in err.lower() or '1305' in err or 'rate limit' in err.lower():
-					logger.warning(f"Z.AI model {model} rate-limited/overloaded ({err}). Retrying with resilient model glm-4.5-flash...")
-					res = self._http_chat_completion(messages, 'glm-4.5-flash', max_tokens, temperature)
 			return res
 		except Exception as e:
 			logger.error(f"Z.AI API error: {e}")

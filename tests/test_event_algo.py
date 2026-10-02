@@ -600,28 +600,45 @@ class EventAlgoTests(unittest.TestCase):
         self.assertEqual(_format_action_title("Monitorheartbeat"), "Monitor Heartbeat")
         self.assertEqual(_format_action_title("Noeligibledtrades"), "No Eligible Trades")
 
-    def test_default_event_ai_config_cascade(self):
-        from event_algo import (
-            DEFAULT_EVENT_AI_CONFIG,
-            get_event_strategy_ai_tiers_and_keys,
-            sanitize_event_ai_config,
-        )
-        # Default cascade: primary=gemini (3.8-flash), secondary=ollama (gpt-oss:120b-cloud), tertiary=ollama (qwen2.5:14b), quaternary=ollama (nemotron-3-ultra:cloud)
-        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["primary"]["provider"], "gemini")
-        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["primary"]["model"], "gemini-3.8-flash")
-        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["secondary"]["provider"], "ollama")
-        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["secondary"]["model"], "gpt-oss:120b-cloud")
-        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["tertiary"]["provider"], "ollama")
-        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["tertiary"]["model"], "qwen2.5:14b")
-        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["quaternary"]["provider"], "ollama")
-        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["quaternary"]["model"], "nemotron-3-ultra:cloud")
+    def test_event_ai_config_does_not_invent_missing_or_disabled_tiers(self):
+        from event_algo import DEFAULT_EVENT_AI_CONFIG, sanitize_event_ai_config
+        self.assertEqual(DEFAULT_EVENT_AI_CONFIG, {})
+        sanitized = sanitize_event_ai_config({
+            'primary': {'provider': 'zai', 'model': 'saved-model'},
+            'secondary': {'provider': '', 'model': ''},
+        })
+        self.assertEqual(sanitized['primary']['model'], 'saved-model')
+        for name in ('secondary', 'tertiary', 'quaternary'):
+            self.assertEqual(sanitized[name]['provider'], '')
+            self.assertEqual(sanitized[name]['model'], '')
+            self.assertFalse(sanitized[name]['has_key'])
 
-        sanitized = sanitize_event_ai_config({})
-        self.assertEqual(sanitized["primary"]["model"], "gemini-3.8-flash")
-        self.assertEqual(sanitized["secondary"]["model"], "gpt-oss:120b-cloud")
-        self.assertEqual(sanitized["tertiary"]["model"], "qwen2.5:14b")
-        self.assertEqual(sanitized["quaternary"]["model"], "nemotron-3-ultra:cloud")
-        self.assertFalse(sanitized["primary"]["has_key"])
+    def test_event_ai_uses_quant_cascade_instead_of_hidden_legacy_config(self):
+        from event_algo import get_event_strategy_ai_tiers_and_keys
+        legacy = SimpleNamespace(user_id=1, ai_config=json.dumps({
+            'secondary': {'provider': 'openai', 'model': 'gpt-4o'},
+        }))
+        quant = SimpleNamespace(master_ai_config=json.dumps({
+            'primary': {'provider': 'gemini', 'model': 'selected-gemini'},
+            'secondary': {'provider': 'zai', 'model': 'selected-zai'},
+            'tertiary': {'provider': 'ollama', 'model': 'selected-ollama'},
+            'quaternary': {'provider': 'inception', 'model': 'selected-inception'},
+        }))
+        with patch('portfolio_algo_models.PortfolioStrategyConfig') as portfolios:
+            portfolios.query.filter_by.return_value.first.return_value = quant
+            tiers, keys = get_event_strategy_ai_tiers_and_keys(legacy, 1)
+        self.assertEqual([tier[1] for tier in tiers], ['gemini', 'zai', 'ollama', 'inception'])
+        self.assertEqual([tier[2] for tier in tiers], [
+            'selected-gemini', 'selected-zai', 'selected-ollama', 'selected-inception',
+        ])
+        self.assertEqual(keys, {})
+
+    def test_event_ai_inherits_global_only_when_quant_has_no_dedicated_tiers(self):
+        from event_algo import get_event_strategy_ai_tiers_and_keys
+        for saved, expected in (('{}', None), ('{"primary": {"provider": ""}}', [])):
+            with self.subTest(saved=saved), patch('portfolio_algo_models.PortfolioStrategyConfig') as portfolios:
+                portfolios.query.filter_by.return_value.first.return_value = SimpleNamespace(master_ai_config=saved)
+                self.assertEqual(get_event_strategy_ai_tiers_and_keys(SimpleNamespace(user_id=1))[0], expected)
 
     def test_update_config_persists_ai_config(self):
         from cryptography.fernet import Fernet

@@ -205,32 +205,9 @@ DEFAULT_SIGNAL_CONFIG = {
     },
     "signals_only": True,
 }
-DEFAULT_EVENT_AI_CONFIG = {
-    "primary": {
-        "provider": "gemini",
-        "model": "gemini-3.8-flash",
-        "reasoning_level": "medium",
-        "api_key": None,
-    },
-    "secondary": {
-        "provider": "ollama",
-        "model": "gpt-oss:120b-cloud",
-        "reasoning_level": "medium",
-        "api_key": None,
-    },
-    "tertiary": {
-        "provider": "ollama",
-        "model": "qwen2.5:14b",
-        "reasoning_level": "medium",
-        "api_key": None,
-    },
-    "quaternary": {
-        "provider": "ollama",
-        "model": "nemotron-3-ultra:cloud",
-        "reasoning_level": "medium",
-        "api_key": None,
-    },
-}
+# Event predictions share the Quantitative Strategy Engine cascade. No hidden
+# provider defaults are seeded into the legacy Event configuration.
+DEFAULT_EVENT_AI_CONFIG = {}
 
 
 def sanitize_event_ai_config(raw_config):
@@ -239,12 +216,11 @@ def sanitize_event_ai_config(raw_config):
     sanitized = {}
     for tier_key in ("primary", "secondary", "tertiary", "quaternary"):
         tier_data = raw.get(tier_key) if isinstance(raw.get(tier_key), dict) else {}
-        default_tier = DEFAULT_EVENT_AI_CONFIG.get(tier_key, {})
         has_key = bool(tier_data.get("api_key"))
         sanitized[tier_key] = {
-            "provider": str(tier_data.get("provider") or default_tier.get("provider") or "").strip().lower(),
-            "model": str(tier_data.get("model") or default_tier.get("model") or "").strip(),
-            "reasoning_level": str(tier_data.get("reasoning_level") or default_tier.get("reasoning_level") or "medium").strip().lower(),
+            "provider": str(tier_data.get("provider") or "").strip().lower(),
+            "model": str(tier_data.get("model") or "").strip(),
+            "reasoning_level": str(tier_data.get("reasoning_level") or "medium").strip().lower(),
             "has_key": has_key,
             "api_key": "********" if has_key else "",
         }
@@ -252,53 +228,21 @@ def sanitize_event_ai_config(raw_config):
 
 
 def get_event_strategy_ai_tiers_and_keys(config, user_id=None):
-    """Resolve custom tier configs and decrypted custom keys for the Event Strategy Engine."""
-    from credential_security import decrypt_secret
-    from credentials import Credential
+    """Use the visible Quant cascade for every Event prediction and report.
 
-    raw_ai_config = _json_load(getattr(config, "ai_config", "{}"), {})
-    if not isinstance(raw_ai_config, dict) or not raw_ai_config:
-        raw_ai_config = DEFAULT_EVENT_AI_CONFIG
+    The retired Event-only ai_config may contain automatically seeded providers;
+    it must never override the cascade managed in Settings / Quantitative AI.
+    None means inherit global Settings; an explicit empty cascade stays empty.
+    """
+    from portfolio_algo_models import PortfolioStrategyConfig
+    from services.portfolio_engine import audit_ai_kwargs
 
-    user_cred = None
-    if user_id:
-        try:
-            user_cred = Credential.query.filter_by(user_id=user_id).first()
-        except Exception:
-            user_cred = None
-
-    tier_configs = []
-    custom_api_keys = {}
-
-    for tier_name in ("primary", "secondary", "tertiary", "quaternary"):
-        tier_data = raw_ai_config.get(tier_name)
-        if not tier_data or not isinstance(tier_data, dict):
-            tier_data = DEFAULT_EVENT_AI_CONFIG.get(tier_name, {})
-
-        provider = str(tier_data.get("provider") or "").strip().lower()
-        model = str(tier_data.get("model") or "").strip()
-        reasoning = str(tier_data.get("reasoning_level") or "medium").strip().lower()
-        stored_key = tier_data.get("api_key")
-
-        if provider:
-            tier_configs.append((tier_name, provider, model, reasoning))
-            decrypted_key = None
-            if stored_key:
-                decrypted_key = decrypt_secret(stored_key)
-            # If no dedicated key set for this tier, fall back to user's global credential for this provider
-            if not decrypted_key and user_cred and provider != "ollama":
-                suffix = '_quaternary' if tier_name == 'quaternary' else ('_tertiary' if tier_name == 'tertiary' else ('_fallback' if tier_name == 'secondary' else ''))
-                decrypted_key = (
-                    decrypt_secret(getattr(user_cred, f"_{provider}_key{suffix}", None)) or
-                    decrypt_secret(getattr(user_cred, f"{provider}_key{suffix}", None)) or
-                    decrypt_secret(getattr(user_cred, f"_{provider}_key", None)) or
-                    decrypt_secret(getattr(user_cred, f"{provider}_key", None))
-                )
-            if decrypted_key:
-                custom_api_keys[tier_name] = decrypted_key
-                custom_api_keys[(tier_name, provider)] = decrypted_key
-
-    return tier_configs, custom_api_keys
+    owner_id = user_id or getattr(config, 'user_id', None)
+    if not owner_id:
+        raise ValueError('Event AI user identity is required')
+    portfolio = PortfolioStrategyConfig.query.filter_by(user_id=owner_id).first()
+    kwargs = audit_ai_kwargs(portfolio) if portfolio else {}
+    return kwargs.get('custom_tier_configs'), kwargs.get('custom_api_keys', {})
 
 
 ALLOWED_DURATIONS = {
@@ -1808,9 +1752,6 @@ def get_or_create_config(user_id):
         normalized_signal = normalize_config_payload({
             "signal_config": _json_load(config.signal_config, {}),
         }, user_id=user_id)["signal_config"]
-        # Ensure ai_config is seeded if empty
-        if not getattr(config, "ai_config", None) or str(config.ai_config).strip() in ("{}", ""):
-            config.ai_config = _json_dump(DEFAULT_EVENT_AI_CONFIG)
         return config
     defaults = default_config_for_user(user_id)
     config = EventStrategyConfig(

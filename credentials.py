@@ -96,7 +96,7 @@ class Credential(db.Model):
     _perplexity_key = db.Column("perplexity_key", db.String) # Encrypted Perplexity API Key
     _gemini_key = db.Column("gemini_key", db.String) # Encrypted Gemini API Key
     _inception_key = db.Column("inception_key", db.String) # Encrypted Inception Labs API Key
-    ai_provider = db.Column(db.String, default='openai')  # AI provider: 'openai', 'zai', 'perplexity', 'gemini', or 'inception'
+    ai_provider = db.Column(db.String, default='')  # AI provider: 'openai', 'zai', 'perplexity', 'gemini', or 'inception'
 
     # Notifications
     _telegram_token = db.Column("telegram_token", db.String)
@@ -485,8 +485,8 @@ class UserSetting(db.Model):
     jev_quant_shadow_enabled = db.Column(db.Boolean, default=False)
 
     # Primary AI Tier
-    ai_provider = db.Column(db.String, default='openai')
-    ai_model = db.Column(db.String, default='gpt-4o')
+    ai_provider = db.Column(db.String, default='')
+    ai_model = db.Column(db.String, default='')
     ai_reasoning_level = db.Column(db.String, default='medium')
 
     # Secondary AI Tier (fallback alias)
