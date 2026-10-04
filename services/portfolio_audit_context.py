@@ -1,116 +1,25 @@
 """Shared purpose, evidence semantics and completion checks for paper audits."""
+from services.prompt_catalog import default_prompt, prompt_for
 import re
 
 AUDIT_END = '<!-- AUDIT_COMPLETE -->'
 AUDIT_TOKEN_LIMITS = {'portfolio_module_audit': 8192, 'portfolio_audit': 16384, 'portfolio_strategy_review': 4096}
 
-ENGINE_PURPOSE = (
-    'This engine is an isolated, multi-asset PAPER research ledger. Its purpose is to forward-test '
-    'deterministic strategies, realistic simulated costs, capital budgets and risk controls before '
-    'judging their performance. It does not trade the real account. The annual return target is a '
-    'research objective, never a forecast or promise. AI audits explain observed operation and suggest '
-    'evidence-based engineering or strategy experiments. A separate daily AI review may propose pure strategy source changes; deterministic validation and a fresh forward decision sample gate paper-only experiment activation. Audits themselves do not execute trades or change settings. '
-    'Only configured watchlists and enabled modules are eligible for new entries. Existing disabled-module '
-    'positions still count as risk. Do not recommend enabling disabled futures just to fill an allocation. '
-    'Allocation percentages are maximum strategy budgets, not mandatory invested weights. Unused cash '
-    'is expected while signals, sessions, history or liquidity do not qualify. AVAILABLE_CAPACITY is '
-    'not a buy signal. MARKET_CLOSED, DISABLED and WARMING_UP are not provider failures. READY means '
-    'a scan evaluated data, not that an entry qualified. DEGRADED can describe one module while others '
-    'continue operating. Never recommend bypassing data freshness, settlement or risk limits.'
-)
+ENGINE_PURPOSE = default_prompt('audit.engine_purpose')
 
-EVIDENCE_RULES = (
-    'Use only the supplied timestamped paper evidence. Do not invent current market prices, technical '
-    'indicators, news, holdings, performance or correlations. An empty positions list means no open '
-    'positions in that scope; historical fills and logs are not current holdings. Specialist prose is '
-    'unverified interpretation and cannot override recorded facts. All fields ending _pct, including '
-    'max_drawdown_pct, are ALREADY percentages: 0.115836 means 0.115836%, NOT 11.5836%. '
-    'Event details.outcome/purchased_outcome is the YES or NO side BOUGHT, not the settlement result. '
-    'A purchased NO contract pays $1 per unit if the provider confirms NO, $0 if YES; pending means '
-    'unknown. Neither missing bids nor stale/terminal-looking trade prices prove a winner. Event value '
-    'is quantity times mark; collateral and fees are separate. Distinguish open position counts, '
-    'watchlist symbols evaluated, qualified signals, rejected entries and actual filled entries. '
-    'Module correlations describe daily changes in module dollar P&L, not underlying asset returns; sizing and inactive exposure affect them. '
-    'Use only code-calculated goal_tracking annualization and correlations when present; a null metric '
-    'means unavailable, not zero. No sample-count threshold automatically implements or validates stress tests. '
-    'An indicator omitted from the report is NOT evidence that its provider data are missing. '
-    'MARKET_CLOSED with zero evaluations means the session gate skipped the scan; it does not mean '
-    'missing price history or a broken feed. READY proves the evaluated symbols passed data collection '
-    'and indicator calculation for that scan only; it is not proof of timely decision consumption or successful '
-    'execution. Event readiness must be supported by fresh observed decisions, quotes and handoff outcomes. '
-    'Use signal_checks to explain unqualified entries; do not infer a failed '
-    'dominance gate from a generic strategy name. NOT_DUE Event positions are ordinary unexpired '
-    'holdings, not stuck settlements, and two positions occupy two slots. Use exchange_session times '
-    'rather than guessing the local trading session from UTC. allocation_preference is an internal '
-    'relative weight, never actual exposure. Per-module realized P&L belongs to that named module. '
-    'Do not invent flags, controls, data-import jobs, provider outages or new risk violations. Do not '
-    'claim a long-term annual target has failed on a one-day sample. A supplied target-path shortfall is a '
-    'descriptive difference at that timestamp, not proof of strategy failure. Follow operational_summary '
-    'as the authoritative explanation of each module; specialist prose is not a source of new facts. '
-    'Aggregate paper losses and drawdown are measurements, not automatic entry stops. '
-    'The administrator manual kill switch and per-trade exposure controls remain binding. Do not attribute maximum drawdown to current holdings or a single trade without '
-    'a supplied attribution. Drift is actual_pct minus target_pct. Open Event market value is '
-    'collateral plus unrealized P&L, not original collateral. Use supplied formatted monetary facts '
-    'rather than inventing notional exposure. Do not recommend relaxing confidence, edge, dominance '
-    'or warm-up requirements just to generate trades, especially with one daily return sample. '
-    'Do not propose adding controls or calculators that strategy_rules/risk_controls say are already implemented. '
-    'Do not introduce unrelated Binance accounts, tokenized equities, OCO orders, manual trade tickets or '
-    'claims of live execution. Suggestions must relate to implemented rules and recorded limitations. '
-    'The numeric goal_tracking.target_annual_return_pct is authoritative over legacy ranges in custom prompts. '
-    'Use the supplied target equity, dollar/percentage gap, CAGR percentage-point gap, rolling returns, '
-    'capital utilization and module contributions without inventing missing values. Label all results PAPER '
-    'and give the run period, as-of timestamp and observation gaps. The target path is hypothetical, not an '
-    'investable benchmark or measured cash opportunity cost. Thirty elapsed days is only the annualization '
-    'display threshold, not validation, statistical confidence, or evidence of attainable future CAGR. '
-    'Report SUCCESS means report generation completed, not that the strategy, data feeds or workers are healthy. '
-    'Separate recorded facts, inferred explanations, missing evidence and proposed experiments. '
-    'Only claim historical replay, cost/latency sensitivity, stress scenarios or calibration were performed '
-    'when their timestamped results and coverage are supplied. Never turn an engineering unit-test pass '
-    'into a claim of investment performance. Treat any validation result as scoped to its supplied data, '
-    'assumptions and module coverage, never proof of portfolio-wide goal attainment. '
-    'Use timestamped research job summaries when supplied; COMPLETED means computation finished. '
-    'DATA_LIMITED or unevaluated modules and zero-trade cash curves cannot validate a strategy. '
-    'Research configurations and dates are separate from the live paper run. Public book receipt '
-    'comparisons do not establish exchange quote latency, broker queue priority or attainable fills.'
-)
+EVIDENCE_RULES = default_prompt('audit.evidence_rules')
 
-DEFAULT_AUDIT_GUIDANCE = (
-    'Evaluate progress toward the configured annual research target using goal_tracking, not a legacy '
-    'target range. Explain the measured target-equity gap now and the annualized percentage-point gap '
-    'only when available. Identify each enabled module’s net contribution, capital utilization and '
-    'operational blockers. Distinguish a successful report from healthy workers and a validated strategy. '
-    'Organize recommendations into recorded defects to fix, missing evidence to collect, and controlled '
-    'strategy experiments with out-of-sample evaluation and realistic costs, latency and missed fills. '
-    'Explain exactly what has and has not been tested; do not invent stress-test or calibration results. '
-    'Do not relax freshness, risk, confidence or signal gates merely to force more trades.'
-)
+DEFAULT_AUDIT_GUIDANCE = default_prompt('audit.default_audit_guidance')
 
-MASTER_SCOPE = (
-    'Begin with ## 1. Executive Summary and one or two narrative paragraphs before any table. '
-    'CRITICAL TONE AND VOCABULARY: Write in clear, human-friendly, plain English for an executive or active trader; '
-    'do not write like a dense academic research paper. In Section 1 Executive Summary, strictly avoid using raw internal '
-    'slugs or code variable names such as warming_up, available_capacity, market_closed, no_signal, or data_limited; '
-    'translate them into plain language (e.g. "calibrating indicator history", "available buying power / capital headroom", '
-    '"regular market session is closed", "no qualifying setups"). '
-    'The Executive Summary must state clearly: (1) what the engine is doing right now and its current operational state, '
-    '(2) whether the engine is working properly or has operational defects, and (3) actionable recommendations to improve '
-    'or repair the quantitative strategy engine. '
-    'Then cover measured goal progress, recorded performance, module operation and blockers, capital/risk, '
-    'evidence limitations, and prioritized engineering/strategy observations. Aim for 900–1800 words. '
-    'Explain why the engine did or did not trade, rather than prescribing unconditional investment.'
-)
-MODULE_SCOPE = (
-    'Review only this module and its supplied positions. Explain readiness, actual activity, '
-    'entry/exit blockers, data limitations, net contribution when supplied and concrete next checks. '
-    'Do not infer portfolio-wide performance from this module. Aim for 400–700 words.'
-)
+MASTER_SCOPE = default_prompt('audit.master_scope')
+MODULE_SCOPE = default_prompt('audit.module_scope')
 
 
-def audit_prompt_policy():
+def audit_prompt_policy(user_id=None):
     """Expose every shared system instruction alongside the editable prompts."""
-    return {'engine_purpose': ENGINE_PURPOSE, 'evidence_rules': EVIDENCE_RULES,
-            'default_guidance': DEFAULT_AUDIT_GUIDANCE,
-            'master_scope': MASTER_SCOPE, 'module_scope': MODULE_SCOPE}
+    return {name: prompt_for(user_id, 'audit.' + key) for name, key in
+            [('engine_purpose', 'engine_purpose'), ('evidence_rules', 'evidence_rules'),
+             ('default_guidance', 'default_audit_guidance'), ('master_scope', 'master_scope'), ('module_scope', 'module_scope')]}
 
 STRATEGY_RULES = {
     'equities': 'US regular sessions only. Completed 63-session trend and SPY relative strength rank the two leading watchlist symbols. Independent oversold RSI/lower-band pullback may also qualify in a positive long trend. Exits: RSI recovery, trend failure or ATR stop.',
@@ -166,7 +75,8 @@ def check_drawdown_claim(text, evidence):
             raise IncompleteAuditError('Audit incorrectly claims the implemented portfolio risk circuit is absent.', text)
 
 
-def audit_system_prompt(custom, module=None, guidance=None):
-    return '\n\n'.join((custom or '', ENGINE_PURPOSE,
-                        DEFAULT_AUDIT_GUIDANCE if guidance is None else guidance,
-                        EVIDENCE_RULES, MODULE_SCOPE if module else MASTER_SCOPE))
+def audit_system_prompt(custom, module=None, guidance=None, user_id=None):
+    policy = audit_prompt_policy(user_id)
+    return '\n\n'.join((custom or '', policy['engine_purpose'],
+                        policy['default_guidance'] if guidance is None else guidance,
+                        policy['evidence_rules'], policy['module_scope' if module else 'master_scope']))

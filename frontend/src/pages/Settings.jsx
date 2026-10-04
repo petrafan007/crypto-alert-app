@@ -1,3 +1,4 @@
+import AIPromptEditor from '../components/AIPromptEditor';
 import JevSettings, { JEV_DEFAULTS } from '../components/JevSettings';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -129,6 +130,7 @@ export default function Settings({ isLightMode }) {
     perplexity_key: '',
     gemini_key: '',
     inception_key: '',
+    ollama_key: '',
     ai_provider: '',
     ai_model: '',
     ai_reasoning_level: 'medium',
@@ -145,6 +147,8 @@ export default function Settings({ isLightMode }) {
     perplexity_key_fallback: '',
     gemini_key_fallback: '',
     inception_key_fallback: '',
+    ollama_key_fallback: '',
+    ollama_key_secondary: '',
 
     // Tertiary AI Integration
     ai_provider_tertiary: '',
@@ -155,6 +159,7 @@ export default function Settings({ isLightMode }) {
     perplexity_key_tertiary: '',
     gemini_key_tertiary: '',
     inception_key_tertiary: '',
+    ollama_key_tertiary: '',
 
     // Quaternary AI Integration (fourth fallback)
     ai_provider_quaternary: '',
@@ -165,6 +170,7 @@ export default function Settings({ isLightMode }) {
     perplexity_key_quaternary: '',
     gemini_key_quaternary: '',
     inception_key_quaternary: '',
+    ollama_key_quaternary: '',
 
     telegram_token: '',
     telegram_chat_id: '',
@@ -572,6 +578,7 @@ export default function Settings({ isLightMode }) {
             secondary: response.data.ai_config?.secondary || { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
             tertiary: response.data.ai_config?.tertiary || { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
             quaternary: response.data.ai_config?.quaternary || { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
+            event_evaluator: 'jev',
             ...(response.data.ai_config?.audit_guidance !== undefined ? { audit_guidance: response.data.ai_config.audit_guidance } : {}),
           },
         };
@@ -976,6 +983,9 @@ export default function Settings({ isLightMode }) {
 
       // Save regular settings
       const payload = { ...settings };
+      for (const field of ['ai_gateway_key', 'openrouter_api_key']) {
+        if (payload[field]?.trim() === '********') delete payload[field];
+      }
       if (!encryptionKeyDirty || payload.credentials_encryption_key === '********') {
         delete payload.credentials_encryption_key;
       } else if (
@@ -1007,6 +1017,7 @@ export default function Settings({ isLightMode }) {
       setSettings((prev) => ({
         ...prev,
         ai_gateway_key: settingsResponse.data?.ai_gateway_key || '',
+        openrouter_api_key: settingsResponse.data?.openrouter_api_key || '',
         credentials_encryption_key: Boolean(settingsResponse.data?.credentials_encryption_key_configured)
           ? '********'
           : ''
@@ -1268,6 +1279,7 @@ export default function Settings({ isLightMode }) {
     else if (provider === 'perplexity') apiKey = settings.perplexity_key;
     else if (provider === 'gemini') apiKey = settings.gemini_key;
     else if (provider === 'inception') apiKey = settings.inception_key;
+    else if (provider === 'ollama') apiKey = settings.ollama_key;
 
     try {
       const response = await axios.post('/api/test-ai-connection-generic', {
@@ -1358,6 +1370,7 @@ export default function Settings({ isLightMode }) {
     else if (provider === 'perplexity') apiKey = settings.perplexity_key_fallback;
     else if (provider === 'gemini') apiKey = settings.gemini_key_fallback;
     else if (provider === 'inception') apiKey = settings.inception_key_fallback;
+    else if (provider === 'ollama') apiKey = settings.ollama_key_fallback || settings.ollama_key_secondary;
 
     try {
       const response = await axios.post('/api/test-ai-connection-generic', {
@@ -1398,6 +1411,7 @@ export default function Settings({ isLightMode }) {
     else if (provider === 'perplexity') apiKey = settings.perplexity_key_tertiary;
     else if (provider === 'gemini') apiKey = settings.gemini_key_tertiary;
     else if (provider === 'inception') apiKey = settings.inception_key_tertiary;
+    else if (provider === 'ollama') apiKey = settings.ollama_key_tertiary;
 
     try {
       const response = await axios.post('/api/test-ai-connection-generic', {
@@ -1435,6 +1449,7 @@ export default function Settings({ isLightMode }) {
     else if (provider === 'perplexity') apiKey = settings.perplexity_key_quaternary;
     else if (provider === 'gemini') apiKey = settings.gemini_key_quaternary;
     else if (provider === 'inception') apiKey = settings.inception_key_quaternary;
+    else if (provider === 'ollama') apiKey = settings.ollama_key_quaternary;
 
     try {
       const response = await axios.post('/api/test-ai-connection-generic', {
@@ -2690,8 +2705,17 @@ export default function Settings({ isLightMode }) {
           )}
 
           {settings.ai_provider === 'ollama' && isEventStrategyAdmin && (
-            <div className="settings-form-help" style={{ marginTop: '8px' }}>
-              Ollama runs on this server. No API key is required; models are loaded from the local Ollama service.
+            <div className="settings-form-group">
+              <label>Ollama API Key (Optional / Cloud Models)</label>
+              <input
+                type="password"
+                value={settings.ollama_key || ''}
+                onChange={(e) => handleInputChange('ollama_key', e.target.value)}
+                placeholder="Enter Ollama API Key (optional for cloud models)"
+              />
+              <div className="settings-form-help">
+                Optional. Leave blank for local models, or enter your API key to authenticate with Ollama cloud models across your accounts.
+              </div>
             </div>
           )}
 
@@ -2853,8 +2877,20 @@ export default function Settings({ isLightMode }) {
           )}
 
           {(settings.ai_provider_secondary === 'ollama' || settings.ai_provider_fallback === 'ollama') && isEventStrategyAdmin && (
-            <div className="settings-form-help" style={{ marginTop: '8px' }}>
-              Ollama runs on this server. No API key is required; models are loaded from the local Ollama service.
+            <div className="settings-form-group">
+              <label>Ollama API Key (Optional / Cloud Models)</label>
+              <input
+                type="password"
+                value={settings.ollama_key_fallback || settings.ollama_key_secondary || ''}
+                onChange={(e) => {
+                  handleInputChange('ollama_key_fallback', e.target.value);
+                  handleInputChange('ollama_key_secondary', e.target.value);
+                }}
+                placeholder="Enter Ollama API Key (optional for cloud models)"
+              />
+              <div className="settings-form-help">
+                Optional. Leave blank for local models, or enter your API key to authenticate with Ollama cloud models across your accounts.
+              </div>
             </div>
           )}
 
@@ -3016,8 +3052,17 @@ export default function Settings({ isLightMode }) {
           )}
 
           {settings.ai_provider_tertiary === 'ollama' && isEventStrategyAdmin && (
-            <div className="settings-form-help" style={{ marginTop: '8px' }}>
-              Ollama runs on this server. No API key is required; models are loaded from the local Ollama service.
+            <div className="settings-form-group">
+              <label>Ollama API Key (Optional / Cloud Models)</label>
+              <input
+                type="password"
+                value={settings.ollama_key_tertiary || ''}
+                onChange={(e) => handleInputChange('ollama_key_tertiary', e.target.value)}
+                placeholder="Enter Ollama API Key (optional for cloud models)"
+              />
+              <div className="settings-form-help">
+                Optional. Leave blank for local models, or enter your API key to authenticate with Ollama cloud models across your accounts.
+              </div>
             </div>
           )}
 
@@ -3111,8 +3156,17 @@ export default function Settings({ isLightMode }) {
           )}
 
           {settings.ai_provider_quaternary === 'ollama' && isEventStrategyAdmin && (
-            <div className="settings-form-help" style={{ marginTop: '8px' }}>
-              Ollama runs through the Ollama service on this server. Local and signed-in cloud models are supported; no API key is required here.
+            <div className="settings-form-group">
+              <label>Ollama API Key (Optional / Cloud Models)</label>
+              <input
+                type="password"
+                value={settings.ollama_key_quaternary || ''}
+                onChange={(e) => handleInputChange('ollama_key_quaternary', e.target.value)}
+                placeholder="Enter Ollama API Key (optional for cloud models)"
+              />
+              <div className="settings-form-help">
+                Optional. Leave blank for local models, or enter your API key to authenticate with Ollama cloud models across your accounts.
+              </div>
             </div>
           )}
 
@@ -3515,6 +3569,7 @@ export default function Settings({ isLightMode }) {
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
+            <AIPromptEditor groups={['copilot', 'workflow', 'webull_analysis', 'connection_tests']} title="Shared workflow, Copilot and connection instructions" />
             {/* Market Analysis */}
             <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444' }}>
               <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Market Analysis</h5>
@@ -3727,38 +3782,14 @@ export default function Settings({ isLightMode }) {
             {/* Portfolio Sentiment Analysis */}
             <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
               <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Portfolio Sentiment Analysis</h5>
+              <AIPromptEditor groups={['sentiment']} title="Jev portfolio sentiment analysis instructions" />
               <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
                 Automated sentiment analysis for held assets (cryptocurrency &amp; traditional securities) across Binance.US and Webull. Classifies into: <strong>Hold, Buy Immediately, Consider Buying, Sell Immediately, Consider Selling</strong>.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px' }}>
-                    Pre-Search Prompt (Stage 1)
-                  </label>
-                  <textarea
-                    value={settings.ai_prompts?.sentiment_prompt_pre || ''}
-                    onChange={(e) => {
-                      handleInputChange('ai_prompts', {
-                        ...settings.ai_prompts,
-                        sentiment_prompt_pre: e.target.value
-                      });
-                      autoResizeTextarea(e.target);
-                    }}
-                    style={{
-                      width: 'calc(100% - 24px)',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      background: '#232b31',
-                      color: '#fff',
-                      border: '1px solid #555',
-                      boxSizing: 'border-box',
-                      resize: 'none',
-                      fontSize: '12px',
-                      minHeight: '80px',
-                      overflow: 'hidden',
-                      lineHeight: '1.5'
-                    }}
-                  />
+
+
 
                   {/* Portfolio Sentiment Update Frequency */}
                   <div style={{ marginTop: 12 }}>
@@ -3851,33 +3882,8 @@ export default function Settings({ isLightMode }) {
                   </div>
                 </div>
                 <div>
-                  <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px' }}>
-                    Post-Search Prompt (Stage 3)
-                  </label>
-                  <textarea
-                    value={settings.ai_prompts?.sentiment_prompt_post || ''}
-                    onChange={(e) => {
-                      handleInputChange('ai_prompts', {
-                        ...settings.ai_prompts,
-                        sentiment_prompt_post: e.target.value
-                      });
-                      autoResizeTextarea(e.target);
-                    }}
-                    style={{
-                      width: 'calc(100% - 24px)',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      background: '#232b31',
-                      color: '#fff',
-                      border: '1px solid #555',
-                      boxSizing: 'border-box',
-                      resize: 'none',
-                      fontSize: '12px',
-                      minHeight: '80px',
-                      overflow: 'hidden',
-                      lineHeight: '1.5'
-                    }}
-                  />
+
+
                 </div>
               </div>
             </div>
@@ -3885,38 +3891,14 @@ export default function Settings({ isLightMode }) {
             {/* Watchlist Sentiment Analysis */}
             <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
               <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Watchlist Sentiment Analysis</h5>
+              <AIPromptEditor groups={['watchlist_sentiment']} title="Jev watchlist sentiment analysis instructions" />
               <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
                 Automated and on-the-spot sentiment analysis for watchlist assets (cryptocurrency &amp; securities) monitored across Binance.US and Webull. Classifies prospective entry into: <strong>Avoid, Watch, Consider Buying, Definitely Buy</strong>.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px' }}>
-                    Pre-Search Prompt (Stage 1)
-                  </label>
-                  <textarea
-                    value={settings.ai_prompts?.watchlist_sentiment_prompt_pre || ''}
-                    onChange={(e) => {
-                      handleInputChange('ai_prompts', {
-                        ...settings.ai_prompts,
-                        watchlist_sentiment_prompt_pre: e.target.value
-                      });
-                      autoResizeTextarea(e.target);
-                    }}
-                    style={{
-                      width: 'calc(100% - 24px)',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      background: '#232b31',
-                      color: '#fff',
-                      border: '1px solid #555',
-                      boxSizing: 'border-box',
-                      resize: 'none',
-                      fontSize: '12px',
-                      minHeight: '80px',
-                      overflow: 'hidden',
-                      lineHeight: '1.5'
-                    }}
-                  />
+
+
 
                   {/* Watchlist Sentiment Update Frequency */}
                   <div style={{ marginTop: 12 }}>
@@ -4009,33 +3991,8 @@ export default function Settings({ isLightMode }) {
                   </div>
                 </div>
                 <div>
-                  <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px' }}>
-                    Post-Search Prompt (Stage 3)
-                  </label>
-                  <textarea
-                    value={settings.ai_prompts?.watchlist_sentiment_prompt_post || ''}
-                    onChange={(e) => {
-                      handleInputChange('ai_prompts', {
-                        ...settings.ai_prompts,
-                        watchlist_sentiment_prompt_post: e.target.value
-                      });
-                      autoResizeTextarea(e.target);
-                    }}
-                    style={{
-                      width: 'calc(100% - 24px)',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      background: '#232b31',
-                      color: '#fff',
-                      border: '1px solid #555',
-                      boxSizing: 'border-box',
-                      resize: 'none',
-                      fontSize: '12px',
-                      minHeight: '80px',
-                      overflow: 'hidden',
-                      lineHeight: '1.5'
-                    }}
-                  />
+
+
                 </div>
               </div>
             </div>
@@ -4429,6 +4386,12 @@ export default function Settings({ isLightMode }) {
                     </div>
                   </div>
 
+                  <p>Contract probabilities use your saved Jev connection with no generative fallback. Uncertain or unavailable evaluations prevent new Event entries. Written audits use the selected providers below.</p>
+                  <AIPromptEditor groups={['contract_probability']} title="Contract probability evaluation instructions"
+                    onChange={prompts => setEventStrategyAIConfig(previous => ({ ...previous, prompt_overrides: { ...previous.prompt_overrides, ...prompts } }))} />
+                  <AIPromptEditor groups={['quant_audit', 'quant_evaluations']} title="Quantitative audit and evaluation instructions"
+                    onChange={prompts => setEventStrategyAIConfig(previous => ({ ...previous, prompt_overrides: { ...previous.prompt_overrides, ...prompts } }))} />
+
                   {/* BOTTOM SECTION: Segregated 4-Tier AI Integration */}
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
@@ -4461,7 +4424,7 @@ export default function Settings({ isLightMode }) {
                       marginBottom: 16,
                       lineHeight: 1.45
                     }}>
-                      🛡️ <strong>Complete Isolation:</strong> This 4-tier cascade and its dedicated API keys are used exclusively by the Quantitative Strategy Engine (Event contract predictions, autonomous multi-asset portfolio evaluations, cross-asset correlation analysis, and rebalancing audits). Global Copilot, Portfolio Review, and Watchlist Sentiment remain completely separate and unaffected.
+                      🛡️ <strong>Complete Isolation:</strong> This 4-tier cascade and its dedicated API keys are used exclusively by the Quantitative Strategy Engine (Event predictions when the generative cascade is selected, autonomous multi-asset portfolio evaluations, cross-asset correlation analysis, and rebalancing audits). Global Copilot, Portfolio Review, and Watchlist Sentiment remain completely separate and unaffected.
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: 16 }}>
@@ -4609,69 +4572,57 @@ export default function Settings({ isLightMode }) {
                             )}
 
                             {/* API Key Input */}
-                            {!isOllama ? (
-                              <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                  <label style={{ fontSize: '11px', fontWeight: 600, color: isLightMode ? '#475569' : '#94a3b8' }}>
-                                    Dedicated API Key
-                                  </label>
-                                  {tier.has_key && (
-                                    <span style={{ fontSize: '10px', color: '#4ade80', fontWeight: 600 }}>
-                                      ✓ Key Configured
-                                    </span>
-                                  )}
-                                </div>
-                                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                  <input
-                                    type={showKey ? 'text' : 'password'}
-                                    value={tier.api_key || ''}
-                                    onChange={(e) => updateEventStrategyAITierField(tierKey, 'api_key', e.target.value)}
-                                    placeholder={tier.has_key ? '•••••••••••• (Saved)' : `Enter dedicated ${provider.toUpperCase()} API key`}
-                                    style={{
-                                      width: '100%',
-                                      padding: '7px 32px 7px 10px',
-                                      borderRadius: 6,
-                                      background: isLightMode ? '#ffffff' : '#1e293b',
-                                      color: isLightMode ? '#0f172a' : '#ffffff',
-                                      border: '1px solid rgba(148,163,184,0.3)',
-                                      fontSize: '12px',
-                                      boxSizing: 'border-box'
-                                    }}
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowEventStrategyApiKey((prev) => ({ ...prev, [tierKey]: !prev[tierKey] }))}
-                                    style={{
-                                      position: 'absolute',
-                                      right: 8,
-                                      background: 'none',
-                                      border: 'none',
-                                      color: isLightMode ? '#64748b' : '#94a3b8',
-                                      cursor: 'pointer',
-                                      padding: 0,
-                                      fontSize: '14px'
-                                    }}
-                                  >
-                                    {showKey ? '🙈' : '👁️'}
-                                  </button>
-                                </div>
-                                <span style={{ fontSize: '10px', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4, display: 'block' }}>
-                                  Dedicated to this tier. Blank falls back to your global project key.
-                                </span>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                <label style={{ fontSize: '11px', fontWeight: 600, color: isLightMode ? '#475569' : '#94a3b8' }}>
+                                  Dedicated API Key {isOllama && '(Optional / Cloud)'}
+                                </label>
+                                {tier.has_key && (
+                                  <span style={{ fontSize: '10px', color: '#4ade80', fontWeight: 600 }}>
+                                    ✓ Key Configured
+                                  </span>
+                                )}
                               </div>
-                            ) : (
-                              <div style={{
-                                padding: '8px 10px',
-                                borderRadius: 6,
-                                background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)',
-                                border: '1px dashed rgba(148,163,184,0.25)',
-                                fontSize: '11px',
-                                color: isLightMode ? '#64748b' : '#94a3b8',
-                                lineHeight: 1.4
-                              }}>
-                                🖥️ Ollama runs locally on this system. Models execute directly without requiring an API key.
+                              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                <input
+                                  type={showKey ? 'text' : 'password'}
+                                  value={tier.api_key || ''}
+                                  onChange={(e) => updateEventStrategyAITierField(tierKey, 'api_key', e.target.value)}
+                                  placeholder={tier.has_key ? '•••••••••••• (Saved)' : `Enter dedicated ${provider.toUpperCase()} API key${isOllama ? ' (optional for local)' : ''}`}
+                                  style={{
+                                    width: '100%',
+                                    padding: '7px 32px 7px 10px',
+                                    borderRadius: 6,
+                                    background: isLightMode ? '#ffffff' : '#1e293b',
+                                    color: isLightMode ? '#0f172a' : '#ffffff',
+                                    border: '1px solid rgba(148,163,184,0.3)',
+                                    fontSize: '12px',
+                                    boxSizing: 'border-box'
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowEventStrategyApiKey((prev) => ({ ...prev, [tierKey]: !prev[tierKey] }))}
+                                  style={{
+                                    position: 'absolute',
+                                    right: 8,
+                                    background: 'none',
+                                    border: 'none',
+                                    color: isLightMode ? '#64748b' : '#94a3b8',
+                                    cursor: 'pointer',
+                                    padding: 0,
+                                    fontSize: '14px'
+                                  }}
+                                >
+                                  {showKey ? '🙈' : '👁️'}
+                                </button>
                               </div>
-                            )}
+                              <span style={{ fontSize: '10px', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4, display: 'block' }}>
+                                {isOllama
+                                  ? 'Dedicated to this tier. Blank uses local Ollama or your global Ollama key; enter a key to authenticate cloud models.'
+                                  : 'Dedicated to this tier. Blank falls back to your global project key.'}
+                              </span>
+                            </div>
 
                             {/* Test API Connection button */}
                             <div style={{ marginTop: 'auto', paddingTop: 8 }}>

@@ -1,3 +1,4 @@
+from services.prompt_catalog import default_prompt
 import os
 import sys
 
@@ -12,79 +13,34 @@ from services.copilot_context import DEFAULT_COPILOT_RESPONSE_PROMPT, DEFAULT_CO
 
 with app.app_context():
     default_market_pre = (
-        "You are an intelligent search query generator for comprehensive market analysis across cryptocurrency and traditional securities (equities and ETFs) as of {datetime}. "
-        "Analyze the current macro landscape, including crypto market trends, major equity indices (S&P 500, Nasdaq), Federal Reserve interest rate expectations, sector rotations, and breaking geopolitical/economic news. "
-        "Generate 1 to 3 targeted, highly effective search queries to gather real-time data on both digital assets and securities markets."
+        default_prompt('seed.update_db_prompts.default_market_pre')
     )
     default_market_post = (
-        "You are a premier cross-asset market strategist specializing in both cryptocurrency (Binance.US / Webull) and traditional securities (equities and ETFs on Webull) as of {datetime}. "
-        "Synthesize the provided web search results, market indicators, and macroeconomic developments into a cohesive market briefing.\n\n"
-        "Evaluate:\n"
-        "1. Macroeconomic environment (interest rates, inflation, treasury yields, dollar strength).\n"
-        "2. Cryptocurrency market momentum, Bitcoin/Ethereum trend strength, and altcoin dynamics.\n"
-        "3. Equity market trend, sector leadership, and risk-on vs. risk-off sentiment.\n"
-        "4. Cross-market correlation and actionable tactical outlook for active traders.\n\n"
-        "Provide a structured, executive-ready analysis with concise bullet points and clear risk parameters."
+        default_prompt('seed.update_db_prompts.default_market_post')
     )
     default_port_review_pre = (
-        "You are an intelligent search query generator for multi-asset portfolio review as of {datetime}. "
-        "The portfolio contains holdings across both cryptocurrency (Binance.US, Webull) and traditional securities/equities (Webull). "
-        "Generate 1 to 3 targeted search queries to identify breaking news, recent earnings, technical momentum shifts, and regulatory catalysts impacting these specific holdings and their respective asset classes."
+        default_prompt('seed.update_db_prompts.default_port_review_pre')
     )
     default_port_review_post = (
-        "You are a professional portfolio manager and multi-asset strategist evaluating a unified portfolio of cryptocurrency (Binance.US / Webull) and securities (equities, ETFs, options on Webull) as of {datetime}. "
-        "Based on current live prices, cost basis, unrealized P&L, asset weighting, and recent web search news:\n"
-        "1. Assess portfolio risk balance between high-volatility crypto and equity allocations.\n"
-        "2. Identify top outperforming positions, concentration risks, and underperforming assets.\n"
-        "3. Highlight near-term catalysts (earnings, protocol upgrades, macro events) affecting key holdings.\n"
-        "4. Provide actionable portfolio rebalancing, risk mitigation, and profit-taking/stop-loss recommendations.\n\n"
-        "Format your response clearly with concise sections and actionable takeaways."
+        default_prompt('seed.update_db_prompts.default_port_review_post')
     )
     default_coin_analysis_pre = (
-        "You are an intelligent search query generator for single-asset research as of {datetime}. "
-        "The target asset is {symbol}, which may be a cryptocurrency or a traditional equity/ETF/security traded on Binance.US or Webull. "
-        "Generate 1 to 3 targeted search queries to find the latest breaking news, technical price action, earnings reports, regulatory updates, or protocol developments for {symbol}."
+        default_prompt('seed.update_db_prompts.default_coin_analysis_pre')
     )
     default_coin_analysis_post = (
-        "You are a senior investment analyst evaluating {symbol} as of {datetime}. "
-        "Whether {symbol} is a cryptocurrency or traditional equity/security, synthesize the live price data, consecutive hourly price/volume dynamics, and recent web search findings to deliver an in-depth asset evaluation:\n"
-        "1. Key Drivers & Catalysts: Summarize recent news, corporate earnings or protocol updates, and macroeconomic tailwinds/headwinds.\n"
-        "2. Technical & Volume Assessment: Analyze price momentum, key support/resistance levels, and volume behavior.\n"
-        "3. Risk/Reward Profile: Evaluate downside risks versus upside potential over the immediate and medium horizons.\n"
-        "4. Strategic Conclusion: Clear, definitive outlook on whether to buy, hold, accumulate on dips, or trim exposure.\n\n"
-        "Keep your analysis objective, data-driven, and well-structured."
+        default_prompt('seed.update_db_prompts.default_coin_analysis_post')
     )
     default_port_pre = (
-        "You are an intelligent search query generator for multi-asset sentiment analysis as of {datetime}. "
-        "I currently hold {amount} of {symbol} in my portfolio (cryptocurrency or equity/security). "
-        "Search the web and find the latest news, market sentiment, technical momentum, and major catalysts for {symbol} to evaluate my position."
+        default_prompt('seed.update_db_prompts.default_port_pre')
     )
     default_port_post = (
-        "You are a cross-asset financial analysis expert with access to current web search results, live pricing, and historical price/volume data for {symbol} as of {datetime}. "
-        "I currently hold {amount} of {symbol} in my portfolio across my connected exchange/broker accounts (Binance.US or Webull). "
-        "Based on the current live price, the consecutive hourly price & volume history, recent market data, price trends, volume dynamics, catalysts, and risk/reward provided, evaluate whether I should hold, accumulate more, or take profits/cut losses on this holding.\n\n"
-        "CRITICAL: You MUST respond with ONLY a valid JSON object in this exact format, with no other text before or after it:\n\n"
-        "{\n"
-        '  "sentiment": "<one of: Buy Immediately, Consider Buying, Hold, Consider Selling, Sell Immediately>",\n'
-        '  "reason": "<1-2 sentences explaining your recommendation based on the live price, hourly price/volume dynamics, position risk/reward, and recent news>"\n'
-        "}\n\n"
-        "Do NOT include any explanation, preamble, markdown, or text outside of the JSON object."
+        default_prompt('seed.update_db_prompts.default_port_post')
     )
     default_wl_pre = (
-        "You are an intelligent search query generator for watchlist evaluation as of {datetime}. "
-        "I am currently monitoring {symbol} on my watchlist as a prospective investment opportunity (cryptocurrency or equity/security). "
-        "Search the web and find the latest news, market sentiment, technical momentum, and major catalysts for {symbol} to evaluate whether now is an attractive entry point."
+        default_prompt('seed.update_db_prompts.default_wl_pre')
     )
     default_wl_post = (
-        "You are a cross-asset financial analysis expert with access to current web search results, live pricing, and historical price/volume data for {symbol} as of {datetime}. "
-        "I am monitoring {symbol} on my watchlist across Binance.US and Webull and evaluating whether to initiate a new position or stay on the sidelines. "
-        "Based on the current live price, the consecutive hourly price & volume history, recent market data, price trends, volume dynamics, catalysts, and prospective risk/reward provided, evaluate whether I should enter the market, continue monitoring, or avoid this asset.\n\n"
-        "CRITICAL: You MUST respond with ONLY a valid JSON object in this exact format, with no other text before or after it:\n\n"
-        "{\n"
-        '  "sentiment": "<one of: Avoid, Watch, Consider Buying, Definitely Buy>",\n'
-        '  "reason": "<1-2 sentences explaining your recommendation based on current market conditions, hourly price/volume dynamics, prospective entry risk/reward, and recent news>"\n'
-        "}\n\n"
-        "Do NOT include any explanation, preamble, markdown, or text outside of the JSON object."
+        default_prompt('seed.update_db_prompts.default_wl_post')
     )
 
     default_copilot_pre = DEFAULT_COPILOT_SEARCH_PROMPT

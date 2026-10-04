@@ -4,11 +4,13 @@ import os
 from urllib.parse import urlsplit
 
 DEFAULT_ENDPOINT = 'https://ai-gateway.vercel.sh/v1/evaluate'
+OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/alpha/decisions'
+OPENROUTER_MODEL = 'typesafe/jev-1.13'
 DEFAULTS = {
     'jev_enabled': False, 'jev_transport': 'vercel', 'jev_model': 'typesafe-ai/jev',
     'jev_endpoint': DEFAULT_ENDPOINT, 'jev_timeout_seconds': 3.0,
     'jev_confidence_threshold': 0.8, 'jev_conflict_threshold': 0.5,
-    'jev_sentiment_mode': 'off', 'jev_generative_fallback_enabled': True,
+    'jev_sentiment_mode': 'first', 'jev_generative_fallback_enabled': False,
     'jev_quant_shadow_enabled': False,
 }
 
@@ -16,7 +18,7 @@ DEFAULTS = {
 def validate_endpoint(endpoint):
     # Additional transports require an operator allowlist, never an arbitrary
     # browser-supplied destination that could receive a saved credential.
-    allowed = {DEFAULT_ENDPOINT, 'https://openrouter.ai/api/v1/chat/completions', *filter(None, os.getenv('JEV_ALLOWED_ENDPOINTS', '').split(','))}
+    allowed = {DEFAULT_ENDPOINT, OPENROUTER_ENDPOINT, *filter(None, os.getenv('JEV_ALLOWED_ENDPOINTS', '').split(','))}
     parsed = urlsplit(endpoint)
     if endpoint not in allowed or parsed.scheme != 'https' or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError('Jev endpoint must be an operator-approved HTTPS evaluation endpoint.')
@@ -51,7 +53,7 @@ def validate_settings(data):
         elif key == 'jev_endpoint':
             validate_endpoint(value if isinstance(value, str) else '')
         elif key == 'jev_model':
-            if not isinstance(value, str) or not value.startswith('typesafe-ai/jev') or len(value) > 100 or any(c.isspace() for c in value):
+            if not isinstance(value, str) or not value.startswith(('typesafe-ai/jev', 'typesafe/jev', '~typesafe/jev')) or 'router' in value or len(value) > 100 or any(c.isspace() for c in value):
                 raise ValueError('Select a TypeSafe Jev evaluation model.')
         values[key] = value
     if 'ai_gateway_key' in data and (not isinstance(data['ai_gateway_key'], str) or len(data['ai_gateway_key']) > 4096):
@@ -62,11 +64,31 @@ def validate_settings(data):
 
 
 def settings_for(row):
-    return {k: getattr(row, k, None) if getattr(row, k, None) is not None else v for k, v in DEFAULTS.items()}
+    values = normalize_transport({k: getattr(row, k, None) if getattr(row, k, None) is not None else v for k, v in DEFAULTS.items()})
+    values['jev_generative_fallback_enabled'] = False
+    if values['jev_sentiment_mode'] == 'shadow':
+        values['jev_sentiment_mode'] = 'first'
+    return values
+
+
+def normalize_transport(config):
+    """Repair legacy transport aliases without replacing a selected Jev version."""
+    config = dict(config)
+    if config.get('jev_transport') == 'openrouter':
+        if config.get('jev_endpoint') in (DEFAULT_ENDPOINT, 'https://openrouter.ai/api/v1/chat/completions'):
+            config['jev_endpoint'] = OPENROUTER_ENDPOINT
+        if config.get('jev_model') == 'typesafe-ai/jev':
+            config['jev_model'] = OPENROUTER_MODEL
+    return config
 
 
 def save_settings(row, data):
-    for key, value in validate_settings(data).items():
+    validated = validate_settings(data)
+    config = normalize_transport({**settings_for(row), **validated})
+    config['jev_generative_fallback_enabled'] = False
+    if config['jev_sentiment_mode'] == 'shadow':
+        config['jev_sentiment_mode'] = 'first'
+    for key, value in config.items():
         setattr(row, key, value)
 
 

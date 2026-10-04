@@ -4,6 +4,7 @@ Maintains an isolated paper trading ledger (account, positions, orders)
 and master portfolio configuration completely separated from manual Webull
 Test Mode and Binance paper trading.
 """
+from services.prompt_catalog import default_prompt
 
 import json
 from datetime import datetime
@@ -28,17 +29,7 @@ DEFAULT_ALLOCATIONS = {
 }
 
 DEFAULT_MASTER_CIO_PROMPT = (
-    ENGINE_PURPOSE + "\nYou are the research CIO and operational auditor. Explain the observed paper portfolio in plain English—"
-    "avoid dense academic jargon or research-paper abstractions. Explain what the quantitative strategy engine is doing right now, "
-    "whether it is working properly, what each enabled strategy evaluated, what actually filled or exited, and why other entries were blocked. "
-    "Assess net results only over the supplied sample; distinguish operational defects from normal waiting or closed market sessions. "
-    "Use code-calculated goal_tracking to explain the configured annual target, observed target-equity gap and available annualized percentage-point gap. "
-    "MANDATORY FORMAT: Always begin with '## 1. Executive Summary' containing a concise 1 to 2 paragraph narrative TL;DR "
-    "written in human-friendly language (strictly avoiding internal code slugs like 'warming_up', 'available_capacity', or 'market_closed'—translate them "
-    "into everyday concepts like 'calibrating indicator history', 'available buying power / capital headroom', and 'regular market session closed'). "
-    "The Executive Summary MUST explicitly answer: (1) what the engine is doing right now and current portfolio state, "
-    "(2) whether the engine is working properly, and (3) actionable suggestions to improve or repair the quantitative strategy engine. "
-    "Do not begin Section 1 with a table; provide the executive narrative first, followed by supporting tables."
+    default_prompt('audit.master_cio')
 )
 
 DEFAULT_MODULE_SETTINGS = {
@@ -51,9 +42,7 @@ DEFAULT_MODULE_SETTINGS = {
         "bollinger_std": 2.0,
         "target_cagr_range": "12%–16%",
         "auditor_prompt": (
-            "You are the equities paper-strategy auditor. " + STRATEGY_RULES["equities"] +
-            " Explain actual scans, holdings, entry/exit eligibility, missing evidence and testable improvements. "
-            "Use the saved strategy parameters; do not invent a replacement trading strategy."
+            default_prompt('seed.module.equities')
         ),
     },
     "crypto": {
@@ -64,9 +53,7 @@ DEFAULT_MODULE_SETTINGS = {
         "atr_stop_multiplier": 2.5,
         "target_cagr_range": "20%–35%",
         "auditor_prompt": (
-            "You are the crypto paper-strategy auditor. " + STRATEGY_RULES["crypto"] +
-            " Explain actual scans, holdings, entry/exit eligibility, missing evidence and testable improvements. "
-            "Use the saved strategy parameters; do not invent a replacement trading strategy."
+            default_prompt('seed.module.crypto')
         ),
     },
     "options": {
@@ -78,9 +65,7 @@ DEFAULT_MODULE_SETTINGS = {
         "profit_target_pct": 50,
         "target_cagr_range": "18%–24%",
         "auditor_prompt": (
-            "You are the options paper-strategy auditor. " + STRATEGY_RULES["options"] +
-            " Explain actual scans, holdings, entry/exit eligibility, missing evidence and testable improvements. "
-            "Use the saved strategy parameters; do not invent a replacement trading strategy."
+            default_prompt('seed.module.options')
         ),
     },
     "futures": {
@@ -90,9 +75,7 @@ DEFAULT_MODULE_SETTINGS = {
         "max_intraday_loss": 250.0,
         "target_cagr_range": "15%–22%",
         "auditor_prompt": (
-            "You are the futures paper-strategy auditor. " + STRATEGY_RULES["futures"] +
-            " Explain actual scans, holdings, entry/exit eligibility, missing evidence and testable improvements. "
-            "Use the saved strategy parameters; do not invent a replacement trading strategy."
+            default_prompt('seed.module.futures')
         ),
     },
     "events": {
@@ -102,9 +85,7 @@ DEFAULT_MODULE_SETTINGS = {
         "min_net_edge": 0.015,
         "target_cagr_range": "20%–30%",
         "auditor_prompt": (
-            "You are the events paper-strategy auditor. " + STRATEGY_RULES["events"] +
-            " Explain actual scans, holdings, entry/exit eligibility, missing evidence and testable improvements. "
-            "Use the saved strategy parameters; do not invent a replacement trading strategy."
+            default_prompt('seed.module.events')
         ),
     },
 }

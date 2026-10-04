@@ -23,13 +23,14 @@ await page.route('**/*', async route => {
       if (route.request().method() === 'POST') {
         const body = route.request().postDataJSON();
         assert.equal(body.jev_transport, 'vercel');
-        assert.equal(body.jev_sentiment_mode, 'shadow');
+        assert.equal(body.jev_sentiment_mode, 'first');
         assert.equal(body.jev_quant_shadow_enabled, true);
+        assert.equal(body.jev_generative_fallback_enabled, false);
         assert.equal(body.ai_gateway_key, 'synthetic-browser-key');
         settings = { ...settings, ...body, ai_gateway_key: '********' };
         saves++;
       }
-      data = settings;
+      data = { ...settings, ai_gateway_key_configured:Boolean(settings.ai_gateway_key) };
     }
     if (url.pathname === '/api/jev/test-connection') {
       assert.equal(route.request().postDataJSON().ai_gateway_key, '********');
@@ -45,7 +46,7 @@ await page.route('**/*', async route => {
 });
 try {
   await page.goto(`${origin}/settings?tab=ai-providers`);
-  await page.getByRole('heading', { name: 'Jev Decision Engine (Experimental)' }).waitFor();
+  await page.getByRole('heading', { name: 'Jev Decision Engine' }).waitFor();
   const enabled = page.getByLabel('Enable Jev', { exact: true });
   assert.equal(await enabled.isChecked(), false);
   assert.equal(await page.getByLabel('Sentiment mode').inputValue(), 'off');
@@ -53,7 +54,7 @@ try {
   const key = page.getByLabel('Vercel AI Gateway API key', { exact: true });
   assert.equal(await key.getAttribute('type'), 'password');
   await key.fill('synthetic-browser-key');
-  await page.getByLabel('Sentiment mode').selectOption('shadow');
+  await page.getByLabel('Sentiment mode').selectOption('first');
   await page.getByLabel('Enable quant shadow observations').check();
   await page.getByRole('button', { name: 'Save Jev Settings', exact: true }).click();
   await page.getByText(/Jev settings saved/).waitFor();
@@ -61,11 +62,12 @@ try {
   await page.getByRole('button', { name: 'Test Jev Connection', exact: true }).click();
   await page.getByText(/Latency: 42 ms/).waitFor();
   await page.reload();
-  await page.getByRole('heading', { name: 'Jev Decision Engine (Experimental)' }).waitFor();
+  await page.getByRole('heading', { name: 'Jev Decision Engine' }).waitFor();
   assert.equal(await key.inputValue(), '********');
-  assert.equal(await page.getByLabel('Sentiment mode').inputValue(), 'shadow');
+  assert.equal(await page.getByLabel('Sentiment mode').inputValue(), 'first');
   assert.equal(await page.getByLabel('Enable quant shadow observations').isChecked(), true);
-  await page.getByText(/Paper gate: unavailable in v4.0.0/).waitFor();
+  assert.equal(await page.getByLabel('Use generative fallback when Jev is uncertain or unavailable').count(), 0);
+  assert.equal(await page.getByLabel('Sentiment mode').locator('option[value=shadow]').count(), 0);
   await page.setViewportSize({ width: 390, height: 844 });
   await key.scrollIntoViewIfNeeded();
   const box = await key.boundingBox();
@@ -73,7 +75,7 @@ try {
   assert.equal(saves, 1);
   assert.equal(tests, 1);
   assert.deepEqual(errors, []);
-  console.log('Jev browser checks passed: tab placement, defaults, masked key, save/reload, test connection, shadow controls, mobile layout.');
+  console.log('Jev browser checks passed: tab placement, defaults, masked key, save/reload, test connection, no fallback controls, mobile layout.');
 } catch (error) {
   console.error({ errors, text: (await page.locator('body').innerText()).slice(-3000) });
   throw error;

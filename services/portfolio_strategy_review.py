@@ -273,16 +273,8 @@ def review_user(user_id, day=None):
             row.completed_at = datetime.utcnow()
             db.session.commit()
             return row
-        instruction = (
-            'Review the supplied PAPER decisions, closed outcomes, gaps, and exact active strategy source. '
-            'Return ONLY JSON with keys module, source, reason. module must be one of equities/options/crypto/events '
-            'or null. source must be a complete replacement decide(f) function for that module or null. '
-            'Choose null if evidence does not justify a concrete, safe code experiment. '
-            'Source may use only plain if/assign/return, indexing, arithmetic and comparisons; '
-            'no imports, attributes, loops, network, risk policy, orders or credentials. '
-            'The source is a proposal for a restricted paper experiment; do not claim profitability. '
-            'Do not ask for lower risk limits or guaranteed trade frequency.'
-        )
+        from services.prompt_catalog import prompt_for
+        instruction = prompt_for(user_id, 'audit.strategy_review')
         attempts = {'count': row.request_count or 0}
         limit = payload['daily_request_limit']
         def observe_attempt(**event):

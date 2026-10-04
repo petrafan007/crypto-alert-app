@@ -1,3 +1,4 @@
+from services.prompt_catalog import prompt_for
 import io
 import json
 import threading
@@ -190,7 +191,7 @@ def config_dict(cfg):
 def portfolio_algo_get_config():
     cfg, acc, state = engine.ensure_portfolio(current_user.id)
     return jsonify(success=True, config=config_dict(cfg), account=engine.portfolio_status(current_user.id)['account'],
-                   audit_prompt_policy=audit_prompt_policy(),
+                   audit_prompt_policy=audit_prompt_policy(current_user.id),
                    defaults={'allocations': DEFAULT_ALLOCATIONS, 'watchlists': DEFAULT_QUANT_WATCHLISTS,
                              'module_settings': DEFAULT_MODULE_SETTINGS, 'master_ai_prompt': DEFAULT_MASTER_CIO_PROMPT,
                              'total_bankroll': 50000, 'target_annual_return': 18.5})
@@ -454,6 +455,12 @@ def portfolio_algo_ai_config():
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             raise ValueError('A JSON object is required.')
+        if 'prompt_overrides' in payload:
+            from services.prompt_catalog import save_overrides
+            if user_setting is None:
+                user_setting = UserSetting(user_id=current_user.id)
+                db.session.add(user_setting)
+            save_overrides(user_setting, payload['prompt_overrides'])
         if "master_ai_prompt" in payload:
             prompt = payload["master_ai_prompt"]
             if isinstance(prompt, str) and len(prompt) <= 16000:
@@ -467,9 +474,13 @@ def portfolio_algo_ai_config():
             new_ai = payload["ai_config"]
             if 'audit_guidance' in new_ai and (not isinstance(new_ai['audit_guidance'], str) or len(new_ai['audit_guidance']) > 12000):
                 raise ValueError('Shared audit guidance must be text of at most 12000 characters.')
+            if new_ai.get('event_evaluator', 'jev') != 'jev':
+                raise ValueError('Contract probabilities use Jev with no generative fallback.')
             validate_master_ai_config(new_ai)
             from credential_security import encrypt_secret
             merged_ai = existing_ai.copy()
+            if 'event_evaluator' in new_ai:
+                merged_ai['event_evaluator'] = new_ai['event_evaluator']
             if 'audit_guidance' in new_ai:
                 merged_ai['audit_guidance'] = new_ai['audit_guidance'].strip()
             for tier in ("primary", "secondary", "tertiary", "quaternary"):
@@ -501,12 +512,13 @@ def portfolio_algo_ai_config():
     
     from routes.event_algo import sanitize_event_ai_config
     sanitized_ai = sanitize_event_ai_config(cfg.master_ai_config or "{}")
+    sanitized_ai['event_evaluator'] = 'jev'
     sanitized_ai['audit_guidance'] = engine.loads(cfg.master_ai_config, {}).get('audit_guidance', DEFAULT_AUDIT_GUIDANCE)
     return jsonify({
         "success": True,
         "master_ai_prompt": cfg.master_ai_prompt,
         "default_master_ai_prompt": DEFAULT_MASTER_CIO_PROMPT,
-        "audit_prompt_policy": audit_prompt_policy(),
+        "audit_prompt_policy": audit_prompt_policy(current_user.id),
         "ai_config": sanitized_ai,
     })
 
@@ -520,8 +532,30 @@ def test_provider_api(provider: str, api_key: str, model: str = None, reasoning_
         try:
             from services.ai_service import get_ollama_models
             test_model = model or "gpt-oss:120b-cloud"
-            available_models = get_ollama_models(timeout=10)
+            if api_key and str(api_key).strip() and str(api_key).strip() != "********":
+                available_models = get_ollama_models(timeout=10, api_key=api_key)
+            else:
+                available_models = get_ollama_models(timeout=10)
             if test_model not in available_models:
+                if api_key and str(api_key).strip() and str(api_key).strip() != "********":
+                    try:
+                        from services.ai_service import call_ollama_chat
+                        call_ollama_chat(
+                            test_model,
+                            [{"role": "user", "content": "Reply OK"}],
+                            max_tokens=5,
+                            timeout=15,
+                            api_key=api_key,
+                        )
+                        return jsonify({
+                            "success": True,
+                            "message": f"Ollama cloud model verified with API key ({test_model})",
+                        })
+                    except Exception as chat_err:
+                        return jsonify({
+                            "success": False,
+                            "message": f"Ollama model is not available ({test_model}): {chat_err}",
+                        }), 400
                 return jsonify({
                     "success": False,
                     "message": f"Ollama model is not available ({test_model})",
@@ -563,7 +597,7 @@ def test_provider_api(provider: str, api_key: str, model: str = None, reasoning_
             test_model = model or "gpt-5.4-mini"
             resp = client.chat.completions.create(
                 model=test_model,
-                messages=[{"role": "user", "content": "ping"}],
+                messages=[{"role": "user", "content": prompt_for(current_user.id, 'ai.connection_user')}],
                 max_completion_tokens=5
             )
             return jsonify({"success": True, "message": f"OpenAI connection OK ({test_model})"})
@@ -576,7 +610,7 @@ def test_provider_api(provider: str, api_key: str, model: str = None, reasoning_
             client = ZAIClient(api_key)
             test_model = model or "glm-4.5-flash"
             resp = client.chat_completion(
-                messages=[{"role": "user", "content": "ping"}],
+                messages=[{"role": "user", "content": prompt_for(current_user.id, 'ai.connection_user')}],
                 model=test_model,
                 max_tokens=5
             )
@@ -593,7 +627,7 @@ def test_provider_api(provider: str, api_key: str, model: str = None, reasoning_
             r = requests.post(
                 "https://api.perplexity.ai/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": test_model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5},
+                json={"model": test_model, "messages": [{"role": "user", "content": prompt_for(current_user.id, 'ai.connection_user')}], "max_tokens": 5},
                 timeout=20
             )
             if r.status_code == 200:
@@ -608,7 +642,7 @@ def test_provider_api(provider: str, api_key: str, model: str = None, reasoning_
             r = requests.post(
                 "https://api.inceptionlabs.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": test_model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5},
+                json={"model": test_model, "messages": [{"role": "user", "content": prompt_for(current_user.id, 'ai.connection_user')}], "max_tokens": 5},
                 timeout=20
             )
             if r.status_code == 200:
@@ -648,7 +682,7 @@ def portfolio_algo_ai_test():
         if not api_key:
             from credentials import Credential
             cred = Credential.query.filter_by(user_id=current_user.id).first()
-            if cred and provider != "ollama":
+            if cred:
                 suffix = '_quaternary' if tier == 'quaternary' else ('_tertiary' if tier == 'tertiary' else ('_fallback' if tier == 'secondary' else ''))
                 api_key = (
                     decrypt_secret(getattr(cred, f"_{provider}_key{suffix}", None)) or

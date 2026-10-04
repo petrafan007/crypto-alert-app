@@ -8,16 +8,16 @@ import threading
 import time
 
 import requests
-from services.jev_settings import DEFAULT_ENDPOINT, validate_endpoint
+from services.jev_settings import DEFAULT_ENDPOINT, validate_endpoint, normalize_transport
 
 
 class JevError(Exception):
     def __init__(self, code, latency_ms=0):
         self.code = code
         self.latency_ms = latency_ms
-        super().__init__({'auth': 'Vercel rejected the API key.', 'timeout': 'Jev request timed out.',
+        super().__init__({'auth': 'The selected Jev provider rejected the API key.', 'timeout': 'Jev request timed out.',
                          'cooldown': 'Jev is cooling down after repeated failures.',
-                         'missing_key': 'Save a Vercel AI Gateway API key first.',
+                         'missing_key': 'Save an API key for the selected Jev provider first.',
                          'invalid_response': 'Jev returned an invalid or incomplete evaluation.'}.get(code, 'Jev evaluation unavailable.'))
 
 
@@ -72,15 +72,16 @@ class JevClient:
 
     def __init__(self, api_key, endpoint=DEFAULT_ENDPOINT, model='typesafe-ai/jev', timeout_seconds=3.0, transport='vercel'):
         self.key = api_key
-        self.endpoint = validate_endpoint(endpoint)
-        self.model = model
+        config = normalize_transport({'jev_transport': transport, 'jev_endpoint': endpoint, 'jev_model': model})
+        self.endpoint = validate_endpoint(config['jev_endpoint'])
+        self.model = config['jev_model']
         self.timeout = timeout_seconds
         self.transport = transport
 
-    def evaluate(self, *, state, questions, model=None, timeout_seconds=None):
+    def evaluate(self, *, state, questions, model=None, timeout_seconds=None, before_request=None):
         started = time.monotonic()
         latency = lambda: int((time.monotonic()-started)*1000)
-        if not self.key:
+        if not self.key or self.key == '********':
             raise JevError('missing_key')
         bucket = hashlib.sha256((self.endpoint+self.key).encode()).hexdigest()
         with self._lock:
@@ -96,14 +97,12 @@ class JevClient:
                 code = 'timeout'
                 break
             try:
-                import json
                 if self.transport == 'openrouter':
-                    prompt = json.dumps({'state': state, 'questions': questions})
-                    request_json = {
-                        'model': model or self.model,
-                        'messages': [{'role': 'user', 'content': prompt}],
-                        'response_format': {'type': 'json_object'}
+                    wire_questions = {
+                        key: {**question, 'type': 'noul'} if question['type'] == 'boolean' else dict(question)
+                        for key, question in questions.items()
                     }
+                    request_json = {'model': model or self.model, 'state': state, 'questions': wire_questions}
                     headers = {
                         'Authorization': f'Bearer {self.key}',
                         'Content-Type': 'application/json',
@@ -117,25 +116,26 @@ class JevClient:
                     }
                     headers = {'Authorization': f'Bearer {self.key}', 'Content-Type': 'application/json'}
                 
+                if before_request:
+                    before_request()
                 response = requests.post(self.endpoint, headers=headers, json=request_json,
                     timeout=(remaining/2, remaining/2), allow_redirects=False)
                 status = response.status_code
                 if status == 200:
                     try:
                         payload = response.json()
-                        import json
                         if self.transport == 'openrouter':
-                            try:
-                                content = payload['choices'][0]['message']['content']
-                                parsed_payload = json.loads(content)
-                            except (KeyError, IndexError, json.JSONDecodeError):
-                                raise JevError('invalid_response')
-                            answers = validate_answers(parsed_payload, questions)
-                            metadata = {}
-                            gateway = {}
-                            confidence = {}
-                            usage = payload.get('usage', {})
-                            cost = None
+                            normalized = {}
+                            for key, question in questions.items():
+                                answer = payload['answers'][key]
+                                normalized[key] = ({'type': 'boolean', 'probability': answer['noul']}
+                                    if question['type'] == 'boolean' and answer.get('type') == 'noul' else answer)
+                            answers = validate_answers({'answers': normalized}, questions)
+                            confidence = {key: answer['confidence'] for key, answer in answers.items() if 'confidence' in answer}
+                            for value in confidence.values():
+                                number(value)
+                            usage = payload.get('usage') or {}
+                            cost = Decimal(str(usage['cost'])) if usage.get('cost') is not None else None
                         else:
                             answers = validate_answers(payload, questions)
                             metadata = payload.get('providerMetadata') or {}
@@ -150,12 +150,14 @@ class JevClient:
                                 raise JevError('invalid_response')
                             usage = payload.get('usage')
                         
+                        if cost is not None and (not cost.is_finite() or cost < 0):
+                            raise JevError('invalid_response')
                         actual_model = payload.get('model', model or self.model)
                         if not isinstance(actual_model, str) or len(actual_model) > 100:
                             raise JevError('invalid_response')
                         if usage is not None and not isinstance(usage, dict):
                             raise JevError('invalid_response')
-                    except (ValueError, TypeError, AttributeError, InvalidOperation):
+                    except (KeyError, ValueError, TypeError, AttributeError, InvalidOperation):
                         raise JevError('invalid_response') from None
                     with self._lock:
                         type(self)._failures.pop(bucket, None)

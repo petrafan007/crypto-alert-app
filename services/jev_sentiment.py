@@ -1,4 +1,4 @@
-"""Sentiment orchestration; preserves the existing generative response contract."""
+"""Jev sentiment evaluation with no generative escalation."""
 from datetime import datetime, timezone
 import json
 import logging
@@ -32,7 +32,7 @@ def build_state(context, evidence, decision_time):
                       [('title', 200), ('snippet', 500), ('source', 100), ('published_at', 40), ('available_at', 40)]})
         if len(items) == 12:
             break
-    state = {k: context[k] for k in ('symbol', 'instrument_type', 'current_price', 'forecast_horizon_hours', 'is_watchlist', 'market_source') if k in context}
+    state = {k: context[k] for k in ('symbol', 'instrument_type', 'current_price', 'forecast_horizon_hours', 'is_watchlist', 'market_source', 'recommendation_boundaries') if k in context}
     try:
         if context.get('market_context') and utc(context['market_available_at']) <= decision:
             state['market_context'] = str(context['market_context'])[:4000]
@@ -47,7 +47,7 @@ def acceptance(answers, confidence, settings, state):
     direction = answers['direction']
     probability = direction['probabilities'][direction['choice']]
     reported_confidence = confidence.get('direction')
-    if not state.get('evidence') or not state.get('current_price') or state['current_price'] <= 0:
+    if not (state.get('evidence') or state.get('market_context')) or not state.get('current_price') or state['current_price'] <= 0:
         return False, 'JEV_ABSTAINED_NO_EVIDENCE'
     if answers['conflicted']['probability'] > settings['jev_conflict_threshold']:
         return False, 'JEV_ESCALATED_CONFLICT'
@@ -71,36 +71,27 @@ def run_sentiment(generative, kwargs, context):
     from routes.helpers import is_stablecoin
     user_id = kwargs['user_id']
     config = settings_for(db.session.get(UserSetting, user_id))
-    if not config['jev_enabled'] or config['jev_sentiment_mode'] == 'off' or is_stablecoin(context['symbol']):
-        return generative(**kwargs)
+    if not config['jev_enabled'] or config['jev_sentiment_mode'] == 'off':
+        raise ValueError('Jev sentiment is disabled; no generative fallback.')
+    if is_stablecoin(context['symbol']):
+        raise ValueError('Stablecoins do not require a model evaluation.')
     # Preserve audit scheduling guard before any paid Jev or search call.
     from services.portfolio_audit_lifecycle import active_audit
     from services.provider_resilience import AIRequestDeferred
     if active_audit(user_id):
         raise AIRequestDeferred('Quantitative audit has exclusive AI access; sentiment deferred.')
     captured = []
-    def observe(items):
-        captured.extend(items)
-    if config['jev_sentiment_mode'] == 'shadow':
-        response, prompt = generative(**kwargs, evidence_observer=observe)
-        try:
-            # Evidence timestamps came from the search completed before synthesis.
-            decision = max((utc(i['available_at']) for i in captured), default=datetime.now(timezone.utc))
-            state = build_state(context, captured, decision)
-            evaluation_id = create_evaluation(user_id, 'sentiment', state, config,
-                baseline={'generative_provider': getattr(response, 'provider', None), 'generative_model': getattr(response, 'model', None)})
-            response.jev_evaluation_id = evaluation_id
-        except Exception:
-            logger.warning('Jev shadow observation could not be queued.')
-        return response, prompt
     # Deterministic queries, reusing the application's existing search providers.
+    from services.prompt_catalog import prompt_for, render_prompt, overrides_for
+    prompt_overrides = overrides_for(user_id)
+    query_key = 'jev.watchlist_sentiment_search' if context.get('is_watchlist') else 'jev.sentiment_search'
     settings = db.session.get(UserSetting, user_id)
     if getattr(settings, 'ai_web_search_enabled', True):
         instrument = 'crypto' if context['instrument_type'] == 'CRYPTO' else 'equity'
         username = kwargs['username']
         for fetch in (
             lambda: news_api_search(context['symbol'], username, kwargs.get('search_lookback_hours', 12), asset_context=instrument),
-            lambda: web_search(f"{context['symbol']} {instrument} latest market news today", max_results=4, username=username),
+            lambda: web_search(render_prompt(prompt_for(user_id, query_key, prompt_overrides), symbol=context['symbol'], instrument=instrument, datetime=datetime.now(timezone.utc).isoformat()), max_results=4, username=username),
         ):
             try:
                 items = fetch()
@@ -110,24 +101,24 @@ def run_sentiment(generative, kwargs, context):
             except Exception:
                 pass
     state = build_state(context, captured, datetime.now(timezone.utc))
+    from services.jev_contracts import build_sentiment_questions
+    questions = build_sentiment_questions(user_id, context.get('is_watchlist', False), prompt_overrides)
+    evaluation_settings = {**config, 'questions': questions}
     evaluation_id, row = None, None
     try:
-        evaluation_id = create_evaluation(user_id, 'sentiment', state, config, action='none')
-        row = process_evaluation(evaluation_id) if evaluation_id else None
+        evaluation_id = create_evaluation(user_id, 'sentiment', state, evaluation_settings, action='none')
+        db.session.commit()
+        if evaluation_id and (not state.get('current_price') or not (state.get('evidence') or state.get('market_context'))):
+            try_update_evaluation(evaluation_id, status='abstained', result_state='JEV_ABSTAINED_NO_EVIDENCE')
+        else:
+            row = process_evaluation(evaluation_id) if evaluation_id else None
     except Exception:
-        logger.warning('Jev sentiment evaluation unavailable; applying configured fallback policy.')
+        logger.warning('Jev sentiment evaluation unavailable; no generative fallback.')
     if row and row.status == 'success':
         label, reason = mapped_result(json.loads(row.answers_json), context.get('is_watchlist', False))
         response = AIResponseWrapper(json.dumps({'sentiment': label, 'reason': reason}), tier='jev',
             provider='typesafe-ai', model=row.model, search_status=f'Jev grounded ({len(state["evidence"])} sources)')
         response.jev_evaluation_id = evaluation_id
         try_update_evaluation(evaluation_id, action_taken='sentiment')
-        return response, 'Jev sentiment-v1: structured point-in-time evaluation.'
-    if config['jev_generative_fallback_enabled']:
-        if evaluation_id:
-            try_update_evaluation(evaluation_id, fallback_used=True)
-        response, prompt = generative(**kwargs)
-        response.jev_evaluation_id = evaluation_id
-        return response, prompt
-    # Explicit error, never a fabricated neutral sentiment; existing caller clears checking.
-    raise ValueError('Jev abstained or was unavailable; generative fallback is disabled.')
+        return response, json.dumps({'questions': questions, 'state': state}, ensure_ascii=False)
+    raise ValueError('Jev abstained or was unavailable; no generative fallback.')

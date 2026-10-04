@@ -1696,6 +1696,8 @@ def api_settings():
                     cred.gemini_key = data['gemini_key']
                 if 'inception_key' in data:
                     cred.inception_key = data['inception_key']
+                if 'ollama_key' in data:
+                    cred.ollama_key = data['ollama_key']
                 
                 # Secondary (Fallback) Keys
                 if 'openai_key_fallback' in data:
@@ -1710,6 +1712,10 @@ def api_settings():
                     cred.inception_key_fallback = data['inception_key_fallback']
                 if 'inception_key_secondary' in data:
                     cred.inception_key_fallback = data['inception_key_secondary']
+                if 'ollama_key_fallback' in data:
+                    cred.ollama_key_fallback = data['ollama_key_fallback']
+                if 'ollama_key_secondary' in data:
+                    cred.ollama_key_fallback = data['ollama_key_secondary']
 
                 # Tertiary Keys
                 if 'openai_key_tertiary' in data:
@@ -1722,6 +1728,8 @@ def api_settings():
                     cred.gemini_key_tertiary = data['gemini_key_tertiary']
                 if 'inception_key_tertiary' in data:
                     cred.inception_key_tertiary = data['inception_key_tertiary']
+                if 'ollama_key_tertiary' in data:
+                    cred.ollama_key_tertiary = data['ollama_key_tertiary']
 
                 # Quaternary (fourth fallback) Keys
                 if 'openai_key_quaternary' in data:
@@ -1734,6 +1742,8 @@ def api_settings():
                     cred.gemini_key_quaternary = data['gemini_key_quaternary']
                 if 'inception_key_quaternary' in data:
                     cred.inception_key_quaternary = data['inception_key_quaternary']
+                if 'ollama_key_quaternary' in data:
+                    cred.ollama_key_quaternary = data['ollama_key_quaternary']
 
                 if 'ai_provider' in data:
                     cred.ai_provider = data['ai_provider']
@@ -1844,21 +1854,26 @@ def api_settings():
             "perplexity_key": getattr(cred, 'perplexity_key', None),
             "gemini_key": getattr(cred, 'gemini_key', None),
             "inception_key": getattr(cred, 'inception_key', None),
+            "ollama_key": getattr(cred, 'ollama_key', None),
             "openai_key_fallback": getattr(cred, 'openai_key_fallback', None),
             "zai_key_fallback": getattr(cred, 'zai_key_fallback', None),
             "perplexity_key_fallback": getattr(cred, 'perplexity_key_fallback', None),
             "gemini_key_fallback": getattr(cred, 'gemini_key_fallback', None),
             "inception_key_fallback": getattr(cred, 'inception_key_fallback', None),
+            "ollama_key_fallback": getattr(cred, 'ollama_key_fallback', None),
+            "ollama_key_secondary": getattr(cred, 'ollama_key_fallback', None),
             "openai_key_tertiary": getattr(cred, 'openai_key_tertiary', None),
             "zai_key_tertiary": getattr(cred, 'zai_key_tertiary', None),
             "perplexity_key_tertiary": getattr(cred, 'perplexity_key_tertiary', None),
             "gemini_key_tertiary": getattr(cred, 'gemini_key_tertiary', None),
             "inception_key_tertiary": getattr(cred, 'inception_key_tertiary', None),
+            "ollama_key_tertiary": getattr(cred, 'ollama_key_tertiary', None),
             "openai_key_quaternary": getattr(cred, 'openai_key_quaternary', None),
             "zai_key_quaternary": getattr(cred, 'zai_key_quaternary', None),
             "perplexity_key_quaternary": getattr(cred, 'perplexity_key_quaternary', None),
             "gemini_key_quaternary": getattr(cred, 'gemini_key_quaternary', None),
             "inception_key_quaternary": getattr(cred, 'inception_key_quaternary', None),
+            "ollama_key_quaternary": getattr(cred, 'ollama_key_quaternary', None),
             # ai_provider is already in ai_settings, but ensure sync? 
             # ai_settings takes precedence as it handles defaults and user_settings overlay
             "telegram_token": cred.telegram_token,
@@ -1885,6 +1900,8 @@ def api_settings():
             "credentials_encryption_key_persisted": bool(encryption_persisted),
         })
         
+        from services.credential_views import jev_credential_status
+        response.update(jev_credential_status(cred))
         result = jsonify(masked_settings(response))
         result.headers["Cache-Control"] = "no-store"
         return result

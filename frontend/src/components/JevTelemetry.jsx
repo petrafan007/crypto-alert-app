@@ -14,16 +14,16 @@ export default function JevTelemetry({ useCase, refreshKey = 0 }) {
     const timer = setInterval(load, 30000);
     return () => { controller.abort(); clearInterval(timer); };
   }, [useCase, refreshKey]);
-  return <div aria-label="Jev research activity">
+  return <div aria-label="Jev evaluation activity">
     {error && <p role="alert">{error}</p>}
     {data && <>
       <p>Last 30 days · {data.sample_count} observations (up to {data.sample_limit}) · {data.pending_count} pending</p>
-      <p>Latency p50 / p95: {data.p50_ms ?? '—'} / {data.p95_ms ?? '—'} ms · Fallback: {pct(data.fallback_rate)} · Errors: {pct(data.error_rate)}</p>
+      <p>Latency p50 / p95: {data.p50_ms ?? '—'} / {data.p95_ms ?? '—'} ms · Historical fallback: {pct(data.fallback_rate)} · Errors: {pct(data.error_rate)}</p>
       <p>Reported cost: {data.reported_cost_usd == null ? 'Unavailable' : `$${data.reported_cost_usd.toFixed(6)}`} ({data.cost_reported_count} evaluations with cost)</p>
       {data.last_success && <p>Last success: {new Date(data.last_success).toLocaleString()}</p>}
       {data.last_safe_error && <p>Last error: {data.last_safe_error}</p>}
       <details><summary>Recent evaluations and calibration</summary>
-        {!data.recent.length && <p>No evaluations yet. Enable shadow mode in AI Providers &amp; Models to begin collecting observations.</p>}
+        {!data.recent.length && <p>No evaluations yet. Enable Jev in AI Providers &amp; Models to begin collecting evaluations.</p>}
         <div style={{ overflowX: 'auto' }}><table className="table">
           <thead><tr><th>Asset / time</th><th>Result</th><th>Answers</th><th>Action</th><th>Future return</th></tr></thead>
           <tbody>{data.recent.map(row => <tr key={row.id}>

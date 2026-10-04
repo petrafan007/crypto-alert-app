@@ -153,7 +153,7 @@ class AIProviderFailoverTests(unittest.TestCase):
         self.assertEqual(result['ai_provider_secondary'], '')
         self.assertEqual(result['ai_provider_fallback'], '')
 
-    def test_event_provider_failure_uses_selected_model_and_exact_fallback(self):
+    def test_event_report_provider_failure_uses_selected_model_and_exact_fallback(self):
         from services.ai_service import call_ai_with_web_search
         tiers = [('primary', 'gemini', 'selected-gemini', 'medium'),
                  ('secondary', 'ollama', 'selected-ollama', 'low')]
@@ -170,7 +170,7 @@ class AIProviderFailoverTests(unittest.TestCase):
             users.query.filter_by.return_value.first.return_value = SimpleNamespace(id=1, username='admin', is_admin=True)
             response, _ = call_ai_with_web_search(
                 username='admin', user_id=1, symbol='EVENT_BATCH',
-                prompt_type='webull_event_contract_batch_analysis',
+                prompt_type='event_strategy_audit',
                 messages=[{'role': 'user', 'content': 'Estimate these contract probabilities.'}],
                 custom_tier_configs=tiers, use_cache=False, include_db_context=False,
             )

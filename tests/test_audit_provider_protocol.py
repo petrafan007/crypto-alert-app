@@ -30,7 +30,7 @@ class AuditProviderProtocolTests(unittest.TestCase):
             history = []
             with self.assertRaises(AIRequestDeferred):
                 call_ai_with_web_search('admin', [], user_id=1,
-                    prompt_type='webull_event_contract_batch_analysis', failover_history=history)
+                prompt_type='event_strategy_audit', failover_history=history)
             settings.assert_not_called()
             notify.assert_not_called()
             self.assertEqual(history, [])

@@ -133,4 +133,4 @@ def telemetry(user_id, use_case=None):
             'last_success': next((r.completed_at.isoformat()+'Z' for r in rows if r.status == 'success' and r.completed_at), None),
             'last_safe_error': next((r.error_message_safe for r in rows if r.error_message_safe), None),
             'calibration': calibration(rows), 'recent': [serialize(r) for r in rows[:20]],
-            'limitations': 'Paper gating unavailable. Returns are fixed-horizon observations, not simulated P&L. MFE/MAE require full-window bars. Cost excludes generative fallback when its provider does not report cost.'}
+            'limitations': 'Sentiment returns are fixed-horizon observations. MFE/MAE require full-window bars. Historical fallback values describe older evaluations; current Jev evaluations never use generative fallback.'}

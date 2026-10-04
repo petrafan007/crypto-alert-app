@@ -38,6 +38,10 @@ def create_evaluation(user_id, use_case, state, settings, *, action='shadow', ba
     horizon = float(state.get('forecast_horizon_hours', 24))
     if not 0.25 <= horizon <= 168:
         raise ValueError('Invalid Jev forecast horizon.')
+    settings = dict(settings)
+    if 'questions' not in settings:
+        settings['questions'] = (build_sentiment_questions(user_id, state.get('is_watchlist', False))
+            if use_case == 'sentiment' else build_crypto_quant_questions(user_id))
     with Session(db.engine, expire_on_commit=False) as session:
         pending = session.query(JevEvaluation).filter_by(user_id=user_id, status='pending').count()
         if pending >= 100:
@@ -94,7 +98,16 @@ def process_evaluation(evaluation_id):
         config = json.loads(row.settings_json)
         current = settings_for(session.get(UserSetting, row.user_id))
         credential = session.query(Credential).filter_by(user_id=row.user_id).first()
-        key = credential.ai_gateway_key if credential else None
+        from services.jev_settings import normalize_transport
+        config = normalize_transport(config)
+        if 'questions' not in config:
+            from services.prompt_catalog import prompt_for
+            setting = session.get(UserSetting, row.user_id)
+            overrides = json.loads(setting.ai_prompt_overrides or '{}') if setting else {}
+            state = json.loads(row.state_json)
+            config['questions'] = (build_sentiment_questions(None, state.get('is_watchlist', False), overrides)
+                if row.use_case == 'sentiment' else build_crypto_quant_questions(None, overrides))
+        key = (credential.openrouter_api_key if config.get('jev_transport') == 'openrouter' else credential.ai_gateway_key) if credential else None
         enabled = current['jev_enabled'] and (
             current['jev_sentiment_mode'] != 'off' if row.use_case == 'sentiment' else current['jev_quant_shadow_enabled'])
     # No ORM session, row lock, or paper engine callback survives into this block.
@@ -102,7 +115,7 @@ def process_evaluation(evaluation_id):
         update_evaluation(evaluation_id, status='abstained', error_code='disabled_or_stale', completed_at=now)
         return get_evaluation(evaluation_id)
     try:
-        questions = build_sentiment_questions() if row.use_case == 'sentiment' else build_crypto_quant_questions()
+        questions = config['questions']
         result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds'], transport=config.get('jev_transport', 'vercel')).evaluate(
             state=json.loads(row.state_json), questions=questions)
         values = dict(status='success', answers_json=canonical(result.answers),

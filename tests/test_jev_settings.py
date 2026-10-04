@@ -9,6 +9,63 @@ from tests.jev_helpers import JevTestCase
 
 
 class JevSettingsTests(JevTestCase):
+    def test_openrouter_key_mask_preserves_saved_secret_in_both_settings_apis(self):
+        for route in ('/api/settings', '/api/ai/settings'):
+            with self.subTest(route=route):
+                response, status = self.request('POST', {
+                    'openrouter_api_key': 'synthetic-openrouter-key', 'jev_transport': 'openrouter',
+                    'jev_endpoint': 'https://ai-gateway.vercel.sh/v1/evaluate', 'jev_model': 'typesafe-ai/jev',
+                }, route=route)
+                self.assertEqual(status, 200)
+                self.assertNotIn('synthetic-openrouter-key', str(response.json))
+                credential = Credential.query.filter_by(user_id=1).one()
+                self.assertEqual(credential.openrouter_api_key, 'synthetic-openrouter-key')
+                response, status = self.request('POST', {
+                    'openrouter_api_key': '********', 'jev_enabled': True,
+                }, route=route)
+                self.assertEqual(status, 200)
+                self.assertEqual(credential.openrouter_api_key, 'synthetic-openrouter-key')
+                settings = db.session.get(UserSetting, 1)
+                self.assertEqual(settings.jev_endpoint, 'https://openrouter.ai/api/alpha/decisions')
+                self.assertEqual(settings.jev_model, 'typesafe/jev-1.13')
+
+    def test_masks_cannot_overwrite_the_model_secret_even_outside_settings_routes(self):
+        credential = Credential.query.filter_by(user_id=1).one()
+        credential.openrouter_api_key = 'first-key'; db.session.commit()
+        encrypted = credential._openrouter_api_key
+        for mask in ('********', '  ********  '):
+            credential.openrouter_api_key = mask; db.session.commit(); db.session.expire_all()
+            self.assertEqual(credential._openrouter_api_key, encrypted)
+            self.assertEqual(credential.openrouter_api_key, 'first-key')
+
+    def test_saved_status_is_confirmed_after_commit_and_survives_later_full_save(self):
+        for route in ('/api/settings', '/api/ai/settings'):
+            with self.subTest(route=route):
+                response, status = self.request('POST', {'openrouter_api_key':'replacement-key'}, route)
+                self.assertEqual(status, 200)
+                self.assertTrue(response.json['openrouter_api_key_configured'])
+                self.assertEqual(response.json['openrouter_api_key'], '********')
+                db.session.expire_all()
+                self.assertEqual(Credential.query.filter_by(user_id=1).one().openrouter_api_key, 'replacement-key')
+                response, status = self.request('POST', {'openrouter_api_key':'********', 'jev_enabled':True, 'jev_generative_fallback_enabled':True}, route)
+                self.assertEqual(status, 200)
+                db.session.expire_all()
+                self.assertEqual(Credential.query.filter_by(user_id=1).one().openrouter_api_key, 'replacement-key')
+                self.assertFalse(db.session.get(UserSetting, 1).jev_generative_fallback_enabled)
+                response, status = self.request('GET', route=route)
+                self.assertTrue(response.json['openrouter_api_key_configured'])
+                self.assertNotIn('replacement-key', str(response.json))
+
+    def test_old_stored_placeholder_is_reported_as_missing_not_configured(self):
+        from credential_security import normalize_secret_for_storage
+        credential = Credential.query.filter_by(user_id=1).one()
+        credential._openrouter_api_key = normalize_secret_for_storage('********')
+        db.session.commit()
+        reply, status = self.request('GET')
+        self.assertEqual(status, 200)
+        self.assertFalse(reply.json['openrouter_api_key_configured'])
+        self.assertEqual(reply.json['openrouter_api_key'], '')
+
     def request(self, method, payload=None, route='/api/settings'):
         module, handler = (system, system.api_settings) if route == '/api/settings' else (ai, ai.api_ai_settings)
         with self.app.test_request_context(route, method=method, json=payload), \

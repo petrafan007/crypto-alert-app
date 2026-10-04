@@ -1,78 +1,36 @@
-# Jev decision engine — v4.0.0
+# Jev Decision Engine — v4.6.16
 
-Jev is a separate, opt-in TypeSafe evaluation subsystem using Vercel AI Gateway. It consumes existing market prices, computed strategy features and retrieved news; it neither browses nor computes authoritative indicators. Generative AI configurations remain independent.
+Jev is the evaluator for portfolio/watchlist sentiment, Webull stock/ETF/crypto sentiment, and Event contract probabilities. These paths never fall back to generative providers. Written Copilot answers and quantitative audits retain their selected generative providers.
 
-## Configure it
+## Connection
 
-1. Open **Settings → AI Providers & Models → Jev Decision Engine (Experimental)**.
-2. Choose **Vercel AI Gateway**, keep model **typesafe-ai/jev**, and enter your **Vercel AI Gateway API key**. The application's credential encryption must already be configured, as for other provider keys.
-3. Click **Save Jev Settings**, then **Test Jev Connection**. Testing sends one small evaluation and can incur provider charges. The saved key is masked; saving the mask preserves it. Clear the field and save to remove the key.
-4. Turn on **Enable Jev**. Select **Shadow** for sentiment comparisons and/or **Enable quant shadow observations**, then save. Sentiment runs also require the application's main AI toggle. Quant observations require an operating crypto quant scan.
-5. Inspect recent evaluations in the Jev card or **Quantitative Strategy Engine → Jev quant shadow research**. The background worker processes the durable queue; ordinary sentiment refreshes and quant scans produce observations.
-6. To use accepted Jev sentiment, select **Jev-first**. Keep generative fallback enabled unless explicit failures are preferable to generative calls. Low direction probability, low reported confidence, conflicted evidence, missing evidence/price, malformed replies, and unavailable providers abstain. Existing primary/fallback generative settings handle escalation.
+Open **Settings → AI Providers & Models → Jev Decision Engine**. Enable Jev, select Vercel AI Gateway or OpenRouter, enter the corresponding key, save, and test the connection. Enable the main AI integration for scheduled sentiment and Event evaluation. Jev sentiment can be enabled or disabled; legacy shadow settings now resolve to Jev evaluations, and legacy generative-fallback flags cannot enable fallback.
 
-Everything defaults to off. The dedicated Save button updates only Jev configuration and does not require entering unrelated exchange credentials. Settings and connection testing are authenticated and use the current user's stored key. No key is sent back to the browser. Paper gating is unavailable in this version, including through crafted settings requests.
+OpenRouter uses its native [Decisions API](https://openrouter.ai/blog/insights/what-is-jev/) at `https://openrouter.ai/api/alpha/decisions`, with `typesafe/jev-1.13` and an OpenRouter key. Vercel uses its native [evaluation endpoint](https://vercel.com/docs/ai-gateway/modalities/evaluation), `typesafe-ai/jev`, and a Vercel key. Changing providers updates the endpoint and model. Saved custom Jev versions are preserved. OpenRouter Noul replies are normalized to the internal Boolean schema; actual model, confidence, usage and reported cost are retained.
 
-## Contracts and storage
+Keys are encrypted and masked. Saving `********` preserves a saved key. Older versions could overwrite an OpenRouter key with the mask itself: re-enter the real key after upgrading if Test Connection reports a missing key. A placeholder cannot be recovered into a credential.
 
-The native HTTP endpoint is `https://ai-gateway.vercel.sh/v1/evaluate`, with a map of named questions and model `typesafe-ai/jev`. All six questions for a use case share one request. Vercel Choice probabilities and separate TypeSafe confidence metadata remain distinct. Scores are interpolated on a zero-based wire scale; the UI and deterministic reason convert to 1–5. The client requests zero data retention, disallows redirects, retries transient failures at most once within the configured timeout budget, and applies a process-local failure cooldown. Provider error bodies are never exposed.
+## Editable instructions
 
-References: [Vercel HTTP evaluation API](https://vercel.com/docs/ai-gateway/modalities/evaluation#http-api), [TypeSafe confidence metadata](https://vercel.com/changelog/typesafe-ai-jev-now-available-on-ai-gateway).
+- **Settings → AI Prompts → Portfolio Sentiment Analysis**: sentiment search template and all typed evaluation questions and answer descriptions.
+- **Settings → AI Prompts → Watchlist Sentiment Analysis**: separate watchlist search template and typed questions/descriptions.
+- **Settings → Quantitative Strategy Engine → AI Configuration**: contract outcome and evidence-quality questions/descriptions, plus shared quantitative audit/evaluation instructions. Use **Save AI Configuration** to save modal edits.
+- **Settings → AI Prompts → Shared workflow, Copilot and connection instructions**: formerly hidden shared search/synthesis, portfolio scope, Copilot scope and connection-test instructions.
 
-New files: `services/jev_service.py`, `jev_contracts.py`, `jev_settings.py`, `jev_evaluations.py`, `jev_sentiment.py`, `jev_quant_overlay.py`, and `jev_outcomes.py`. The native transport avoids a JavaScript SDK dependency in the Python backend.
+Bundled reset defaults live in `config/ai_prompt_catalog.json`; runtime overrides are saved per user in `user_settings.ai_prompt_overrides`. Existing market/asset/Copilot prompts and module auditor mandates remain editable in their established UI. Runtime code assembles data and loads instructions; it does not append hidden instruction strings. Question IDs, types and response labels remain fixed so edits cannot change the application's response contract. Contract questions must include `{index}` and `{symbol}` to identify each batch member. Blank/malformed edits are rejected.
 
-`JevEvaluation` stores bounded canonical state, SHA-256 state hash, state/question versions, model/provider, probabilities/confidence, usage/reported cost, latency, failure/abstention status, timestamps, frozen settings, baseline quant decisions and links to sentiment history or external Webull signals. API keys and full account/article payloads are excluded. Raw provider responses exist only in the client result, not in durable records.
+## Sentiment
 
-Additive startup migration in `database.py` creates `jev_evaluations` and its indexes, adds `credentials.ai_gateway_key`, and adds these `user_settings` columns:
+Sentiment gathers timestamped news/search evidence and recorded price/volume context without using a generative search model. Jev evaluates direction, materiality, bullish probability, downside risk, evidence conflict and catalyst. Questions use the supplied forecast horizon and recommendation boundaries. Portfolio directions map to Buy Immediately / Consider Buying / Hold / Consider Selling / Sell Immediately; watchlist directions map to Definitely Buy / Consider Buying / Watch / Avoid. Stablecoins keep their deterministic shortcut.
 
-| Setting | Default |
-|---|---|
-| `jev_enabled` | false |
-| `jev_transport` | vercel |
-| `jev_model` | typesafe-ai/jev |
-| `jev_endpoint` | Vercel `/v1/evaluate` |
-| `jev_timeout_seconds` | 3.0 |
-| `jev_confidence_threshold` | 0.80 |
-| `jev_conflict_threshold` | 0.50 |
-| `jev_sentiment_mode` | off (`off`, `shadow`, `first`) |
-| `jev_generative_fallback_enabled` | true |
-| `jev_quant_shadow_enabled` | false |
+Queue snapshots retain the exact questions and settings used for each evaluation. Future evidence is excluded. Missing current price or evidence, low confidence, conflicted evidence and malformed/unavailable replies abstain or report an error; they never fabricate a neutral recommendation or call another AI model. History links retain the actual Jev provider/model. Existing historical fallback observations remain visible as historical telemetry.
 
-Custom endpoints require exact inclusion in the operator's comma-separated `JEV_ALLOWED_ENDPOINTS` environment variable and HTTPS. This prevents arbitrary settings URLs receiving stored credentials. Direct TypeSafe/OpenRouter wire adapters are not implemented.
+## Contract probabilities
 
-## Timing and trade isolation
+Bounded Event batches evaluate each contract's exact condition/cutoff and supplied observations using typed YES/NO and evidence-quality questions. No generative research or synthesis call is made. Probability, confidence, evidence quality, actual served model, latency, usage/cost and answers are saved in Event metadata. Inadequate evidence or confidence yields zero entry confidence and prevents new paper entries. Existing eligibility, timing, risk, exposure, cooldown and hourly request limits remain binding; every actual transport attempt consumes a request allowance. Prompt/model/threshold changes invalidate cached forecasts without deleting history. Open positions retain ordinary management and confirmed settlement behavior.
 
-Sentiment shadow uses the existing search results, records an immutable input snapshot, and queues evaluation after the generative result. Jev-first uses deterministic queries through the existing search providers. Portfolio, watchlist and Webull stock/ETF/crypto signals use the integration; options/event-contract sentiment is excluded. Stablecoin fast paths remain intact. The existing audit scheduling guard applies to sentiment evaluations.
+Confidence measures answer-distribution concentration. It does not establish future forecasting accuracy or profitability; Event settlement calibration and fixed-horizon sentiment outcomes measure observed results. Optional crypto setup evaluations remain informational alongside deterministic strategy decisions.
 
-News requires a recorded retrieval time at or before the decision time. Future publication/retrieval timestamps and malformed timestamps are excluded. Missing publication dates remain explicitly unknown. Quant snapshots copy the existing deterministic signal/checks and pre-entry account summary; they do not recompute indicators or fetch future evidence. Delayed shadow calls receive only the frozen state.
+## Migration
 
-Quant persistence happens after the paper decision commits. A dedicated `jev-shadow-worker` claims each row atomically, commits/closes its transaction, then calls Vercel. It never calls order-entry code or changes the base signal. Pending work is bounded to 100 records per user, stale queued observations abstain after five minutes, and interrupted worker claims fail explicitly after two minutes rather than silently duplicating provider calls. Disabling Jev prevents queued calls from starting. The worker lives in the existing application background-job lifecycle.
-
-## Outcomes, calibration and current limits
-
-Fixed-horizon labels are defined by contract: bullish means future return strictly above 0%; downside means future return at or below -2%. The default quant horizon is 24 hours; sentiment uses its configured horizon. Binance sentiment outcomes require recorded Binance prices within 15 minutes of the target. Quant outcomes use later immutable scan snapshots for the same user, symbol and Webull market source; they never substitute Binance quotes. Continued quant shadow collection is needed to obtain those future observations. Linked Webull results are reused only when their evaluation timestamps meet the same tolerance. Missing/late prices remain unscored. Manual refresh does not shorten earlier horizons.
-
-Calibration cohorts separate use case, market source, instrument type, actual model, question version and horizon. The authenticated telemetry endpoint provides Brier scores, probability buckets, accuracy/coverage at multiple thresholds, score-versus-return buckets, latency percentiles, error/timeout/abstention/fallback rates, reported cost and the latest evaluations. The dashboard shows a bounded 30-day sample (up to 2,000 rows), not an unlimited accounting ledger. Missing cost is unknown, never assumed free; combined generative fallback cost is unavailable when the existing cascade does not report it.
-
-MFE/MAE fields are reserved but remain null without reliable full-window bars; sparse price samples must not be presented as exact extrema. Evidence conflict, catalyst, regime and support judgments have no automatically inferred price-based ground truth. They are retained as research observations. No profitable-trading claim or empirically optimal threshold is implied.
-
-Shadow-on/off paper-ledger parity is covered by execution tests. Confirm-only/confirm-veto paper branches, gate-performance replay and threshold promotion remain a later phase requiring chronological development/held-out evidence. Historical states must be available at decision time; asking a current model to judge old history is not an unbiased historical forecast. The first implementation does not certify calibration or economic improvement.
-
-## Verification and rollout
-
-Automated service tests use mocked responses and never require a paid key. Tests cover credential round trips, typed native responses, bounded retry/auth/timeout behavior, redacted errors, label mapping, abstention/fallback, immutable snapshots, future-evidence exclusion, fixed-horizon grading, user-isolated telemetry, identical paper entries with shadow on/off, kill-switch preservation, storage failure isolation, and absence of open worker transactions during HTTP.
-
-Run the Jev suites with `.venv/bin/python -m unittest tests.test_jev_service tests.test_jev_settings tests.test_jev_sentiment tests.test_jev_quant_overlay tests.test_jev_outcomes -q`. `JEV_TEST_DATABASE_URI` optionally runs database fixtures in unique schemas on an explicitly isolated PostgreSQL test instance. `QUANT_TEST_DATABASE_URI` enables the existing PostgreSQL paper-ledger regression tests. Never point these variables at the personal-instance database.
-
-The browser test `tests/browser/jev_settings.mjs` exercises the real settings tab against local API fixtures, including mobile layout. Run it against the frontend dev server with `PLAYWRIGHT_MODULE` pointing to an installed Playwright module if needed.
-
-The repository release routine publishes v4.0.0 and upgrades the personal instance. Normal startup applies the additive migration and starts the Jev worker; deployment verification must confirm both services, port 5010, the Jev schema and the release commit.
-
-### Implementation verification — September 23, 2026
-
-- 100 Jev and quantitative-engine tests passed with the database suites enabled against a temporary UTF-8 PostgreSQL 17 instance. This includes actual paper-ledger parity and concurrent worker-claim tests; the instance was stopped and removed afterward.
-- The additive migration passed a separate PostgreSQL test: repeated application preserved an existing credential and enabled AI setting while defaulting Jev to off.
-- Related sentiment/outcome, external-signal, credential and Telegram settings regressions passed in isolated SQLite tests.
-- The real Settings tab passed browser fixture checks for placement, defaults, save/reload, masked key, connection testing, quant shadow controls and a 390-pixel mobile viewport.
-- `npm run build`, Python compilation for all 24 modified/new modules, and `git diff --check` passed. Built frontend artifacts are included.
-- Live Vercel authentication/inference has not been tested with a real account key. No API key was required or used by automated tests. Release and deployment verification are performed separately from these isolated implementation tests.
+The upgrade adds `user_settings.ai_prompt_overrides` without removing existing prompts, credentials, observations or trading history. Startup migration is additive and repeatable. No destructive data migration is required.

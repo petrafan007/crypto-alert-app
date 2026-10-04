@@ -80,6 +80,8 @@ class Credential(db.Model):
 
     @ai_gateway_key.setter
     def ai_gateway_key(self, value):
+        if isinstance(value, str) and value.strip() == '********':
+            return
         self._ai_gateway_key = normalize_secret_for_storage(value)
 
     @property
@@ -88,6 +90,8 @@ class Credential(db.Model):
 
     @openrouter_api_key.setter
     def openrouter_api_key(self, value):
+        if isinstance(value, str) and value.strip() == '********':
+            return
         self._openrouter_api_key = normalize_secret_for_storage(value)
 
     # AI Integration (Primary)
@@ -96,7 +100,8 @@ class Credential(db.Model):
     _perplexity_key = db.Column("perplexity_key", db.String) # Encrypted Perplexity API Key
     _gemini_key = db.Column("gemini_key", db.String) # Encrypted Gemini API Key
     _inception_key = db.Column("inception_key", db.String) # Encrypted Inception Labs API Key
-    ai_provider = db.Column(db.String, default='')  # AI provider: 'openai', 'zai', 'perplexity', 'gemini', or 'inception'
+    _ollama_key = db.Column("ollama_key", db.String) # Encrypted Ollama API Key
+    ai_provider = db.Column(db.String, default='')  # AI provider: 'openai', 'zai', 'perplexity', 'gemini', 'inception', or 'ollama'
 
     # Notifications
     _telegram_token = db.Column("telegram_token", db.String)
@@ -118,6 +123,7 @@ class Credential(db.Model):
     _perplexity_key_fallback = db.Column("perplexity_key_fallback", db.String)
     _gemini_key_fallback = db.Column("gemini_key_fallback", db.String)
     _inception_key_fallback = db.Column("inception_key_fallback", db.String)
+    _ollama_key_fallback = db.Column("ollama_key_fallback", db.String)
 
     # Tertiary AI Keys
     _openai_key_tertiary = db.Column("openai_key_tertiary", db.String)
@@ -125,6 +131,7 @@ class Credential(db.Model):
     _perplexity_key_tertiary = db.Column("perplexity_key_tertiary", db.String)
     _gemini_key_tertiary = db.Column("gemini_key_tertiary", db.String)
     _inception_key_tertiary = db.Column("inception_key_tertiary", db.String)
+    _ollama_key_tertiary = db.Column("ollama_key_tertiary", db.String)
 
     # Quaternary (fourth fallback) AI Keys
     _openai_key_quaternary = db.Column("openai_key_quaternary", db.String)
@@ -132,6 +139,7 @@ class Credential(db.Model):
     _perplexity_key_quaternary = db.Column("perplexity_key_quaternary", db.String)
     _gemini_key_quaternary = db.Column("gemini_key_quaternary", db.String)
     _inception_key_quaternary = db.Column("inception_key_quaternary", db.String)
+    _ollama_key_quaternary = db.Column("ollama_key_quaternary", db.String)
 
     
     # OAuth (Legacy/Unused fields removed)
@@ -243,6 +251,14 @@ class Credential(db.Model):
     def inception_key(self, value):
         self._inception_key = normalize_secret_for_storage(value)
 
+    @property
+    def ollama_key(self):
+        return decrypt_secret(self._ollama_key)
+
+    @ollama_key.setter
+    def ollama_key(self, value):
+        self._ollama_key = normalize_secret_for_storage(value)
+
     # Secondary (Fallback) Keys
     @property
     def openai_key_fallback(self):
@@ -324,6 +340,22 @@ class Credential(db.Model):
     def inception_key_secondary(self, value):
         self.inception_key_fallback = value
 
+    @property
+    def ollama_key_fallback(self):
+        return decrypt_secret(self._ollama_key_fallback)
+
+    @ollama_key_fallback.setter
+    def ollama_key_fallback(self, value):
+        self._ollama_key_fallback = normalize_secret_for_storage(value)
+
+    @property
+    def ollama_key_secondary(self):
+        return self.ollama_key_fallback
+
+    @ollama_key_secondary.setter
+    def ollama_key_secondary(self, value):
+        self.ollama_key_fallback = value
+
     # Tertiary Keys
     @property
     def openai_key_tertiary(self):
@@ -365,6 +397,14 @@ class Credential(db.Model):
     def inception_key_tertiary(self, value):
         self._inception_key_tertiary = normalize_secret_for_storage(value)
 
+    @property
+    def ollama_key_tertiary(self):
+        return decrypt_secret(self._ollama_key_tertiary)
+
+    @ollama_key_tertiary.setter
+    def ollama_key_tertiary(self, value):
+        self._ollama_key_tertiary = normalize_secret_for_storage(value)
+
     # Quaternary (fourth fallback) Keys
     @property
     def openai_key_quaternary(self):
@@ -405,6 +445,14 @@ class Credential(db.Model):
     @inception_key_quaternary.setter
     def inception_key_quaternary(self, value):
         self._inception_key_quaternary = normalize_secret_for_storage(value)
+
+    @property
+    def ollama_key_quaternary(self):
+        return decrypt_secret(self._ollama_key_quaternary)
+
+    @ollama_key_quaternary.setter
+    def ollama_key_quaternary(self, value):
+        self._ollama_key_quaternary = normalize_secret_for_storage(value)
 
 
     @property
@@ -480,9 +528,10 @@ class UserSetting(db.Model):
     jev_timeout_seconds = db.Column(db.Float, default=3.0)
     jev_confidence_threshold = db.Column(db.Float, default=0.8)
     jev_conflict_threshold = db.Column(db.Float, default=0.5)
-    jev_sentiment_mode = db.Column(db.String(20), default='off')
-    jev_generative_fallback_enabled = db.Column(db.Boolean, default=True)
+    jev_sentiment_mode = db.Column(db.String(20), default='first')
+    jev_generative_fallback_enabled = db.Column(db.Boolean, default=False)
     jev_quant_shadow_enabled = db.Column(db.Boolean, default=False)
+    ai_prompt_overrides = db.Column(db.Text, default='{}')
 
     # Primary AI Tier
     ai_provider = db.Column(db.String, default='')

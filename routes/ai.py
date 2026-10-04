@@ -1,3 +1,4 @@
+from services.prompt_catalog import prompt_for
 
 from datetime import timedelta, datetime, timezone
 import re
@@ -199,7 +200,7 @@ def test_openai_connection():
             client = OpenAI(api_key=openai_api_key, timeout=20.0)
             resp = client.chat.completions.create(
                 model=model,
-                messages=[{"role":"user","content":"ping"}],
+                messages=[{"role":"user","content":prompt_for(current_user.id, 'ai.connection_user')}],
                 max_completion_tokens=5
             )
             ok = bool(getattr(resp, 'choices', None))
@@ -234,7 +235,7 @@ def test_zai_connection():
             from zai_client import ZAIClient
             client = ZAIClient(zai_api_key)
             resp = client.chat_completion(
-                messages=[{"role":"user","content":"ping"}],
+                messages=[{"role":"user","content":prompt_for(current_user.id, 'ai.connection_user')}],
                 model=model,
                 max_tokens=50,
                 temperature=0.0
@@ -274,7 +275,7 @@ def test_perplexity_connection():
             r = requests.post(
                 'https://api.perplexity.ai/chat/completions',
                 headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-                json={'model': m, 'messages': [{"role":"user","content":"ping"}], 'max_tokens': 5},
+                json={'model': m, 'messages': [{"role":"user","content":prompt_for(current_user.id, 'ai.connection_user')}], 'max_tokens': 5},
                 timeout=20
             )
             if r.status_code == 200:
@@ -301,7 +302,7 @@ def test_gemini_connection():
         if not api_key:
             return jsonify(success=False, message='Gemini API key missing'), 400
 
-        contents = [{"role":"user","parts":[{"text":"ping"}]}]
+        contents = [{"role":"user","parts":[{"text":prompt_for(current_user.id, 'ai.connection_user')}]}]
         for api_ver in ['v1beta', 'v1', 'v1alpha']:
             r = requests.post(
                 f'https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent?key={api_key}',
@@ -355,7 +356,7 @@ def test_inception_connection():
         r = requests.post(
             'https://api.inceptionlabs.ai/v1/chat/completions',
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-            json={'model': model, 'messages': [{"role":"user","content":"ping"}], 'max_tokens': 5},
+            json={'model': model, 'messages': [{"role":"user","content":prompt_for(current_user.id, 'ai.connection_user')}], 'max_tokens': 5},
             timeout=20
         )
         if r.status_code == 200:
@@ -382,9 +383,8 @@ def test_ai_connection_generic():
         if not provider:
             return jsonify(success=False, message='AI provider is required'), 400
 
-        # Ollama is a local administrator-only integration and deliberately
-        # has no API key. The test performs a real, minimal generation request
-        # against the selected installed model.
+        # Ollama supports local models without a key as well as cloud-backed models
+        # and multi-account setups requiring an API key.
         if provider == 'ollama':
             if not is_ollama_admin(current_user):
                 return jsonify(success=False, message='Ollama is available only to the administrator account.'), 403
@@ -392,12 +392,38 @@ def test_ai_connection_generic():
                 test_model = str(model or '').strip()
                 if not test_model:
                     return jsonify(success=False, message='Choose an installed Ollama model first.'), 400
+                if not api_key or api_key == '********':
+                    from credentials import Credential
+                    from routes.helpers import decrypt_secret
+                    cred = Credential.query.filter_by(user_id=current_user.id).first()
+                    if cred:
+                        if tier == 'quaternary':
+                            api_key = (
+                                decrypt_secret(getattr(cred, '_ollama_key_quaternary', None)) or
+                                decrypt_secret(getattr(cred, '_ollama_key_tertiary', None)) or
+                                decrypt_secret(getattr(cred, '_ollama_key_fallback', None)) or
+                                decrypt_secret(getattr(cred, '_ollama_key', None))
+                            )
+                        elif tier == 'tertiary':
+                            api_key = (
+                                decrypt_secret(getattr(cred, '_ollama_key_tertiary', None)) or
+                                decrypt_secret(getattr(cred, '_ollama_key_fallback', None)) or
+                                decrypt_secret(getattr(cred, '_ollama_key', None))
+                            )
+                        elif tier == 'secondary':
+                            api_key = (
+                                decrypt_secret(getattr(cred, '_ollama_key_fallback', None)) or
+                                decrypt_secret(getattr(cred, '_ollama_key', None))
+                            )
+                        else:
+                            api_key = decrypt_secret(getattr(cred, '_ollama_key', None))
                 call_ollama_chat(
                     test_model,
                     [{"role": "user", "content": "Reply with exactly OK."}],
                     max_tokens=64,
                     timeout=120,
                     reasoning_level=payload.get('reasoning_level') or 'medium',
+                    api_key=api_key if api_key and api_key != '********' else None,
                 )
                 return jsonify(success=True, message=f'Ollama connection OK ({test_model})')
             except Exception as exc:
@@ -458,7 +484,7 @@ def test_ai_connection_generic():
                 test_model = model
                 resp = client.chat.completions.create(
                     model=test_model,
-                    messages=[{"role":"user","content":"ping"}],
+                    messages=[{"role":"user","content":prompt_for(current_user.id, 'ai.connection_user')}],
                     max_completion_tokens=5
                 )
                 return jsonify(success=True, message=f'OpenAI connection OK ({test_model})')
@@ -471,7 +497,7 @@ def test_ai_connection_generic():
                 client = ZAIClient(api_key)
                 test_model = model
                 resp = client.chat_completion(
-                    messages=[{"role":"user","content":"ping"}],
+                    messages=[{"role":"user","content":prompt_for(current_user.id, 'ai.connection_user')}],
                     model=test_model,
                     max_tokens=5
                 )
@@ -488,7 +514,7 @@ def test_ai_connection_generic():
                 r = requests.post(
                     'https://api.perplexity.ai/chat/completions',
                     headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-                    json={'model': test_model, 'messages': [{"role":"user","content":"ping"}], 'max_tokens': 5},
+                    json={'model': test_model, 'messages': [{"role":"user","content":prompt_for(current_user.id, 'ai.connection_user')}], 'max_tokens': 5},
                     timeout=20
                 )
                 if r.status_code == 200:
@@ -504,7 +530,7 @@ def test_ai_connection_generic():
                 r = requests.post(
                     url,
                     headers={'Content-Type': 'application/json'},
-                    json={"contents": [{"parts": [{"text": "ping"}]}]},
+                    json={"contents": [{"parts": [{"text": prompt_for(current_user.id, 'ai.connection_user')}]}]},
                     timeout=20
                 )
                 if r.status_code == 200:
@@ -519,7 +545,7 @@ def test_ai_connection_generic():
                 r = requests.post(
                     'https://api.inceptionlabs.ai/v1/chat/completions',
                     headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-                    json={'model': test_model, 'messages': [{"role":"user","content":"ping"}], 'max_tokens': 5},
+                    json={'model': test_model, 'messages': [{"role":"user","content":prompt_for(current_user.id, 'ai.connection_user')}], 'max_tokens': 5},
                     timeout=20
                 )
                 if r.status_code == 200:
@@ -806,6 +832,9 @@ def api_ai_settings():
                 del ai_settings['ai_custom_prompts']
 
             logger.error("=== DEBUG: Final AI settings response generated ===")
+            from services.credential_views import jev_credential_status
+            credential = Credential.query.filter_by(user_id=current_user.id).first()
+            ai_settings.update(jev_credential_status(credential))
             return jsonify(ai_settings)
 
         elif request.method == "POST":
@@ -859,6 +888,8 @@ def api_ai_settings():
                 cred.gemini_key = data.pop('gemini_key')
             if 'inception_key' in data:
                 cred.inception_key = data.pop('inception_key')
+            if 'ollama_key' in data:
+                cred.ollama_key = data.pop('ollama_key')
 
             # Secondary / Fallback Keys
             if 'openai_key_fallback' in data:
@@ -873,6 +904,10 @@ def api_ai_settings():
                 cred.inception_key_fallback = data.pop('inception_key_fallback')
             if 'inception_key_secondary' in data:
                 cred.inception_key_fallback = data.pop('inception_key_secondary')
+            if 'ollama_key_fallback' in data:
+                cred.ollama_key_fallback = data.pop('ollama_key_fallback')
+            if 'ollama_key_secondary' in data:
+                cred.ollama_key_fallback = data.pop('ollama_key_secondary')
 
             # Tertiary Keys
             if 'openai_key_tertiary' in data:
@@ -885,6 +920,8 @@ def api_ai_settings():
                 cred.gemini_key_tertiary = data.pop('gemini_key_tertiary')
             if 'inception_key_tertiary' in data:
                 cred.inception_key_tertiary = data.pop('inception_key_tertiary')
+            if 'ollama_key_tertiary' in data:
+                cred.ollama_key_tertiary = data.pop('ollama_key_tertiary')
 
             # Quaternary (fourth fallback) Keys
             if 'openai_key_quaternary' in data:
@@ -897,6 +934,8 @@ def api_ai_settings():
                 cred.gemini_key_quaternary = data.pop('gemini_key_quaternary')
             if 'inception_key_quaternary' in data:
                 cred.inception_key_quaternary = data.pop('inception_key_quaternary')
+            if 'ollama_key_quaternary' in data:
+                cred.ollama_key_quaternary = data.pop('ollama_key_quaternary')
 
             # Update each setting
             # Update UserSetting columns
@@ -1018,7 +1057,8 @@ def api_ai_settings():
                     else:
                         setattr(user_setting, key, str(value))
             db.session.commit()
-            return jsonify({"success": True, "message": "AI settings updated"})
+            from services.credential_views import jev_credential_status
+            return jsonify({"success": True, "message": "AI settings updated", **jev_credential_status(cred)})
 
     except Exception as e:
         logger.error(f"Error in AI settings endpoint: {e}")
@@ -1091,14 +1131,17 @@ def get_ai_models():
     # load/provider refresh so newly installed models are immediately usable.
     if is_ollama_admin(current_user):
         try:
-            ollama_models = get_ollama_models()
+            from credentials import Credential
+            cred = Credential.query.filter_by(user_id=current_user.id).first()
+            ollama_api_key = cred.ollama_key if cred and cred.ollama_key else None
+            ollama_models = get_ollama_models(api_key=ollama_api_key)
             response['ollama'] = [
                 {'value': model, 'label': model}
                 for model in ollama_models
             ]
             response['ollama_status'] = {
                 'available': True,
-                'message': f'{len(ollama_models)} local model(s) available.'
+                'message': f'{len(ollama_models)} model(s) available.'
             }
         except Exception as exc:
             logger.info('Ollama model discovery unavailable: %s', exc)
@@ -2150,9 +2193,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         context_payload = (
             f"USER QUESTION / PROMPT:\n{message}\n\n"
             f"=== GENERAL MARKET QUESTION ({', '.join(market_symbols) or target_symbol}) ===\n"
-            "Explain the asset's market behavior over the requested period using dated external evidence. "
-            "Verify the question's factual premises, including rate decisions and percentage changes. "
-            "Personal holdings and executions are intentionally excluded because they do not explain market prices.\n\n"
+            f"{prompt_for(user.id, 'copilot.market_scope')}"
             "=== STORED MARKET-PRICE EVIDENCE ===\n"
             f"{copilot_context_json(price_evidence)}\n\n"
             f"=== {history_label} (Historical conversation only) ===\n{sidebar_feed_text}\n"
@@ -2172,9 +2213,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         context_payload = (
             f"USER QUESTION / PROMPT:\n{message}\n\n"
             f"=== LIVE USER DATABASE SNAPSHOT (GENERATED FOR THIS RESPONSE) ===\n"
-            "The portfolio, cash/stablecoin balances, pending orders, watchlist, and execution data below were read for this user immediately before this response. "
-            "Treat this section as the sole authority for any claim about current ownership, balances, orders, or watchlist membership. "
-            "Never treat an earlier Copilot message, completed trade, or prior-session discussion as current account state.\n\n"
+            f"{prompt_for(user.id, 'copilot.snapshot_scope')}"
             f"=== FOCUSED SYMBOL COMPLETE CONTEXT ({target_symbol}) ===\n"
             f"{symbol_context_text or f'General multi-asset inquiry (Focus: {target_symbol})'}\n\n"
             f"=== USER ACTIVE PENDING & OPEN BINANCE.US ORDERS ===\n"
@@ -3416,17 +3455,21 @@ def api_ai_copilot_results():
 @login_required
 def test_jev_connection():
     from services.credential_views import saved_or_supplied
-    from services.jev_settings import settings_for, validate_settings
+    from services.jev_settings import settings_for, validate_settings, normalize_transport
     from services.jev_service import JevClient, JevError
     payload = request.get_json(silent=True) or {}
     try:
         config = settings_for(db.session.get(UserSetting, current_user.id))
         config.update(validate_settings(payload))
+        config = normalize_transport(config)
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         key = saved_or_supplied(payload.get('openrouter_api_key', '********') if config.get('jev_transport') == 'openrouter' else payload.get('ai_gateway_key', '********'), credential, 'openrouter_api_key' if config.get('jev_transport') == 'openrouter' else 'ai_gateway_key')
+        from services.prompt_catalog import prompt_for
+        questions = prompt_for(current_user.id, 'jev.connection_test')
+        db.session.commit()
         result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds'], transport=config.get('jev_transport', 'vercel')).evaluate(
             state={'connection_test': True},
-            questions={'connected': {'type': 'boolean', 'instructions': 'Is connection_test true?'}})
+            questions=questions)
         return jsonify(success=True, model=result.model, latency_ms=result.latency_ms,
                        message='Jev evaluation connection succeeded.')
     except ValueError as exc:
@@ -3435,6 +3478,34 @@ def test_jev_connection():
         return jsonify(success=False, message=str(exc), code=exc.code, latency_ms=exc.latency_ms), 400
     except Exception:
         return jsonify(success=False, message='Jev connection test could not be completed.'), 503
+
+
+@ai_bp.route('/api/ai/prompt-catalog', methods=['GET', 'POST'])
+@login_required
+def ai_prompt_catalog():
+    from services.prompt_catalog import save_overrides, view_for
+    if request.method == 'POST':
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error='A prompt object is required.'), 400
+        from services.prompt_catalog import validate_overrides, catalog
+        from event_algo import is_event_strategy_admin
+        if any(key in catalog() and catalog()[key]['group'] in ('contract_probability', 'quant_audit', 'quant_evaluations') for key in payload) and not is_event_strategy_admin(current_user):
+            return jsonify(error='Quantitative prompts require administrator access.'), 403
+        try:
+            validate_overrides(payload)
+            row = db.session.get(UserSetting, current_user.id)
+            if row is None:
+                row = UserSetting(user_id=current_user.id)
+                db.session.add(row)
+            save_overrides(row, payload)
+            db.session.commit()
+        except ValueError as exc:
+            db.session.rollback()
+            return jsonify(error=str(exc)), 400
+    response = jsonify(success=True, prompts=view_for(current_user.id))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @ai_bp.route('/api/jev/telemetry', methods=['GET'])

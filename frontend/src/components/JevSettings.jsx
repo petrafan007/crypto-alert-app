@@ -5,8 +5,8 @@ import JevTelemetry from './JevTelemetry';
 export const JEV_DEFAULTS = {
   ai_gateway_key: '', openrouter_api_key: '', jev_enabled: false, jev_transport: 'vercel', jev_model: 'typesafe-ai/jev',
   jev_endpoint: 'https://ai-gateway.vercel.sh/v1/evaluate', jev_timeout_seconds: 3,
-  jev_confidence_threshold: 0.8, jev_conflict_threshold: 0.5, jev_sentiment_mode: 'off',
-  jev_generative_fallback_enabled: true, jev_quant_shadow_enabled: false,
+  jev_confidence_threshold: 0.8, jev_conflict_threshold: 0.5, jev_sentiment_mode: 'first',
+  jev_generative_fallback_enabled: false, jev_quant_shadow_enabled: false,
 };
 
 export default function JevSettings({ settings, onChange }) {
@@ -14,7 +14,7 @@ export default function JevSettings({ settings, onChange }) {
   const [message, setMessage] = useState('');
   const [refresh, setRefresh] = useState(0);
   const value = key => settings[key] ?? JEV_DEFAULTS[key];
-  const payload = () => Object.fromEntries(Object.keys(JEV_DEFAULTS).map(key => [key, value(key)]));
+  const payload = () => ({ ...Object.fromEntries(Object.keys(JEV_DEFAULTS).map(key => [key, value(key)])), jev_generative_fallback_enabled: false });
   const perform = async action => {
     setBusy(action); setMessage('');
     try {
@@ -22,7 +22,12 @@ export default function JevSettings({ settings, onChange }) {
       if (action === 'save') {
         if (data.ai_gateway_key !== undefined) onChange('ai_gateway_key', data.ai_gateway_key || '');
         if (data.openrouter_api_key !== undefined) onChange('openrouter_api_key', data.openrouter_api_key || '');
-        setMessage('Jev settings saved. Sentiment also requires the main AI toggle to be enabled.');
+        if (data.ai_gateway_key_configured !== undefined) onChange('ai_gateway_key_configured', data.ai_gateway_key_configured);
+        if (data.openrouter_api_key_configured !== undefined) onChange('openrouter_api_key_configured', data.openrouter_api_key_configured);
+        const field = value('jev_transport') === 'openrouter' ? 'openrouter_api_key' : 'ai_gateway_key';
+        setMessage(data[`${field}_configured`] === true
+          ? 'Jev settings saved. The server confirmed an encrypted API key is stored. Sentiment also requires the main AI toggle to be enabled.'
+          : 'Jev settings saved, but no usable key is stored for this provider. Enter the API key and save it.');
       } else setMessage(`${data.message} Model: ${data.model}. Latency: ${data.latency_ms} ms.`);
       setRefresh(n => n + 1);
     } catch (err) {
@@ -33,18 +38,24 @@ export default function JevSettings({ settings, onChange }) {
     <input type="checkbox" checked={Boolean(value(key))} onChange={e => onChange(key, e.target.checked)} /> {label}
   </label></div>;
   return <div className="settings-page-section" style={{ gridColumn: '1 / -1' }}>
-    <h3>Jev Decision Engine (Experimental)</h3>
-    <p>Evaluate news and quantitative setups with TypeSafe Jev through Vercel AI Gateway.</p>
+    <h3>Jev Decision Engine</h3>
+    <p>Evaluate news and quantitative setups with TypeSafe Jev through Vercel AI Gateway or OpenRouter.</p>
+    <p>Saved provider key: {settings[value('jev_transport') === 'openrouter' ? 'openrouter_api_key_configured' : 'ai_gateway_key_configured'] === true ? 'Configured' : 'Missing — enter and save the key below'}</p>
     {toggle('jev_enabled', 'Enable Jev')}
     <div className="settings-form-group"><label htmlFor="jev-provider">Provider</label>
-      <select id="jev-provider" value={value('jev_transport')} onChange={e => onChange('jev_transport', e.target.value)}>
+      <select id="jev-provider" value={value('jev_transport')} onChange={e => {
+        const transport = e.target.value;
+        onChange('jev_transport', transport);
+        onChange('jev_endpoint', transport === 'openrouter' ? 'https://openrouter.ai/api/alpha/decisions' : JEV_DEFAULTS.jev_endpoint);
+        onChange('jev_model', transport === 'openrouter' ? 'typesafe/jev-1.13' : JEV_DEFAULTS.jev_model);
+      }}>
         <option value="vercel">Vercel AI Gateway</option>
         <option value="openrouter">OpenRouter</option>
       </select>
     </div>
     <div className="settings-form-group"><label htmlFor="jev-model">Model</label>
       <input id="jev-model" value={value('jev_model')} onChange={e => onChange('jev_model', e.target.value)} list="jev-models" />
-      <datalist id="jev-models"><option value="typesafe-ai/jev">Jev — TypeSafe AI</option></datalist>
+      <datalist id="jev-models"><option value={value('jev_transport') === 'openrouter' ? 'typesafe/jev-1.13' : 'typesafe-ai/jev'}>Jev — TypeSafe AI</option></datalist>
     </div>
     {value('jev_transport') === 'vercel' ? (
       <div className="settings-form-group"><label htmlFor="jev-key">Vercel AI Gateway API key</label>
@@ -59,12 +70,12 @@ export default function JevSettings({ settings, onChange }) {
     )}
     <div className="settings-form-group"><label htmlFor="jev-sentiment">Sentiment mode</label>
       <select id="jev-sentiment" value={value('jev_sentiment_mode')} onChange={e => onChange('jev_sentiment_mode', e.target.value)}>
-        <option value="off">Off</option><option value="shadow">Shadow — compare with current sentiment</option><option value="first">Jev-first — use accepted Jev sentiment</option>
+        <option value="off">Off</option><option value="first">Jev — sentiment evaluations</option>
       </select>
     </div>
-    {toggle('jev_generative_fallback_enabled', 'Use generative fallback when Jev is uncertain or unavailable')}
+    <p>Sentiment and Event probability evaluations use Jev. Unavailable or uncertain results never fall back to generative models.</p>
     {toggle('jev_quant_shadow_enabled', 'Enable quant shadow observations')}
-    <p>Paper gate: unavailable in v4.0.0. Quant shadow observations cannot change entries, exits, sizing, or risk controls.</p>
+    <p>Crypto shadow observations do not change trading decisions. Event predictions can use Jev through the Quantitative Strategy Engine AI settings.</p>
     <details><summary>Evaluation thresholds and connection settings</summary>
       {[
         ['jev_confidence_threshold', 'Minimum direction probability / reported confidence', 0, 1, 0.01],
@@ -75,7 +86,7 @@ export default function JevSettings({ settings, onChange }) {
       </div>)}
       <div className="settings-form-group"><label htmlFor="jev-endpoint">Evaluation endpoint</label>
         <input id="jev-endpoint" type="url" value={value('jev_endpoint')} onChange={e => onChange('jev_endpoint', e.target.value)} />
-        <p className="settings-form-help">Custom endpoints require an operator-approved HTTPS address. Thresholds are experimental and need outcome calibration.</p>
+        <p className="settings-form-help">Custom endpoints require an operator-approved HTTPS address. Confidence thresholds apply to evaluation acceptance.</p>
       </div>
     </details>
     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', margin: '12px 0' }}>

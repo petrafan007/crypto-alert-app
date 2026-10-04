@@ -140,22 +140,9 @@ def create_webull_signal(user, holding, *, origin='manual'):
     family = 'crypto' if instrument_type == 'CRYPTO' else 'equity'
     horizon = _settings_value(settings, instrument_type, 'horizon_hours')
     rules = format_forecast_rules(get_sentiment_thresholds(settings))
-    request_text = (
-        'WEBULL_STORED_SIGNAL_READ_ONLY\n'
-        f'asset: {holding.symbol}\nasset_class: {instrument_type}\n'
-        f'forecast_horizon_hours: {horizon}\n'
-        f'quantity: {float(holding.quantity or 0):.8f}\n'
-        f'average_entry: {holding.cost_price if holding.cost_price is not None else "unavailable"}\n'
-        f'{market["context"]}\n\n'
-        'Use these evaluation rules when choosing the recommendation:\n'
-        f'{rules}\n\n'
-        'CRITICAL: Return ONLY a valid JSON object in this exact schema, with no preamble, markdown, or text outside the JSON:\n'
-        '{\n'
-        '  "sentiment": "<one of: Buy Immediately, Consider Buying, Hold, Consider Selling, Sell Immediately>",\n'
-        '  "reason": "<1-2 concise sentences explaining your recommendation based on the live price, trends, position risk/reward, and recent news>"\n'
-        '}\n'
-        'This application records a research signal and never sends an order to Webull.'
-    )
+    request_text = json.dumps({'asset': holding.symbol, 'instrument_type': instrument_type,
+        'forecast_horizon_hours': horizon, 'quantity': float(holding.quantity or 0),
+        'average_entry': holding.cost_price, 'market_context': market['context'], 'grading_rules': rules}, default=str)
     prompt_type = 'webull_crypto_analysis' if family == 'crypto' else 'webull_equity_analysis'
     response, _ = call_ai_with_web_search(
         username=user.username,
@@ -167,9 +154,10 @@ def create_webull_signal(user, holding, *, origin='manual'):
         search_lookback_hours=24,
         forecast_horizon_hours=horizon,
         jev_context=({'symbol': holding.symbol, 'instrument_type': instrument_type, 'market_source': 'webull',
+                      'recommendation_boundaries': rules,
                       'current_price': float(entry_price), 'forecast_horizon_hours': horizon,
                       'market_context': market['context'], 'market_available_at': datetime.now(timezone.utc).isoformat()}
-                     if instrument_type in ('CRYPTO', 'STOCK', 'ETF', 'EQUITY') else None),
+),
         use_cache=False,
     )
     content = response.choices[0].message.content if getattr(response, 'choices', None) else str(response)

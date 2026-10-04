@@ -1,8 +1,19 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.6.15
+**Version:** 4.7.0
 
 ## Recent Updates
+
+### v4.7.0
+* **Ollama API Key Support for Cloud Models & Multi-Account Setups:** Added full API key configuration and encrypted-at-rest credential management for Ollama across Primary, Secondary, Tertiary, and Quaternary AI tiers in Settings as well as dedicated Quantitative Strategy Engine AI tiers.
+* **Authentication for Cloud-Backed Ollama Models:** When an API key is configured, Ollama inference and model discovery include the `Authorization: Bearer <API_KEY>` header, enabling seamless use of cloud-hosted models (e.g. `gpt-oss:120b-cloud`, `nemotron-3-ultra:cloud`) and switching between multiple Ollama accounts without breaking unauthenticated local model execution.
+* **Connection Testing & Verification:** Enhanced generic and quantitative connection tests to authenticate Ollama cloud models using supplied or saved credentials while preserving instant local model verification.
+
+### v4.6.16
+* **Jev sentiment and probabilities:** Jev evaluates portfolio/watchlist/Webull sentiment and Event contract probabilities without generative fallback. Removed experimental and sentiment shadow/fallback controls. Uncertain or unavailable results abstain; Event entries retain existing timing, budget and risk limits.
+* **Editable evaluator instructions:** Sentiment questions and search templates are editable in AI Prompts. Contract questions and answer descriptions are editable in the Master Quantitative Strategy Engine AI Configuration modal. Previously hidden Copilot/workflow/audit/connection instructions now have UI editors; defaults are data, and edits are saved per user.
+* **Working OpenRouter Jev connection:** Corrected native Decisions API requests, credentials, model IDs, confidence and cost parsing. Masked saves preserve the encrypted key at the API, model and browser layers. Save reports confirm whether a usable key is stored. If an older version already overwrote your OpenRouter key with `********`, re-enter the real key after upgrading.
+* **Preserve history:** Added prompt storage without deleting existing prompts or evaluations. Changed Event instructions invalidate cached forecasts; queued sentiment evaluations retain their original questions.
 
 ### v4.6.15
 * **Honor selected AI providers:** Event contract predictions and reports now use the Quantitative Strategy Engine's saved four-tier provider/model cascade. Retired Event-only settings can no longer route calls to an old OpenAI fallback. Engines without dedicated tiers inherit global Settings.

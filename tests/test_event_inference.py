@@ -6,11 +6,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from event_algo import _predict_event_markets_batch, evaluate_market
-from services.event_inference import BATCH_INSTRUCTIONS, inference_preflight, strict_batch_predictions
+from services.event_inference import inference_preflight, strict_batch_predictions
 
 
 class EventInferenceTests(unittest.TestCase):
     def setUp(self):
+        patcher = patch('services.jev_event.evaluator_for', return_value='generative')
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.now = datetime.utcnow()
         self.config = SimpleNamespace(id=1, enabled=True, kill_switch=False, risk_config='{}', signal_config='{}')
         self.market = {'symbol': 'TEST', 'yes_bid': .39, 'yes_ask': .4, 'no_bid': .59, 'no_ask': .6,
@@ -73,11 +76,13 @@ class EventInferenceTests(unittest.TestCase):
         duplicate = valid.replace('"confidence": 0.0', '"confidence": 0.0, "confidence": 0.9')
         self.assertEqual(strict_batch_predictions(duplicate, ['A', 'B']), {})
 
-    def test_real_synthesis_prompt_contains_small_model_instructions(self):
-        from services.ai_service import WEBULL_EVENT_CONTRACT_BATCH_RESEARCH_PROMPT
-        self.assertEqual(WEBULL_EVENT_CONTRACT_BATCH_RESEARCH_PROMPT.format(symbol='EVENT_BATCH', datetime='today'), BATCH_INSTRUCTIONS)
-        for instruction in ('EXACTLY once', 'confidence 0.00', 'at most 160 characters', 'S&P', 'not above or below'):
-            self.assertIn(instruction, BATCH_INSTRUCTIONS)
+    def test_contract_questions_use_typed_outcomes_and_explicit_evidence(self):
+        from services.jev_event import build_questions
+        questions = build_questions([self.market])
+        self.assertEqual(questions['c0_outcome']['type'], 'choice')
+        self.assertEqual(set(questions['c0_outcome']['criteria']), {'YES', 'NO'})
+        self.assertIn('contracts[0] (TEST)', questions['c0_outcome']['instructions'])
+        self.assertIn('Missing, stale', questions['c0_evidence']['instructions'])
 
     def test_zero_confidence_placeholder_never_enters_even_with_zero_threshold(self):
         self.config.signal_config = '{"min_confidence": 0}'
@@ -86,39 +91,35 @@ class EventInferenceTests(unittest.TestCase):
         self.assertFalse(result['eligible'])
         self.assertIn('CONFIDENCE_TOO_LOW', result['reason_codes'])
 
-    def test_prediction_batches_are_small_and_validate_complete_responses(self):
+    def test_prediction_batches_are_small_and_use_jev_only(self):
         batches = []
-        def respond(**kwargs):
-            content = kwargs['messages'][-1]['content']
-            prefix = 'REQUIRED CONTRACT SYMBOLS (copy exactly): '
-            symbols = json.loads(content.splitlines()[0][len(prefix):])
-            batches.append(symbols)
-            return SimpleNamespace(text=json.dumps({'predictions': [
-                {'contract_symbol': symbol, 'probability_yes': .5, 'confidence': .0,
-                 'rationale': 'Missing observations.'} for symbol in symbols]})), ''
+        def respond(user_id, markets, config, guard):
+            guard()
+            batches.append([m['symbol'] for m in markets])
+            return {m['symbol']: {'model_probability_yes': .5, 'model_confidence': 0,
+                'metadata': {'status': 'success', 'tier': 'jev'}} for m in markets}
         markets = [{**self.market, 'symbol': symbol} for symbol in ('A', 'B', 'C')]
-        with patch('event_algo.User') as users, patch('event_algo.db'), \
+        with patch('event_algo.User') as users, \
              patch('services.analysis_service.is_ai_enabled', return_value=True), \
-             patch('event_algo.get_event_strategy_ai_tiers_and_keys', return_value=([], {})), \
              patch('services.event_runtime.event_request_guard', return_value=lambda: None), \
-             patch('services.ai_service.call_ai_with_web_search', side_effect=respond):
+             patch('services.jev_event.predict', side_effect=respond), \
+             patch('services.ai_service.call_ai_with_web_search') as generative:
             users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
             result = _predict_event_markets_batch(1, markets, config=self.config)
         self.assertEqual(batches, [['A', 'B'], ['C']])
-        self.assertTrue(all(row['metadata']['status'] == 'success' for row in result.values()))
         self.assertTrue(all(row['model_confidence'] == 0 for row in result.values()))
+        generative.assert_not_called()
 
     def test_entry_window_is_rechecked_before_a_queued_provider_attempt(self):
         market = dict(self.market)
-        def queue_wait(**kwargs):
+        def queue_wait(user_id, markets, config, guard):
             market['cutoff_at'] = (self.now-timedelta(seconds=1)).isoformat()
-            kwargs['request_guard']()
+            guard()
             self.fail('An expired contract reached the provider')
-        with patch('event_algo.User') as users, patch('event_algo.db'), \
+        with patch('event_algo.User') as users, \
              patch('services.analysis_service.is_ai_enabled', return_value=True), \
-             patch('event_algo.get_event_strategy_ai_tiers_and_keys', return_value=([], {})), \
              patch('services.event_runtime.event_request_guard', return_value=lambda: None), \
-             patch('services.ai_service.call_ai_with_web_search', side_effect=queue_wait):
+             patch('services.jev_event.predict', side_effect=queue_wait):
             users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
             result = _predict_event_markets_batch(1, [market], config=self.config)['TEST']
         self.assertEqual(result['metadata']['deferral_reason'], 'ENTRY_WINDOW_CHANGED')

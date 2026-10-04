@@ -1522,7 +1522,8 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                         'has_session_today': today_bounds is not None,
                                         'today_close_eastern': today_bounds[1].astimezone(ET).isoformat() if today_bounds else None,
                                         'next_open_eastern': next_open}
-        evidence['engine_purpose'] = ENGINE_PURPOSE
+        from services.prompt_catalog import prompt_for
+        evidence['engine_purpose'] = prompt_for(user_id, 'audit.engine_purpose')
         evidence['risk_controls'] = {
             'portfolio_circuit_implemented': False, 'aggregate_loss_entry_stop': False,
             'new_entries_paused': state.kill_switch, 'pause_reason': state.pause_reason,
@@ -1532,7 +1533,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             'cash_waits_for_qualified_signals': True,
             'correlations_and_ratios_automatically_calculated_after_30_daily_samples': True,
         }
-        evidence['evidence_rules'] = EVIDENCE_RULES
+        evidence['evidence_rules'] = prompt_for(user_id, 'audit.evidence_rules')
         evidence['strategy_rules'] = {m: STRATEGY_RULES[m] for m in enabled_modules}
         evidence['strategy_settings'] = {m: {k: v for k, v in settings_for(cfg)[m].items()
                                               if k not in ('auditor_prompt', 'allocation_preference')} for m in enabled_modules}
@@ -1560,10 +1561,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                str(metrics.get('risk_policy', {}).get('realized_drawdown')) +
                                '. ' + str(metrics.get('messages', [''])[0]))
             elif module == 'events':
-                explanation = ('Use the independently timestamped Event consumer and upstream decision diagnostics. '
-                               'An empty eligible-decision lookup is not evidence that market data or the AI provider succeeded. '
-                               'Distinguish upstream no-signal, deferred/failed evaluations, stale/cutoff misses, risk holds and actual fills. '
-                               'Report recorded counts only; watchlist size is not contracts evaluated.')
+                explanation = prompt_for(user_id, 'audit.event_operational_guidance')
             elif metrics['status'] == 'READY':
                 explanation = (f"The scan successfully evaluated {metrics.get('evaluated', 0)} watchlist symbols. "
                                f"{metrics.get('qualified_signals', 'Unknown')} signals qualified and "
@@ -1572,7 +1570,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                'If no signal qualified, cash correctly remains unused. Refer to signal_checks for '
                                'the actual conditions; no missing-history outage is recorded.')
             else:
-                explanation = 'Use the recorded module status and diagnostic messages to identify the actual limitation.'
+                explanation = 'The recorded module status and diagnostic messages describe the current limitation.'
             if module == 'events':
                 explanation += (' Event positions with NOT_DUE settlement are unexpired normal holdings. '
                                 'Settlement-based exits are implemented; no stop/target price is required for them. '
@@ -1654,7 +1652,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                 try:
                     response, _ = call_ai_with_web_search(
                         username=user.username, user_id=user_id,
-                        messages=[{'role': 'system', 'content': audit_system_prompt(evidence['specialist_mandates'][module], module, guidance=evidence['audit_guidance'])},
+                        messages=[{'role': 'system', 'content': audit_system_prompt(evidence['specialist_mandates'][module], module, guidance=evidence['audit_guidance'], user_id=user_id)},
                                   {'role': 'user', 'content': json.dumps(module_evidence)}],
                         prompt_type='portfolio_module_audit', symbol=module.upper(), include_db_context=False,
                         attempt_observer=observe_attempt,
@@ -1697,7 +1695,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             save_audit_progress(audit_id, evidence, 'master')
             response, _ = call_ai_with_web_search(
                 username=user.username, user_id=user_id,
-                messages=[{'role': 'system', 'content': audit_system_prompt(prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT, guidance=evidence['audit_guidance'])},
+                messages=[{'role': 'system', 'content': audit_system_prompt(prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT, guidance=evidence['audit_guidance'], user_id=user_id)},
                           {'role': 'user', 'content': json.dumps({k: v for k, v in evidence.items()
                             if k not in ('module_audit_inputs', 'incomplete_module_outputs', 'provider_attempts', 'audit_progress')})}],
                 prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False,

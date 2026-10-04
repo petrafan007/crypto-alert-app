@@ -262,7 +262,7 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                     <li>
                         <strong>Algorithmic Signal Evaluation</strong> — Ingested data is passed through purely deterministic,
                         math-driven algorithms in <SettingTag>services/portfolio_strategy_signals.py</SettingTag>.
-                        Entry and exit gates are deterministic. Event probabilities come from the separate AI forecast worker.
+                        Entry and exit gates are deterministic. Event probabilities come from the Jev evaluation worker, with no generative fallback. Sentiment evaluations also use Jev.
                     </li>
                     <li>
                         <strong>Paper Ledger Execution</strong> — When an algorithm fires an entry or exit signal, the engine
@@ -381,7 +381,7 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
             {/* Section 6: Events */}
             <Section id="events" icon={<FaSearch />} title="Event Contracts Module">
                 <p style={{ marginBottom: '12px', lineHeight: '1.7' }}>
-                    <strong>Strategy:</strong> Compare archived model probabilities with fresh executable binary-contract prices.
+                    <strong>Strategy:</strong> Compare archived Jev probabilities with fresh executable binary-contract prices. Contract outcome and evidence-quality instructions are editable in the Master AI Configuration modal.
                 </p>
                 <p style={{ marginBottom: '16px', lineHeight: '1.7' }}>
                     The independent Event consumer revalidates forecast age, cutoff, confidence, net edge after fees,

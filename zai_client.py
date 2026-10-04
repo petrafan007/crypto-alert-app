@@ -1,3 +1,4 @@
+from services.prompt_catalog import default_prompt
 #!/usr/bin/env python3
 """
 Z.AI Client wrapper for handling AI requests
@@ -222,8 +223,8 @@ def test_zai_client(api_key: str) -> bool:
 	try:
 		client = ZAIClient(api_key)
 		messages = [
-			{"role": "system", "content": "You are a helpful assistant."},
-			{"role": "user", "content": "Hello! Please respond with 'Z.AI is working!'"}
+			{"role": "system", "content": default_prompt('ai.connection_system')},
+			{"role": "user", "content": default_prompt('ai.connection_user')}
 		]
 		response = client.chat_completion(messages, model='glm-4.5-flash')
 		if response['success']:

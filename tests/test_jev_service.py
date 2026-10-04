@@ -68,3 +68,33 @@ class JevServiceTests(TestCase):
     def test_unapproved_destination_rejected_before_network(self):
         with self.assertRaises(ValueError):
             JevClient('saved-key', endpoint='http://127.0.0.1/private')
+
+    def test_openrouter_native_decisions_normalizes_noul_and_preserves_confidence_cost(self):
+        payload = copy.deepcopy(self.payload)
+        payload['model'] = 'typesafe/jev-1.13-20260917'
+        payload['usage'] = {'input_tokens': 123, 'output_tokens': 4, 'cost': .00001}
+        for key, answer in payload['answers'].items():
+            if answer['type'] == 'boolean':
+                payload['answers'][key] = {'type': 'noul', 'noul': answer['probability']}
+            else:
+                answer['confidence'] = .87
+        client = JevClient('openrouter-test-key', transport='openrouter')
+        with patch('services.jev_service.requests.post', return_value=Mock(status_code=200, json=lambda: payload)) as post:
+            result = client.evaluate(state={'asset': 'BTC'}, questions=self.questions)
+        self.assertEqual(post.call_args.args[0], 'https://openrouter.ai/api/alpha/decisions')
+        request = post.call_args.kwargs['json']
+        self.assertNotIn('messages', request)
+        self.assertEqual(request['model'], 'typesafe/jev-1.13')
+        self.assertEqual(request['questions']['bullish']['type'], 'noul')
+        self.assertEqual(result.answers['bullish']['probability'], .85)
+        self.assertEqual(result.confidence['direction'], .87)
+        self.assertEqual(result.estimated_cost_usd, Decimal('0.00001'))
+
+    def test_request_budget_hook_counts_each_transport_attempt_and_can_stop_retry(self):
+        before = Mock(side_effect=[None, ValueError('request budget exhausted')])
+        with patch('services.jev_service.requests.post', return_value=Mock(status_code=429)) as post, \
+                patch('services.jev_service.time.sleep'):
+            with self.assertRaisesRegex(ValueError, 'budget exhausted'):
+                self.client.evaluate(state={}, questions=self.questions, before_request=before)
+        self.assertEqual(before.call_count, 2)
+        post.assert_called_once()
