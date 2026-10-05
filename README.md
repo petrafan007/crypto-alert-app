@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.7.1
+**Version:** 4.7.2
 
 ## Recent Updates
+
+### v4.7.2
+* **Robust Jev Key Persistence & Status Synchronization:** Fixed settings state synchronization in the dashboard frontend so saving API credentials via the top-level "Save Settings" button immediately updates key configuration badges without requiring a manual page refresh.
+* **Intelligent API Key Prefix Auto-Routing:** Added prefix-aware auto-routing across the frontend and backend settings endpoints (`/api/settings` and `/api/ai/settings`). Entering or pasting a Vercel AI Gateway key (`vck_...`) or an OpenRouter key (`sk-or-...`) into either field automatically normalizes and persists it to the corresponding provider credential column.
+* **Dual-Provider Visibility & Alternate Key Entry:** Redesigned the Jev Settings interface to show individual status indicators for both Vercel AI Gateway and OpenRouter, including fallback readiness indicators and an expandable alternate key input field to view or update credentials without repeatedly changing provider dropdowns.
+* **Resilient Evaluation Transport Fallback:** Enhanced background Jev evaluation workers (`services/jev_evaluations.py` and `services/jev_event.py`) and connection test endpoints to automatically fallback to the configured alternate transport if the selected transport's key is missing, eliminating `missing_key` aborts when a valid key is already stored.
 
 ### v4.7.1
 * **Universal Order Replacement Across All Types:** Enabled replacing any active order with any other order type without artificial rejections or errors. Users can seamlessly replace synthetic ladder (smart bracket) and trailing stop orders with standard Market, Limit, Stop Loss, or OCO orders, and vice versa.

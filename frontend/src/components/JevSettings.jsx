@@ -40,7 +40,22 @@ export default function JevSettings({ settings, onChange }) {
   return <div className="settings-page-section" style={{ gridColumn: '1 / -1' }}>
     <h3>Jev Decision Engine</h3>
     <p>Evaluate news and quantitative setups with TypeSafe Jev through Vercel AI Gateway or OpenRouter.</p>
-    <p>Saved provider key: {settings[value('jev_transport') === 'openrouter' ? 'openrouter_api_key_configured' : 'ai_gateway_key_configured'] === true ? 'Configured' : 'Missing — enter and save the key below'}</p>
+    <div style={{ margin: '8px 0 12px 0', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ marginBottom: '4px' }}>
+        <strong>Active Provider ({value('jev_transport') === 'openrouter' ? 'OpenRouter' : 'Vercel AI Gateway'}):</strong>{' '}
+        <span style={{ color: settings[value('jev_transport') === 'openrouter' ? 'openrouter_api_key_configured' : 'ai_gateway_key_configured'] === true ? '#4ade80' : (settings[value('jev_transport') === 'openrouter' ? 'ai_gateway_key_configured' : 'openrouter_api_key_configured'] === true ? '#fbbf24' : '#f87171') }}>
+          {settings[value('jev_transport') === 'openrouter' ? 'openrouter_api_key_configured' : 'ai_gateway_key_configured'] === true
+            ? '✓ Configured'
+            : (settings[value('jev_transport') === 'openrouter' ? 'ai_gateway_key_configured' : 'openrouter_api_key_configured'] === true
+                ? `Ready via fallback (${value('jev_transport') === 'openrouter' ? 'Vercel AI Gateway' : 'OpenRouter'} key saved)`
+                : 'Missing — enter and save the key below')}
+        </span>
+      </div>
+      <div style={{ fontSize: '12px', opacity: 0.8, display: 'flex', gap: '16px' }}>
+        <span>Vercel AI Gateway: {settings.ai_gateway_key_configured === true ? '✓ Configured' : 'Not configured'}</span>
+        <span>OpenRouter: {settings.openrouter_api_key_configured === true ? '✓ Configured' : 'Not configured'}</span>
+      </div>
+    </div>
     {toggle('jev_enabled', 'Enable Jev')}
     <div className="settings-form-group"><label htmlFor="jev-provider">Provider</label>
       <select id="jev-provider" value={value('jev_transport')} onChange={e => {
@@ -58,15 +73,47 @@ export default function JevSettings({ settings, onChange }) {
       <datalist id="jev-models"><option value={value('jev_transport') === 'openrouter' ? 'typesafe/jev-1.13' : 'typesafe-ai/jev'}>Jev — TypeSafe AI</option></datalist>
     </div>
     {value('jev_transport') === 'vercel' ? (
-      <div className="settings-form-group"><label htmlFor="jev-key">Vercel AI Gateway API key</label>
-        <input id="jev-key" type="password" autoComplete="new-password" value={value('ai_gateway_key')} onChange={e => onChange('ai_gateway_key', e.target.value)} placeholder="Enter your Vercel AI Gateway key" />
-        <p className="settings-form-help">Encrypted when saved. The mask preserves your saved key; clear the field and save to remove it.</p>
-      </div>
+      <>
+        <div className="settings-form-group"><label htmlFor="jev-key">Vercel AI Gateway API key</label>
+          <input id="jev-key" type="password" autoComplete="new-password" value={value('ai_gateway_key')} onChange={e => {
+            const val = e.target.value;
+            if (val.startsWith('sk-or-')) {
+              onChange('openrouter_api_key', val);
+            } else {
+              onChange('ai_gateway_key', val);
+            }
+          }} placeholder="Enter your Vercel AI Gateway key" />
+          <p className="settings-form-help">Encrypted when saved. The mask preserves your saved key; clear the field and save to remove it.</p>
+        </div>
+        <details style={{ marginBottom: '12px' }}>
+          <summary style={{ fontSize: '13px', cursor: 'pointer', opacity: 0.85 }}>Alternate: OpenRouter API key {settings.openrouter_api_key_configured === true ? '(✓ Configured)' : ''}</summary>
+          <div className="settings-form-group" style={{ marginTop: '8px' }}>
+            <label htmlFor="jev-or-key-alt">OpenRouter API key</label>
+            <input id="jev-or-key-alt" type="password" autoComplete="new-password" value={value('openrouter_api_key')} onChange={e => onChange('openrouter_api_key', e.target.value)} placeholder="Enter your OpenRouter API key" />
+          </div>
+        </details>
+      </>
     ) : (
-      <div className="settings-form-group"><label htmlFor="jev-or-key">OpenRouter API key</label>
-        <input id="jev-or-key" type="password" autoComplete="new-password" value={value('openrouter_api_key')} onChange={e => onChange('openrouter_api_key', e.target.value)} placeholder="Enter your OpenRouter API key" />
-        <p className="settings-form-help">Encrypted when saved. The mask preserves your saved key; clear the field and save to remove it.</p>
-      </div>
+      <>
+        <div className="settings-form-group"><label htmlFor="jev-or-key">OpenRouter API key</label>
+          <input id="jev-or-key" type="password" autoComplete="new-password" value={value('openrouter_api_key')} onChange={e => {
+            const val = e.target.value;
+            if (val.startsWith('vck_')) {
+              onChange('ai_gateway_key', val);
+            } else {
+              onChange('openrouter_api_key', val);
+            }
+          }} placeholder="Enter your OpenRouter API key" />
+          <p className="settings-form-help">Encrypted when saved. The mask preserves your saved key; clear the field and save to remove it.</p>
+        </div>
+        <details style={{ marginBottom: '12px' }}>
+          <summary style={{ fontSize: '13px', cursor: 'pointer', opacity: 0.85 }}>Alternate: Vercel AI Gateway API key {settings.ai_gateway_key_configured === true ? '(✓ Configured)' : ''}</summary>
+          <div className="settings-form-group" style={{ marginTop: '8px' }}>
+            <label htmlFor="jev-key-alt">Vercel AI Gateway API key</label>
+            <input id="jev-key-alt" type="password" autoComplete="new-password" value={value('ai_gateway_key')} onChange={e => onChange('ai_gateway_key', e.target.value)} placeholder="Enter your Vercel AI Gateway key" />
+          </div>
+        </details>
+      </>
     )}
     <div className="settings-form-group"><label htmlFor="jev-sentiment">Sentiment mode</label>
       <select id="jev-sentiment" value={value('jev_sentiment_mode')} onChange={e => onChange('jev_sentiment_mode', e.target.value)}>

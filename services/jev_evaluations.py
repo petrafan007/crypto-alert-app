@@ -98,7 +98,7 @@ def process_evaluation(evaluation_id):
         config = json.loads(row.settings_json)
         current = settings_for(session.get(UserSetting, row.user_id))
         credential = session.query(Credential).filter_by(user_id=row.user_id).first()
-        from services.jev_settings import normalize_transport
+        from services.jev_settings import normalize_transport, DEFAULT_ENDPOINT, OPENROUTER_ENDPOINT, OPENROUTER_MODEL
         config = normalize_transport(config)
         if 'questions' not in config:
             from services.prompt_catalog import prompt_for
@@ -107,7 +107,21 @@ def process_evaluation(evaluation_id):
             state = json.loads(row.state_json)
             config['questions'] = (build_sentiment_questions(None, state.get('is_watchlist', False), overrides)
                 if row.use_case == 'sentiment' else build_crypto_quant_questions(None, overrides))
-        key = (credential.openrouter_api_key if config.get('jev_transport') == 'openrouter' else credential.ai_gateway_key) if credential else None
+        transport = config.get('jev_transport', 'vercel')
+        key = (credential.openrouter_api_key if transport == 'openrouter' else credential.ai_gateway_key) if credential else None
+        if (not key or key == '********') and credential:
+            if transport == 'openrouter' and credential.ai_gateway_key:
+                transport = 'vercel'
+                key = credential.ai_gateway_key
+                config['jev_transport'] = 'vercel'
+                config['jev_endpoint'] = DEFAULT_ENDPOINT
+                config['jev_model'] = 'typesafe-ai/jev'
+            elif transport == 'vercel' and credential.openrouter_api_key:
+                transport = 'openrouter'
+                key = credential.openrouter_api_key
+                config['jev_transport'] = 'openrouter'
+                config['jev_endpoint'] = OPENROUTER_ENDPOINT
+                config['jev_model'] = OPENROUTER_MODEL
         enabled = current['jev_enabled'] and (
             current['jev_sentiment_mode'] != 'off' if row.use_case == 'sentiment' else current['jev_quant_shadow_enabled'])
     # No ORM session, row lock, or paper engine callback survives into this block.
@@ -116,7 +130,7 @@ def process_evaluation(evaluation_id):
         return get_evaluation(evaluation_id)
     try:
         questions = config['questions']
-        result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds'], transport=config.get('jev_transport', 'vercel')).evaluate(
+        result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds'], transport=transport).evaluate(
             state=json.loads(row.state_json), questions=questions)
         values = dict(status='success', answers_json=canonical(result.answers),
             probabilities_json=canonical({k: v.get('probabilities', v.get('probability')) for k, v in result.answers.items()}),

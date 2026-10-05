@@ -1683,9 +1683,17 @@ def api_settings():
                 # DEPRECATED: trading_api_key/secret are now unified with api_key/secret
                 # We do NOT update them here to prevent overwriting with stale frontend data
                 if 'ai_gateway_key' in data:
-                    cred.ai_gateway_key = data['ai_gateway_key']
+                    val = data['ai_gateway_key']
+                    if isinstance(val, str) and val.strip().startswith('sk-or-'):
+                        cred.openrouter_api_key = val.strip()
+                    else:
+                        cred.ai_gateway_key = val
                 if 'openrouter_api_key' in data:
-                    cred.openrouter_api_key = data['openrouter_api_key']
+                    val = data['openrouter_api_key']
+                    if isinstance(val, str) and val.strip().startswith('vck_'):
+                        cred.ai_gateway_key = val.strip()
+                    else:
+                        cred.openrouter_api_key = val
                 if 'openai_key' in data:
                     cred.openai_key = data['openai_key']
                 if 'zai_key' in data:

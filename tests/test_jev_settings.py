@@ -114,6 +114,39 @@ class JevSettingsTests(JevTestCase):
         self.assertNotIn('synthetic-jev-secret', str(reply.json))
         evaluate.assert_called_once()
 
+    def test_key_prefix_smart_routing(self):
+        for route in ('/api/settings', '/api/ai/settings'):
+            with self.subTest(route=route):
+                # sk-or- key sent as ai_gateway_key gets routed to openrouter_api_key
+                reply, status = self.request('POST', {'ai_gateway_key': 'sk-or-routed-key'}, route=route)
+                self.assertEqual(status, 200)
+                cred = Credential.query.filter_by(user_id=1).one()
+                self.assertEqual(cred.openrouter_api_key, 'sk-or-routed-key')
+
+                # vck_ key sent as openrouter_api_key gets routed to ai_gateway_key
+                reply, status = self.request('POST', {'openrouter_api_key': 'vck_routed_vercel_key'}, route=route)
+                self.assertEqual(status, 200)
+                cred = Credential.query.filter_by(user_id=1).one()
+                self.assertEqual(cred.ai_gateway_key, 'vck_routed_vercel_key')
+
+    def test_connection_test_fallback_to_alternate_configured_key(self):
+        # Transport is openrouter, openrouter_api_key is empty, but ai_gateway_key is set
+        cred = Credential.query.filter_by(user_id=1).one()
+        cred.openrouter_api_key = ''
+        cred.ai_gateway_key = 'vck_stored_key'
+        setting = db.session.get(UserSetting, 1)
+        setting.jev_transport = 'openrouter'
+        db.session.commit()
+
+        with self.app.test_request_context('/api/jev/test-connection', method='POST', json={}), \
+             patch.object(ai, 'current_user', SimpleNamespace(id=1)), \
+             patch('services.jev_service.JevClient.evaluate', side_effect=JevError('auth')) as evaluate:
+            reply, status = ai.test_jev_connection.__wrapped__()
+        self.assertEqual(status, 400)
+        # Verify JevClient was instantiated with fallback to vercel transport
+        evaluate.assert_called_once()
+
+
 
 import os
 import uuid

@@ -875,9 +875,17 @@ def api_ai_settings():
 
             # Handle API keys separately
             if 'ai_gateway_key' in data:
-                cred.ai_gateway_key = data['ai_gateway_key']
+                val = data['ai_gateway_key']
+                if isinstance(val, str) and val.strip().startswith('sk-or-'):
+                    cred.openrouter_api_key = val.strip()
+                else:
+                    cred.ai_gateway_key = val
             if 'openrouter_api_key' in data:
-                cred.openrouter_api_key = data['openrouter_api_key']
+                val = data['openrouter_api_key']
+                if isinstance(val, str) and val.strip().startswith('vck_'):
+                    cred.ai_gateway_key = val.strip()
+                else:
+                    cred.openrouter_api_key = val
             if 'openai_key' in data:
                 cred.openai_key = data.pop('openai_key')
             if 'zai_key' in data:
@@ -3463,11 +3471,26 @@ def test_jev_connection():
         config.update(validate_settings(payload))
         config = normalize_transport(config)
         credential = Credential.query.filter_by(user_id=current_user.id).first()
-        key = saved_or_supplied(payload.get('openrouter_api_key', '********') if config.get('jev_transport') == 'openrouter' else payload.get('ai_gateway_key', '********'), credential, 'openrouter_api_key' if config.get('jev_transport') == 'openrouter' else 'ai_gateway_key')
+        transport = config.get('jev_transport', 'vercel')
+        key = saved_or_supplied(payload.get('openrouter_api_key', '********') if transport == 'openrouter' else payload.get('ai_gateway_key', '********'), credential, 'openrouter_api_key' if transport == 'openrouter' else 'ai_gateway_key')
+        if (not key or key == '********') and credential:
+            from services.jev_settings import DEFAULT_ENDPOINT, OPENROUTER_ENDPOINT, OPENROUTER_MODEL
+            if transport == 'openrouter' and credential.ai_gateway_key:
+                transport = 'vercel'
+                key = credential.ai_gateway_key
+                config['jev_transport'] = 'vercel'
+                config['jev_endpoint'] = DEFAULT_ENDPOINT
+                config['jev_model'] = 'typesafe-ai/jev'
+            elif transport == 'vercel' and credential.openrouter_api_key:
+                transport = 'openrouter'
+                key = credential.openrouter_api_key
+                config['jev_transport'] = 'openrouter'
+                config['jev_endpoint'] = OPENROUTER_ENDPOINT
+                config['jev_model'] = OPENROUTER_MODEL
         from services.prompt_catalog import prompt_for
         questions = prompt_for(current_user.id, 'jev.connection_test')
         db.session.commit()
-        result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds'], transport=config.get('jev_transport', 'vercel')).evaluate(
+        result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds'], transport=transport).evaluate(
             state={'connection_test': True},
             questions=questions)
         return jsonify(success=True, model=result.model, latency_ms=result.latency_ms,

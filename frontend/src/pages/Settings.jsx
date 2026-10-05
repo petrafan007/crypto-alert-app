@@ -1018,6 +1018,8 @@ export default function Settings({ isLightMode }) {
         ...prev,
         ai_gateway_key: settingsResponse.data?.ai_gateway_key || '',
         openrouter_api_key: settingsResponse.data?.openrouter_api_key || '',
+        ai_gateway_key_configured: Boolean(settingsResponse.data?.ai_gateway_key_configured),
+        openrouter_api_key_configured: Boolean(settingsResponse.data?.openrouter_api_key_configured),
         credentials_encryption_key: Boolean(settingsResponse.data?.credentials_encryption_key_configured)
           ? '********'
           : ''

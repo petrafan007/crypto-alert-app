@@ -42,10 +42,25 @@ def predict(user_id, markets, config, guard):
     from services.event_inference import MAX_BATCH_CONTRACTS
     if not markets or len(markets) > MAX_BATCH_CONTRACTS:
         raise ValueError('Jev Event batch is outside the configured bound.')
-    settings = settings_for(db.session.get(UserSetting, user_id))
+    settings = dict(settings_for(db.session.get(UserSetting, user_id)))
     credential = Credential.query.filter_by(user_id=user_id).first()
-    key = (credential.openrouter_api_key if settings['jev_transport'] == 'openrouter'
+    transport = settings.get('jev_transport', 'vercel')
+    key = (credential.openrouter_api_key if transport == 'openrouter'
            else credential.ai_gateway_key) if credential else None
+    if (not key or key == '********') and credential:
+        from services.jev_settings import DEFAULT_ENDPOINT, OPENROUTER_ENDPOINT, OPENROUTER_MODEL
+        if transport == 'openrouter' and credential.ai_gateway_key:
+            transport = 'vercel'
+            key = credential.ai_gateway_key
+            settings['jev_transport'] = 'vercel'
+            settings['jev_endpoint'] = DEFAULT_ENDPOINT
+            settings['jev_model'] = 'typesafe-ai/jev'
+        elif transport == 'vercel' and credential.openrouter_api_key:
+            transport = 'openrouter'
+            key = credential.openrouter_api_key
+            settings['jev_transport'] = 'openrouter'
+            settings['jev_endpoint'] = OPENROUTER_ENDPOINT
+            settings['jev_model'] = OPENROUTER_MODEL
     state = {'decision_time': datetime.now(timezone.utc).isoformat(),
              'contract_version': CONTRACT_VERSION,
              'contracts': [_event_model_context(market) for market in markets]}
