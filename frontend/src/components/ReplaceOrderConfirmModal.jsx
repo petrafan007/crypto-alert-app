@@ -16,6 +16,7 @@ export default function ReplaceOrderConfirmModal({
 
   const handleEmbeddedSuccess = () => {
     if (onConfirm) onConfirm();
+    if (onClose) onClose();
   };
 
   return (

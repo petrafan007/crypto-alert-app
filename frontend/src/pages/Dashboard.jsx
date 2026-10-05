@@ -2635,6 +2635,12 @@ function Dashboard({ isLightMode }) {
   };
 
   const handleConfirmReplaceOrder = async (order, twoFactorCode, newConfig) => {
+    if (!order || !newConfig) {
+      setReplaceModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
+      axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
+      axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => { });
+      return { success: true };
+    }
     setReplaceModalState(prev => ({ ...prev, loading: true, error: null }));
     try {
       const orderId = order.order_id || order.orderId || order.id;

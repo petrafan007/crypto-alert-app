@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.7.0
+**Version:** 4.7.1
 
 ## Recent Updates
+
+### v4.7.1
+* **Universal Order Replacement Across All Types:** Enabled replacing any active order with any other order type without artificial rejections or errors. Users can seamlessly replace synthetic ladder (smart bracket) and trailing stop orders with standard Market, Limit, Stop Loss, or OCO orders, and vice versa.
+* **Side & Strategy Flexibility:** Removed arbitrary side restrictions during order replacement, allowing traders to flip sides (e.g. replacing a SELL order with a BUY order) or change execution strategies cleanly.
+* **Unified Cancellation & Replacement Engine:** Integrated `cancel_any_order` backend service that coordinates verified cancellations across synthetic orders, paper test orders, Binance exchange orders, and Webull simulated/live orders prior to placing replacements.
+* **Open Orders Replace Workflow:** Added direct "Replace" action buttons for Binance crypto open orders in the Orders table, supporting both embedded replacement modal flows and dedicated trading page navigation with prefilled order tickets and replacement badges.
 
 ### v4.7.0
 * **Ollama API Key Support for Cloud Models & Multi-Account Setups:** Added full API key configuration and encrypted-at-rest credential management for Ollama across Primary, Secondary, Tertiary, and Quaternary AI tiers in Settings as well as dedicated Quantitative Strategy Engine AI tiers.

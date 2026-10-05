@@ -346,7 +346,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts,
         value: () => '',
         render: (order) => (
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            {isWebull(order) && (
+            {isWebull(order) ? (
               <button
                 type="button"
                 className="btn btn-sm"
@@ -356,6 +356,18 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts,
                   const orderIsPaper = Boolean(order.is_paper || order.is_simulated || String(order.account_id || '').startsWith('TEST_'));
                   const replaceMode = orderIsQuant ? 'QUANT' : (orderIsPaper ? 'TEST' : 'REAL');
                   window.location.href = `/webull-trading?replace_order_id=${encodeURIComponent(order.id)}&symbol=${encodeURIComponent(order.symbol)}&side=${encodeURIComponent(order.side)}&quantity=${encodeURIComponent(order.quantity)}&price=${encodeURIComponent(order.price || '')}&instrument_type=${encodeURIComponent(order.instrument_type || '')}&mode=${encodeURIComponent(replaceMode)}`;
+                }}
+              >
+                Replace
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ padding: '3px 8px', fontSize: '11px', backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}
+                onClick={() => {
+                  const mode = Boolean(order.is_paper || order.is_simulated || order.test_mode) ? 'TEST' : 'REAL';
+                  window.location.href = `/trading?replace_order_id=${encodeURIComponent(order.id)}&symbol=${encodeURIComponent(order.symbol)}&side=${encodeURIComponent(order.side)}&quantity=${encodeURIComponent(order.quantity || order.amount || '')}&price=${encodeURIComponent(order.price || '')}&type=${encodeURIComponent(order.type || order.order_type || '')}&mode=${encodeURIComponent(mode)}`;
                 }}
               >
                 Replace

@@ -103,3 +103,17 @@ def apply_fill(user_id, base, quote, side, quantity, price, fee_rate):
     cash.avg_entry_price = 1
     asset.last_updated = cash.last_updated = utc_now(aware=False)
     return cost * fee_rate
+
+
+def cancel_test_order(order_id, user_id):
+    """Cancel an active simulated paper order."""
+    try:
+        numeric_id = int(str(order_id).replace('test_', '').strip())
+    except (ValueError, TypeError):
+        return None
+    order = TestOrder.query.filter_by(user_id=user_id, id=numeric_id).first()
+    if order:
+        order.status = 'CANCELED'
+        db.session.commit()
+        return order
+    return None

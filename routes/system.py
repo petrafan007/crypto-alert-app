@@ -2813,11 +2813,18 @@ def api_webull_place_order():
 
         replacing_order_id = data.get('replacing_order_id')
         if replacing_order_id and is_test_order:
-            from services.webull_paper_trading_service import cancel_webull_test_order
+            from services.order_replacement_service import cancel_any_order
             try:
-                cancel_webull_test_order(current_user.id, replacing_order_id)
+                cancel_any_order(
+                    replacing_order_id=replacing_order_id,
+                    user_id=current_user.id,
+                    symbol=data.get('symbol'),
+                    test_mode=True,
+                    broker='webull',
+                    account_id='TEST_PAPER_ACCOUNT'
+                )
             except Exception as cancel_err:
-                logger.warning(f"Could not cancel simulated order {replacing_order_id} during replace: {cancel_err}")
+                logger.warning(f"Could not cancel order {replacing_order_id} during simulated replace: {cancel_err}")
 
         if is_test_order:
             data['test_mode'] = True
@@ -2827,6 +2834,7 @@ def api_webull_place_order():
                 res = execute_webull_test_order(current_user.id, data)
                 if replacing_order_id and res.get('success'):
                     res['message'] = (res.get('message') or '') + f' (Replaced order {replacing_order_id})'
+                    res['replaced_order_id'] = str(replacing_order_id)
                 return jsonify(res)
             except Exception as test_err:
                 db.session.rollback()
@@ -3134,11 +3142,14 @@ def api_webull_place_order():
 
         if replacing_order_id:
             try:
-                from services.webull_service import cancel_webull_order
-                cancel_webull_order(
-                    credential.webull_app_key, credential.webull_app_secret,
-                    environment, credential.webull_access_token,
-                    account_id=account_id, order_id=replacing_order_id,
+                from services.order_replacement_service import cancel_any_order
+                cancel_any_order(
+                    replacing_order_id=replacing_order_id,
+                    user_id=current_user.id,
+                    symbol=symbol,
+                    test_mode=False,
+                    broker='webull',
+                    account_id=account_id
                 )
                 time.sleep(1.0)
             except Exception as cancel_err:
@@ -3187,11 +3198,14 @@ def api_webull_place_order():
             if result.get('client_combo_order_id')
             else f"Webull {side} order for {quantity or total_cash_amount} {symbol} submitted successfully."
         )
-        return jsonify({
+        res_payload = {
             'success': True,
-            'message': order_msg,
+            'message': order_msg + (f' (Replaced order {replacing_order_id})' if replacing_order_id else ''),
             'order': result,
-        })
+        }
+        if replacing_order_id:
+            res_payload['replaced_order_id'] = str(replacing_order_id)
+        return jsonify(res_payload)
     except WebullConnectionError as exc:
         return jsonify({
             'success': False,

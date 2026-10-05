@@ -106,6 +106,8 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
   const urlMode = urlParams.get('mode')?.toUpperCase()?.trim();
   const stateMode = (location.state?.mode || location.state?.tradePrefill?.mode || '')?.toUpperCase()?.trim();
   const isRealModeRequested = urlMode === 'REAL' || stateMode === 'REAL' || Boolean(location.state?.tradePrefill);
+  const urlReplaceOrderId = urlParams.get('replace_order_id') || urlParams.get('replacing_order_id') || location.state?.replacing_order_id || location.state?.replace_order_id || null;
+  const [replacingOrderId, setReplacingOrderId] = useState(urlReplaceOrderId);
 
   // Quick Trade navigation wins, while the main Trading nav always resets to BTC/USDT.
   // Direct refreshes retain the current pair for continuity.
@@ -144,6 +146,26 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
   });
   const [quoteQuantity, setQuoteQuantity] = useState('');
   const lastEditedRef = useRef(null);
+
+  useEffect(() => {
+    if (urlReplaceOrderId) {
+      setReplacingOrderId(urlReplaceOrderId);
+      const urlSymbol = urlParams.get('symbol');
+      const urlSide = urlParams.get('side')?.toUpperCase();
+      const urlType = urlParams.get('type')?.toUpperCase();
+      const urlQuantity = urlParams.get('quantity');
+      const urlPrice = urlParams.get('price');
+      setOrderForm(prev => ({
+        ...prev,
+        symbol: urlSymbol || prev.symbol,
+        side: (urlSide === 'BUY' || urlSide === 'SELL') ? urlSide : prev.side,
+        type: urlType || prev.type,
+        quantity: (urlQuantity !== null && urlQuantity !== undefined && urlQuantity !== '') ? urlQuantity : prev.quantity,
+        price: (urlPrice !== null && urlPrice !== undefined && urlPrice !== '') ? urlPrice : prev.price
+      }));
+      setActiveTab('order');
+    }
+  }, [urlReplaceOrderId, location.search]);
 
   // UI State
   const [orders, setOrders] = useState([]);
@@ -1948,8 +1970,11 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
 
       // Add 2FA token to request if present
       const orderData = { ...orderForm };
-      if (isEmbeddedReplaceMode && embeddedOrder) {
-        orderData.replacing_order_id = embeddedOrder.order_id || embeddedOrder.orderId || embeddedOrder.id;
+      const effectiveReplaceId = (isEmbeddedReplaceMode && embeddedOrder)
+        ? (embeddedOrder.order_id || embeddedOrder.orderId || embeddedOrder.id)
+        : (replacingOrderId || null);
+      if (effectiveReplaceId) {
+        orderData.replacing_order_id = effectiveReplaceId;
       }
       if (twofaToken) {
         orderData.twofa_token = twofaToken;
@@ -1965,6 +1990,10 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
         Object.assign(orderData, confirmed?.syntheticPayload || buildSyntheticPayload(ladderConfig));
         orderData.test_mode = settings.test_mode_enabled;
         orderData.broker = 'binance';
+      }
+
+      if (effectiveReplaceId) {
+        orderData.replacing_order_id = effectiveReplaceId;
       }
 
       // Add quote amounts if quote was prioritized
@@ -1999,7 +2028,12 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
         }
 
         if (response.data.replaced_order_id) {
-          successMessage = `Old strategy ${response.data.replaced_order_id} cancelled and replacement created.\n\n${successMessage}`;
+          successMessage = `Old strategy/order ${response.data.replaced_order_id} cancelled and replacement created.\n\n${successMessage}`;
+          setReplacingOrderId(null);
+        }
+
+        if (isEmbeddedReplaceMode && typeof onEmbeddedSuccess === 'function') {
+          onEmbeddedSuccess(response.data);
         }
 
         setFeedbackModal({
@@ -2373,6 +2407,42 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
             )}
 
             {/* Redesigned Order Placement Header Cards */}
+            {replacingOrderId && !isEmbeddedReplaceMode && (
+              <div style={{
+                background: 'rgba(56, 189, 248, 0.12)',
+                border: '1px solid rgba(56, 189, 248, 0.4)',
+                borderRadius: '8px',
+                padding: '10px 16px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                color: '#38bdf8',
+                fontSize: '0.92rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>🔄</span>
+                  <span>
+                    <strong>Replacing Order:</strong> {replacingOrderId}. Submitting this form will cancel the existing order and place your new order.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReplacingOrderId(null)}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid rgba(56, 189, 248, 0.5)',
+                    color: '#38bdf8',
+                    borderRadius: '4px',
+                    padding: '2px 8px',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem'
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
             <div className="trading-order-header-cards" ref={orderHeaderRef}>
               <div className="trading-asset-card">
                 <CryptoIcon symbol={baseAsset} size={32} />
@@ -2665,7 +2735,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
                   <span>⏳ Processing Order...</span>
                 ) : (
                   <span>
-                    {isEmbeddedReplaceMode ? (
+                    {(isEmbeddedReplaceMode || replacingOrderId) ? (
                       settings.test_mode_enabled
                         ? `🧪 Replace Test ${['LADDER', 'SYNTHETIC', 'TRAILING_STOP'].includes(orderForm.type) ? 'Ladder / Trailing Stop' : ''} Order`
                         : `⚡ Replace Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : ['LADDER', 'SYNTHETIC', 'TRAILING_STOP'].includes(orderForm.type) ? 'Ladder / Trailing Stop' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`

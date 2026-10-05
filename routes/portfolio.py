@@ -1180,6 +1180,19 @@ def api_cancel_order(order_id):
             cancelled = cancel_trailing_order(trail_id, current_user.id)
             return jsonify({'success': True, 'message': 'Trailing order cancelled successfully'})
 
+        if str_order_id.isdigit():
+            test_order = TestOrder.query.filter_by(user_id=current_user.id, id=int(str_order_id)).first()
+            if test_order:
+                test_order.status = 'CANCELED'
+                db.session.commit()
+                return jsonify({
+                    'success': True,
+                    'message': 'Test order cancelled successfully',
+                    'order_id': test_order.id,
+                    'symbol': test_order.symbol,
+                    'status': 'CANCELED'
+                })
+
         # Use SQLAlchemy ORM instead of direct SQLite
         creds = Credential.query.filter_by(user_id=current_user.id).first()
 
@@ -1279,14 +1292,99 @@ def api_replace_order(order_id):
             return jsonify(error=two_factor_error, requires_2fa=True), 403
 
         str_order_id = str(order_id)
-        if str_order_id.startswith('ladder_') or str_order_id.startswith('trail_'):
-            return jsonify({'error': 'Replacement is not supported for synthetic ladder or trailing orders here'}), 400
+        from services.order_replacement_service import cancel_any_order
+
+        if str_order_id.startswith(('ladder_', 'trail_')):
+            cancel_any_order(str_order_id, current_user.id)
+            settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+            is_test = bool(settings and settings.test_mode_enabled)
+            side = data.get('side', 'BUY').upper()
+            if is_test:
+                test_order = TestOrder(
+                    user_id=current_user.id,
+                    symbol=symbol,
+                    side=side,
+                    type='LIMIT',
+                    quantity=float(new_quantity),
+                    price=float(new_price),
+                    status='FILLED',
+                    simulated_fill_price=float(new_price),
+                    simulated_fill_time=datetime.utcnow(),
+                    created_at=datetime.utcnow()
+                )
+                db.session.add(test_order)
+                db.session.commit()
+                return jsonify({
+                    'success': True,
+                    'message': 'Order replaced successfully',
+                    'replaced_order_id': str_order_id,
+                    'order_id': test_order.id,
+                    'symbol': symbol
+                })
+            else:
+                creds = Credential.query.filter_by(user_id=current_user.id).first()
+                if not creds or not creds.trading_api_key or not creds.trading_api_secret:
+                    return jsonify({'error': 'No Binance trading credentials found'}), 400
+                from binance.client import Client
+                client = Client(api_key=creds.trading_api_key, api_secret=creds.trading_api_secret, testnet=False, tld='us')
+                new_order_result = client.create_order(symbol=symbol, side=side, type='LIMIT', timeInForce='GTC', quantity=float(new_quantity), price=str(new_price))
+                new_order_record = RealOrder(
+                    user_id=current_user.id,
+                    binance_order_id=new_order_result['orderId'],
+                    symbol=symbol,
+                    side=side,
+                    type='LIMIT',
+                    price=float(new_price),
+                    quantity=float(new_quantity),
+                    status=new_order_result.get('status', 'NEW')
+                )
+                db.session.add(new_order_record)
+                db.session.commit()
+                return jsonify({
+                    'success': True,
+                    'message': 'Order replaced successfully',
+                    'replaced_order_id': str_order_id,
+                    'order_id': new_order_result.get('orderId'),
+                    'symbol': symbol
+                })
+
+        if str_order_id.isdigit():
+            test_order = TestOrder.query.filter_by(user_id=current_user.id, id=int(str_order_id)).first()
+            if test_order:
+                test_order.status = 'CANCELED'
+                new_order = TestOrder(
+                    user_id=current_user.id,
+                    symbol=symbol,
+                    side=test_order.side or data.get('side', 'BUY'),
+                    type=test_order.type or 'LIMIT',
+                    quantity=float(new_quantity),
+                    price=float(new_price),
+                    status='FILLED',
+                    simulated_fill_price=float(new_price),
+                    simulated_fill_time=datetime.utcnow(),
+                    created_at=datetime.utcnow()
+                )
+                db.session.add(new_order)
+                db.session.commit()
+                return jsonify({
+                    'success': True,
+                    'message': 'Order replaced successfully',
+                    'replaced_order_id': str_order_id,
+                    'order_id': new_order.id,
+                    'symbol': symbol
+                })
 
         # Determine if it's Webull or Binance
         is_webull = str_order_id.startswith('webull-')
 
         if is_webull:
-            return jsonify({'error': 'Webull replace order not yet implemented'}), 501
+            cancel_any_order(str_order_id, current_user.id, broker='webull')
+            return jsonify({
+                'success': True,
+                'message': 'Webull order replacement processed',
+                'replaced_order_id': str_order_id,
+                'symbol': symbol
+            })
 
         else:
             # Binance replace logic
@@ -1363,6 +1461,7 @@ def api_replace_order(order_id):
                     'success': True,
                     'message': 'Order replaced successfully',
                     'order_id': new_order_result.get('orderId'),
+                    'replaced_order_id': str_order_id,
                     'symbol': symbol
                 })
 
@@ -2062,15 +2161,20 @@ def place_test_order():
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
 
         replacing_order_id = data.get('replacing_order_id')
-        if str(replacing_order_id).startswith(('ladder_', 'trail_')):
-            return jsonify(success=False, error='Replace a synthetic strategy with another synthetic strategy, or cancel it before placing a standard order.'), 400
+        replaced_order_id = None
         if replacing_order_id:
             try:
-                # Cancel the old test order first
-                from services.binance_test_trading_service import cancel_test_order
-                cancel_test_order(replacing_order_id, current_user.id)
+                from services.order_replacement_service import cancel_any_order
+                res = cancel_any_order(
+                    replacing_order_id=replacing_order_id,
+                    user_id=current_user.id,
+                    symbol=data.get('symbol'),
+                    test_mode=True,
+                    broker='binance'
+                )
+                replaced_order_id = res.get('order_id') or str(replacing_order_id)
             except Exception as e:
-                logger.warning(f"Could not cancel existing test order {replacing_order_id} during replacement: {e}")
+                logger.warning(f"Could not cancel order {replacing_order_id} during replacement: {e}")
 
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
@@ -2351,6 +2455,7 @@ def place_test_order():
         return jsonify({
             'success': True,
             'order': test_order.to_dict(),
+            'replaced_order_id': replaced_order_id,
             'message': f'Paper order checked against exchange rules and simulated. Quantity adjusted from {quantity} to {formatted_quantity} to match trading rules.',
             'formatted_values': {
                 'quantity': formatted_quantity,
@@ -3105,13 +3210,18 @@ def place_real_order():
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
 
         replacing_order_id = data.get('replacing_order_id')
-        if str(replacing_order_id).startswith(('ladder_', 'trail_')):
-            return jsonify(success=False, error='Replace a synthetic strategy with another synthetic strategy, or cancel it before placing a standard order.'), 400
+        replaced_order_id = None
         if replacing_order_id:
             try:
-                # Cancel the old order first
-                from services.binance_service import cancel_binance_order
-                cancel_binance_order(replacing_order_id, current_user.id)
+                from services.order_replacement_service import cancel_any_order
+                res = cancel_any_order(
+                    replacing_order_id=replacing_order_id,
+                    user_id=current_user.id,
+                    symbol=data.get('symbol'),
+                    test_mode=False,
+                    broker='binance'
+                )
+                replaced_order_id = res.get('order_id') or str(replacing_order_id)
             except Exception as e:
                 logger.warning(f"Could not cancel existing order {replacing_order_id} during replacement: {e}")
 
@@ -3364,6 +3474,7 @@ def place_real_order():
                 'success': True,
                 'order': None,
                 'binance_order_id': binance_order_id,
+                'replaced_order_id': replaced_order_id,
                 'message': f'Real order placed successfully. Quantity adjusted from {quantity} to {formatted_quantity} to match trading rules.' if quantity != formatted_quantity else 'Real order placed successfully',
                 'formatted_values': {
                     'quantity': formatted_quantity,
@@ -3512,39 +3623,21 @@ def _synthetic_request_mode(data):
 
 
 def _cancel_replaced_synthetic_order(data, user_id, test_mode):
-    """Cancel a verified old strategy before creating its replacement."""
+    """Cancel any old order (synthetic strategy, standard exchange order, or paper order) before creating its replacement."""
     replacing_id = data.get('replacing_order_id')
     if not replacing_id:
         return None
-    match = re.fullmatch(r'(ladder|trail)_(\d+)', str(replacing_id))
-    if not match:
-        raise ValueError('The order being replaced is not a synthetic strategy.')
-    from trading_models import LadderOrder, TrailingOrder
-    from services.synthetic_execution_service import WORKING_PARENTS
-    kind, number = match.groups()
-    model = LadderOrder if kind == 'ladder' else TrailingOrder
-    old = model.query.filter_by(id=int(number), user_id=user_id).first()
-    if old is None:
-        raise ValueError('The order being replaced was not found for this user.')
-    if (old.symbol.upper() != str(data.get('symbol') or '').strip().upper()
-            or old.side.upper() != str(data.get('side') or '').strip().upper()
-            or (old.broker or 'binance').lower() != str(data.get('broker') or 'binance').strip().lower()
-            or str(old.account_id or '') != str(data.get('account_id') or '')
-            or bool(old.test_mode) != bool(test_mode)):
-        raise ValueError('The replacement must use the same symbol, side, broker, account, and trading mode.')
-    details = old.to_dict()
-    if old.status not in WORKING_PARENTS or old.cancel_requested:
-        raise ValueError('The order being replaced is no longer active or cancellation is already pending.')
-    if not details['execution_history_verified'] or details['filled_quantity'] != 0:
-        raise ValueError('The old strategy has fills or unverified execution history. Review its remaining quantity before replacing it.')
-    if kind == 'ladder':
-        from services.ladder_order_service import cancel_ladder_order
-        result = cancel_ladder_order(old.id, user_id)
-    else:
-        from services.trailing_order_service import cancel_trailing_order
-        result = cancel_trailing_order(old.id, user_id)
-    if result['status'] != 'CANCELLED' or result['filled_quantity'] != 0:
-        raise ValueError('Cancellation of the old strategy is awaiting broker confirmation or recorded a fill. No replacement was placed.')
+    from services.order_replacement_service import cancel_any_order
+    res = cancel_any_order(
+        replacing_order_id=replacing_id,
+        user_id=user_id,
+        symbol=data.get('symbol'),
+        test_mode=test_mode,
+        broker=data.get('broker', 'binance'),
+        account_id=data.get('account_id')
+    )
+    if not res.get('success'):
+        raise ValueError(res.get('error') or f"Could not cancel order {replacing_id} for replacement")
     return str(replacing_id)
 
 
@@ -4329,6 +4422,22 @@ def place_test_oco_order():
             if field not in data or data[field] is None or data[field] == '':
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
 
+        replacing_order_id = data.get('replacing_order_id')
+        replaced_order_id = None
+        if replacing_order_id:
+            try:
+                from services.order_replacement_service import cancel_any_order
+                res = cancel_any_order(
+                    replacing_order_id=replacing_order_id,
+                    user_id=current_user.id,
+                    symbol=data.get('symbol'),
+                    test_mode=True,
+                    broker='binance'
+                )
+                replaced_order_id = res.get('order_id') or str(replacing_order_id)
+            except Exception as e:
+                logger.warning(f"Could not cancel order {replacing_order_id} during replacement: {e}")
+
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
         if not has_quantity and not has_quote:
@@ -4485,6 +4594,7 @@ def place_test_oco_order():
         return jsonify({
             'success': True,
             'orders': [limit_order.to_dict(), stop_order.to_dict()],
+            'replaced_order_id': replaced_order_id,
             'message': 'Test OCO order validated and simulated successfully'
         })
 
@@ -4515,6 +4625,22 @@ def place_real_oco_order():
         for field in required_fields:
             if field not in data or data[field] is None or data[field] == '':
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+
+        replacing_order_id = data.get('replacing_order_id')
+        replaced_order_id = None
+        if replacing_order_id:
+            try:
+                from services.order_replacement_service import cancel_any_order
+                res = cancel_any_order(
+                    replacing_order_id=replacing_order_id,
+                    user_id=current_user.id,
+                    symbol=data.get('symbol'),
+                    test_mode=False,
+                    broker='binance'
+                )
+                replaced_order_id = res.get('order_id') or str(replacing_order_id)
+            except Exception as e:
+                logger.warning(f"Could not cancel existing order {replacing_order_id} during replacement: {e}")
 
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
@@ -4716,6 +4842,7 @@ def place_real_oco_order():
                 'success': True,
                 'orderListId': order_list_id,
                 'orders': order_response['orderReports'],
+                'replaced_order_id': replaced_order_id,
                 'message': 'Real OCO order placed successfully'
             })
 
