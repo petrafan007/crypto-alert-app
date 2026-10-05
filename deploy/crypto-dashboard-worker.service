@@ -8,9 +8,9 @@ PartOf=crypto-dashboard.service
 Type=simple
 User=jcavallarojr
 Group=jcavallarojr
-WorkingDirectory=/home/jcavallarojr/crypto_alert_app
-Environment=PATH=/home/jcavallarojr/crypto_alert_app/venv/bin
-ExecStart=/home/jcavallarojr/crypto_alert_app/venv/bin/python3 runtime.py worker
+WorkingDirectory=/var/www/html/csdapp
+Environment=PATH=/var/www/html/csdapp/venv/bin
+ExecStart=/var/www/html/csdapp/venv/bin/python3 runtime.py worker
 Restart=always
 RestartSec=10
 KillMode=mixed
