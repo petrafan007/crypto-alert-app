@@ -8,7 +8,7 @@ with app.app_context():
     coins = WatchlistCoin.query.filter_by(sentiment="Checking now...").all()
     count = 0
     for coin in coins:
-        coin.sentiment = "Error"
+        coin.sentiment = "Watch"
         coin.sentiment_reason = "Cleared stuck state manually"
         count += 1
     db.session.commit()

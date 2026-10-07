@@ -17,7 +17,7 @@ def _recover_startup_state(conn):
               WHERE amount > 0.00000001 AND (status IS NULL OR status != 'completed')
           )
     """))
-    # Clear any lingering stuck 'Checking now...' sentiment
+    # Clear any lingering stuck 'Checking now...' or 'Error' sentiment
     conn.execute(db.text("""
         UPDATE coins
         SET sentiment = 'Hold',
@@ -31,6 +31,20 @@ def _recover_startup_state(conn):
             sentiment_reason = 'Recovered from stale checking state',
             sentiment_last_updated = CURRENT_TIMESTAMP
         WHERE sentiment = 'Checking now...'
+    """))
+    conn.execute(db.text("""
+        UPDATE coins
+        SET sentiment = 'Hold',
+            sentiment_reason = 'Recovered from error state',
+            sentiment_last_updated = CURRENT_TIMESTAMP
+        WHERE sentiment = 'Error'
+    """))
+    conn.execute(db.text("""
+        UPDATE watchlist
+        SET sentiment = 'Watch',
+            sentiment_reason = 'Recovered from error state',
+            sentiment_last_updated = CURRENT_TIMESTAMP
+        WHERE sentiment = 'Error'
     """))
     # Fix blank asset for USDT/USD trades in all_activities
     conn.execute(db.text("""

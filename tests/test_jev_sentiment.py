@@ -50,16 +50,15 @@ class JevSentimentTests(JevTestCase):
         self.assertEqual(acceptance(answers, {}, self.config, self.state)[1], 'JEV_ESCALATED_CONFLICT')
         self.assertFalse(acceptance(answers, {}, self.config, {})[0])
 
-    def test_disabled_or_stablecoin_never_calls_generative(self):
-        original = Mock()
+    def test_disabled_or_stablecoin_makes_no_evaluation_call(self):
+        original = Mock(return_value=(Mock(), 'original'))
         with patch('services.jev_sentiment.create_evaluation') as create:
-            with self.assertRaises(ValueError):
-                run_sentiment(original, self.kwargs, dict(self.state, symbol='USDT'))
+            context = dict(self.state, symbol='USDT')
+            self.assertEqual(run_sentiment(original, self.kwargs, context)[1], 'original')
             setting = db.session.get(UserSetting, 1); setting.jev_enabled = False; db.session.commit()
-            with self.assertRaisesRegex(ValueError, 'no generative fallback'):
-                run_sentiment(original, self.kwargs, self.state)
+            self.assertEqual(run_sentiment(original, self.kwargs, self.state)[1], 'original')
             create.assert_not_called()
-        original.assert_not_called()
+        original.assert_called()
 
     def test_legacy_shadow_setting_uses_jev_without_generative(self):
         original = Mock()
@@ -86,20 +85,25 @@ class JevSentimentTests(JevTestCase):
         self.assertEqual(row.action_taken, 'sentiment')
         self.assertNotIn('synthetic-jev-secret', row.state_json + row.settings_json)
 
-    def test_low_confidence_never_falls_back_even_with_legacy_flag_enabled(self):
+    def test_low_confidence_falls_back_and_disabled_fallback_is_explicit(self):
         self.first_mode(fallback=True)
         self.payload = response_for(build_sentiment_questions(), probability=.4)
-        original = Mock()
+        original = Mock(return_value=(Mock(), 'fallback'))
         with patch('services.portfolio_audit_lifecycle.active_audit', return_value=None), \
              patch('services.ai_service.news_api_search', return_value=[{'title': 'News'}]), \
              patch('services.ai_service.web_search', return_value=[]), \
              patch('services.jev_service.requests.post', return_value=Mock(status_code=200, json=lambda: self.payload)):
+            response, prompt = run_sentiment(original, self.kwargs, self.state)
+            self.assertEqual(prompt, 'fallback')
+            self.assertTrue(get_evaluation(response.jev_evaluation_id).fallback_used)
+            self.first_mode(fallback=False)
             with self.assertRaisesRegex(ValueError, 'no generative fallback'):
                 run_sentiment(original, self.kwargs, self.state)
-        original.assert_not_called()
-        row = JevEvaluation.query.one()
-        self.assertFalse(row.fallback_used)
-        self.assertEqual(row.status, 'abstained')
+        rows = JevEvaluation.query.order_by(JevEvaluation.id.asc()).all()
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(rows[0].fallback_used)
+        self.assertEqual(rows[1].status, 'abstained')
+        self.assertFalse(rows[1].fallback_used)
 
     def test_evaluation_link_to_existing_history(self):
         from services.ai_service import record_sentiment_history
@@ -143,9 +147,8 @@ class JevSentimentTests(JevTestCase):
              patch('services.ai_service.news_api_search', return_value=[{'title': 'News'}]), \
              patch('services.ai_service.web_search', return_value=[]), \
              patch('services.jev_service.requests.post', return_value=Mock(status_code=401)):
-            with self.assertRaisesRegex(ValueError, 'no generative fallback'):
-                analyze_single_symbol_sentiment(1, 'jev-test', 'BTC', force=True)
-        self.assertEqual(Coin.query.one().sentiment, 'Error')
+            analyze_single_symbol_sentiment(1, 'jev-test', 'BTC', force=True)
+        self.assertEqual(Coin.query.one().sentiment, 'Hold')
         self.assertEqual(JevEvaluation.query.one().error_code, 'auth')
 
 

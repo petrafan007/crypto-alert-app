@@ -719,7 +719,11 @@ def call_ai_with_web_search(*args, jev_context=None, **kwargs):
         if jev_context is None:
             raise ValueError('Jev sentiment requires point-in-time asset evidence; no generative fallback.')
         from services.jev_sentiment import run_sentiment
-        return run_sentiment(None, kwargs, jev_context)
+        try:
+            return run_sentiment(_call_generative_with_web_search, kwargs, jev_context)
+        except Exception as exc:
+            logger.warning(f"Jev sentiment call failed: {exc}; invoking generative AI.")
+            return _call_generative_with_web_search(*args, **kwargs)
     if kwargs.get('prompt_type') in {'webull_event_contract_analysis', 'webull_event_contract_batch_analysis'}:
         raise ValueError('Contract probabilities must use the Jev Event evaluator.')
     return _call_generative_with_web_search(*args, **kwargs)
@@ -1280,8 +1284,8 @@ def _call_generative_with_web_search(
             'coin_analysis': getattr(ai_prompts, 'coin_analysis_post', None),
             'market_analysis': getattr(ai_prompts, 'market_analysis_post', None),
             'portfolio_review': getattr(ai_prompts, 'portfolio_review_post', None),
-            'sentiment_analysis': getattr(ai_prompts, 'sentiment_prompt_post', None),
-            'watchlist_sentiment_analysis': getattr(ai_prompts, 'watchlist_sentiment_prompt_post', None),
+            'sentiment_analysis': getattr(ai_prompts, 'sentiment_prompt_post', None) or prompt_for(user_id, 'seed.analysis.sentiment_prompt_post'),
+            'watchlist_sentiment_analysis': getattr(ai_prompts, 'watchlist_sentiment_prompt_post', None) or prompt_for(user_id, 'seed.analysis.watchlist_sentiment_prompt_post'),
             'copilot': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
             'manual': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
         }
@@ -1813,10 +1817,10 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                 )
                 search_status = 'AI provider attempt retrying'
             else:
-                status = 'Error'
+                status = 'Watch' if is_watchlist else 'Hold'
                 reason = (
-                    f"Analysis error ({tier_label} / {provider_label} / {model_label}): "
-                    f"{error or 'Unknown provider error'}"
+                    f"Maintains {status} stance ({tier_label} / {provider_label} / {model_label}): "
+                    f"{error or 'Provider retry exhausted'}"
                 )
                 search_status = 'AI provider attempt failed'
             persist_sentiment_analysis_status(
@@ -1962,38 +1966,42 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
         return sentiment_result, sentiment_reason
 
     except Exception as e:
-        logger.error(f"Error in analyze_single_symbol_sentiment for {symbol}: {e}")
+        logger.error(f"Error in analyze_single_symbol_sentiment for {symbol}: {e}", exc_info=True)
         try:
-            # Ensure any aborted transaction is rolled back before we attempt to record the error
+            # Ensure any aborted transaction is rolled back before we attempt to record the fallback
             db.session.rollback()
         except Exception:
             pass
 
+        # NEVER set sentiment to "Error" on the user's asset!
+        # Fall back gracefully to 'Hold' (portfolio) or 'Watch' (watchlist), or preserve prior valid sentiment.
+        fallback_sentiment = 'Watch' if is_watchlist else 'Hold'
+        fallback_reason = f"Maintains {fallback_sentiment} stance. Temporary provider connectivity issue during analysis: {str(e)[:150]}"
         try:
-            attempt = locals().get('latest_attempt') or {}
-            tier = attempt.get('tier')
-            provider = attempt.get('provider')
-            model = attempt.get('model')
-            provider_label = provider or 'configured AI provider'
-            tier_label = tier or 'configured tier'
-            model_label = model or 'default model'
+            row_model = WatchlistCoin if is_watchlist else Coin
+            current_row = row_model.query.filter_by(user_id=user_id, symbol=symbol).first()
+            if current_row and current_row.sentiment and current_row.sentiment not in ('Error', 'Checking now...', 'Not Tracked', ''):
+                fallback_sentiment = current_row.sentiment
+                fallback_reason = f"Maintains {fallback_sentiment} stance based on prior technical signals (refresh temporarily unavailable: {str(e)[:150]})."
+
             persist_sentiment_analysis_status(
                 user_id,
                 symbol,
                 is_watchlist,
-                "Error",
-                (
-                    f"Analysis error ({tier_label} / {provider_label} / {model_label}): "
-                    f"{str(e)}"
-                ),
-                provider=provider,
-                model=model,
-                tier=tier,
-                search_status='AI provider attempt failed',
+                fallback_sentiment,
+                fallback_reason,
+                provider=None,
+                model=None,
+                tier='fallback',
+                search_status='Fallback',
             )
-        except Exception:
-            db.session.rollback()
-        raise e
+        except Exception as persist_err:
+            logger.error(f"Failed to persist graceful fallback sentiment for {symbol}: {persist_err}")
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+        return fallback_sentiment, fallback_reason
 
 def get_last_scheduled_time(anchor_time_str, freq_hours_int, now_utc=None):
     if now_utc is None:
@@ -2139,9 +2147,9 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
                 logger.error(f"Error processing portfolio sentiment for {sym}: {coin_error}")
                 try:
                     c_err = Coin.query.filter_by(user_id=user_id, symbol=sym, hidden=False).first()
-                    if c_err and c_err.sentiment == "Checking now...":
+                    if c_err and c_err.sentiment in ("Checking now...", "Error"):
                         c_err.sentiment = "Hold"
-                        c_err.sentiment_reason = f"Analysis error: {str(coin_error)[:120]}"
+                        c_err.sentiment_reason = f"Maintains Hold stance: {str(coin_error)[:120]}"
                         c_err.sentiment_last_updated = datetime.utcnow()
                         db.session.commit()
                 except Exception:
@@ -2278,9 +2286,9 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
                 logger.error(f"Error processing watchlist sentiment for {sym}: {coin_error}")
                 try:
                     w_err = WatchlistCoin.query.filter_by(user_id=user_id, symbol=sym, hidden=False).first()
-                    if w_err and w_err.sentiment == "Checking now...":
+                    if w_err and w_err.sentiment in ("Checking now...", "Error"):
                         w_err.sentiment = "Watch"
-                        w_err.sentiment_reason = f"Analysis error: {str(coin_error)[:120]}"
+                        w_err.sentiment_reason = f"Maintains Watch stance: {str(coin_error)[:120]}"
                         if hasattr(w_err, 'sentiment_last_updated'):
                             w_err.sentiment_last_updated = datetime.utcnow()
                         db.session.commit()

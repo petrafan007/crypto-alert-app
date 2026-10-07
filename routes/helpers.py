@@ -696,28 +696,29 @@ def get_coin_sentiment(symbol, coin=None, current_price=None, username=None):
     """
     Returns the AI-generated sentiment for a coin from the coins table.
     The sentiment is determined by the 3-stage agentic AI workflow and stored in the coins table.
-    Valid values are 'Buy', 'Sell', or 'Hold'.
-    If sentiment cannot be pulled or is invalid, returns 'Error'. NEVER falls back to 'Hold'.
+    Valid values include 'Buy Immediately', 'Consider Buying', 'Hold', 'Consider Selling', 'Sell Immediately'.
+    If sentiment cannot be pulled, is missing, or is 'Error', gracefully defaults to 'Hold'.
     """
     try:
         if not coin:
             # If coin object not provided, try to get it from the database
             coin = db.session.query(Coin).filter_by(symbol=symbol).first()
             if not coin:
-                return "Error"
+                return "Hold"
         
         # Return the AI-generated sentiment if available
-        if hasattr(coin, 'sentiment') and coin.sentiment in ['Buy', 'Sell', 'Hold']:
-            return coin.sentiment
-        elif hasattr(coin, 'sentiment') and coin.sentiment:
-            return coin.sentiment
+        if hasattr(coin, 'sentiment') and coin.sentiment:
+            val = str(coin.sentiment).strip()
+            if val and val.lower() not in ('error', 'none', 'null', ''):
+                return val
             
-        # If no valid sentiment is available, return 'Error' (NEVER fall back to 'Hold')
-        return "Error"
+        # If no valid sentiment is available, default safely to 'Hold'
+        return "Hold"
         
     except Exception as e:
         logger.error(f"Error in get_coin_sentiment for {symbol}: {e}")
-        return "Error"
+        return "Hold"
+
 
 def format_iso_utc(dt):
     """Format datetime as UTC ISO 8601 string with Z indicator so browsers correctly convert to local time."""

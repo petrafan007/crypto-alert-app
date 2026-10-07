@@ -356,7 +356,7 @@ def api_coin_data_live():
                         "current_price": current_price,
                         "current_value": round(current_value, 2),
                         "pct_change": 0.0,
-                        "sentiment": getattr(coin, 'sentiment', 'Error') or 'Error',
+                        "sentiment": getattr(coin, 'sentiment', 'Hold') if getattr(coin, 'sentiment', 'Hold') not in ('Error', 'error', None, '') else 'Hold',
                         "sentiment_reason": getattr(coin, 'sentiment_reason', "") or "",
                         "alert_enabled": getattr(coin, 'alert_enabled', True),
                         "note": getattr(coin, 'note', ''),

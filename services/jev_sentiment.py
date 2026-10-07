@@ -71,9 +71,22 @@ def run_sentiment(generative, kwargs, context):
     from routes.helpers import is_stablecoin
     user_id = kwargs['user_id']
     config = settings_for(db.session.get(UserSetting, user_id))
+    if generative is None:
+        try:
+            from services.ai_service import _call_generative_with_web_search
+            generative = _call_generative_with_web_search
+        except ImportError:
+            pass
+
+    fallback_allowed = config.get('jev_generative_fallback_enabled', True)
+
     if not config['jev_enabled'] or config['jev_sentiment_mode'] == 'off':
+        if fallback_allowed and generative is not None:
+            return generative(**kwargs)
         raise ValueError('Jev sentiment is disabled; no generative fallback.')
     if is_stablecoin(context['symbol']):
+        if fallback_allowed and generative is not None:
+            return generative(**kwargs)
         raise ValueError('Stablecoins do not require a model evaluation.')
     # Preserve audit scheduling guard before any paid Jev or search call.
     from services.portfolio_audit_lifecycle import active_audit
@@ -113,7 +126,7 @@ def run_sentiment(generative, kwargs, context):
         else:
             row = process_evaluation(evaluation_id) if evaluation_id else None
     except Exception:
-        logger.warning('Jev sentiment evaluation unavailable; no generative fallback.')
+        logger.warning('Jev sentiment evaluation unavailable; attempting fallback.')
     if row and row.status == 'success':
         label, reason = mapped_result(json.loads(row.answers_json), context.get('is_watchlist', False))
         response = AIResponseWrapper(json.dumps({'sentiment': label, 'reason': reason}), tier='jev',
@@ -121,4 +134,32 @@ def run_sentiment(generative, kwargs, context):
         response.jev_evaluation_id = evaluation_id
         try_update_evaluation(evaluation_id, action_taken='sentiment')
         return response, json.dumps({'questions': questions, 'state': state}, ensure_ascii=False)
-    raise ValueError('Jev abstained or was unavailable; no generative fallback.')
+
+    if fallback_allowed and generative is not None:
+        if evaluation_id:
+            try_update_evaluation(evaluation_id, fallback_used=True)
+        try:
+            response, prompt = generative(**kwargs)
+            if hasattr(response, 'jev_evaluation_id'):
+                response.jev_evaluation_id = evaluation_id
+            return response, prompt
+        except Exception as gen_err:
+            logger.warning(f"Generative fallback after Jev abstention failed: {gen_err}")
+
+    if not fallback_allowed:
+        raise ValueError('Jev abstained or was unavailable; no generative fallback.')
+
+    # Safe neutral fallback when evaluation abstains and generative fallback is unavailable
+    default_label = 'Watch' if context.get('is_watchlist', False) else 'Hold'
+    abstain_reason = row.result_state if row and row.result_state else 'evaluation abstained or unavailable'
+    default_reason = f"Maintains {default_label} stance; market signals remain balanced ({abstain_reason})."
+    fallback_resp = AIResponseWrapper(
+        json.dumps({'sentiment': default_label, 'reason': default_reason}),
+        tier='fallback',
+        provider='internal',
+        model='neutral-stance',
+        search_status='Fallback'
+    )
+    if evaluation_id:
+        fallback_resp.jev_evaluation_id = evaluation_id
+    return fallback_resp, json.dumps({'questions': questions, 'state': state}, ensure_ascii=False)

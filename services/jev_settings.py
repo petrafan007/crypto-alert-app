@@ -10,7 +10,7 @@ DEFAULTS = {
     'jev_enabled': False, 'jev_transport': 'vercel', 'jev_model': 'typesafe-ai/jev',
     'jev_endpoint': DEFAULT_ENDPOINT, 'jev_timeout_seconds': 3.0,
     'jev_confidence_threshold': 0.8, 'jev_conflict_threshold': 0.5,
-    'jev_sentiment_mode': 'first', 'jev_generative_fallback_enabled': False,
+    'jev_sentiment_mode': 'first', 'jev_generative_fallback_enabled': True,
     'jev_quant_shadow_enabled': False,
 }
 
@@ -65,7 +65,7 @@ def validate_settings(data):
 
 def settings_for(row):
     values = normalize_transport({k: getattr(row, k, None) if getattr(row, k, None) is not None else v for k, v in DEFAULTS.items()})
-    values['jev_generative_fallback_enabled'] = False
+    values['jev_generative_fallback_enabled'] = getattr(row, 'jev_generative_fallback_enabled', True) if getattr(row, 'jev_generative_fallback_enabled', None) is not None else True
     if values['jev_sentiment_mode'] == 'shadow':
         values['jev_sentiment_mode'] = 'first'
     return values
@@ -85,7 +85,12 @@ def normalize_transport(config):
 def save_settings(row, data):
     validated = validate_settings(data)
     config = normalize_transport({**settings_for(row), **validated})
-    config['jev_generative_fallback_enabled'] = False
+    if 'jev_generative_fallback_enabled' in validated:
+        config['jev_generative_fallback_enabled'] = validated['jev_generative_fallback_enabled']
+    elif getattr(row, 'jev_generative_fallback_enabled', None) is not None:
+        config['jev_generative_fallback_enabled'] = row.jev_generative_fallback_enabled
+    else:
+        config['jev_generative_fallback_enabled'] = True
     if config['jev_sentiment_mode'] == 'shadow':
         config['jev_sentiment_mode'] = 'first'
     for key, value in config.items():

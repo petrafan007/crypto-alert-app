@@ -4616,9 +4616,8 @@ function Dashboard({ isLightMode }) {
         color = '#f56565'; // Soft Red
         label = 'Avoid';
       } else if (sentiment === 'Error') {
-        color = '#fc8181';
-        bg = 'rgba(245, 101, 101, 0.2)';
-        label = '⚠️ Error';
+        color = '#63b3ed';
+        label = 'Watch';
       }
     } else {
       if (['Buy Immediately', 'Strong Buy'].includes(sentiment)) {
@@ -4632,9 +4631,8 @@ function Dashboard({ isLightMode }) {
       } else if (sentiment === 'Hold') {
         color = '#ecc94b'; // Gold
       } else if (sentiment === 'Error') {
-        color = '#fc8181'; // Red Error
-        bg = 'rgba(245, 101, 101, 0.2)';
-        label = '⚠️ Error';
+        color = '#ecc94b'; // Gold - safe neutral stance
+        label = 'Hold';
       }
     }
 

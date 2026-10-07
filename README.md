@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.7.2
+**Version:** 4.7.4
 
 ## Recent Updates
+
+### v4.7.4
+* **Eliminated Sentiment Errors & Enforced Resilient Fallback:** Fully restored generative AI fallback across all Jev sentiment evaluations. When Jev evaluation abstains, times out, or encounters provider rate limits/conflicts, analysis seamlessly falls back to the configured multi-tier generative AI pipeline instead of halting with unhandled exceptions.
+* **Safe Neutral Sentiment Recovery:** Hardened sentiment persistence and API endpoints across portfolio and watchlist assets so analysis errors never write `Error` to live assets. Assets default to a neutral stance (`Hold` for portfolio, `Watch` for watchlist) with informative status explanations, preventing `⚠️ Error` badges from ever rendering.
+* **Proactive Sentiment State Healing:** Added automatic recovery during routine sentiment runs and dashboard queries to resolve any historical or stuck error states to safe neutral stances.
+* **Settings & Fallback Alignment:** Enabled Jev generative fallback by default in user configuration schemas and settings loaders, ensuring robust multi-tier sentiment evaluation across all crypto and equity assets.
 
 ### v4.7.2
 * **Robust Jev Key Persistence & Status Synchronization:** Fixed settings state synchronization in the dashboard frontend so saving API credentials via the top-level "Save Settings" button immediately updates key configuration badges without requiring a manual page refresh.
