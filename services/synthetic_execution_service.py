@@ -17,6 +17,7 @@ from core.extensions import db
 from core.time_utils import utc_now
 from credentials import Credential, UserSetting
 from trading_models import SyntheticExecution, TradingSettings, TestOrder, TestPortfolio
+from log import logger
 
 OPEN_EXECUTIONS = {'SUBMITTING', 'SUBMITTED', 'PARTIALLY_FILLED', 'UNKNOWN'}
 WORKING_PARENTS = ('ACTIVE', 'PARTIALLY_FILLED', 'TRIGGERED', 'SUBMITTED', 'CANCEL_PENDING')
@@ -213,6 +214,135 @@ def check_live_funding(parent, quantity, price, rules):
             required = quantity * price
     if not math.isfinite(available) or available + 1e-10 < required:
         raise ValueError('The selected account no longer has sufficient available assets or cash for this execution.')
+
+
+def get_synthetic_locked_funds(user_id, symbol, side, broker='binance', test_mode=False, exclude_order_id=None):
+    """Calculate the total quantity (for SELL) or quote budget/cost (for BUY) tied up in working synthetic orders."""
+    from trading_models import LadderOrder, TrailingOrder
+    clean_sym = str(symbol or '').strip().upper()
+    clean_side = str(side or '').strip().upper()
+    clean_broker = str(broker or 'binance').strip().lower()
+
+    base_asset = next((clean_sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if clean_sym.endswith(q)), clean_sym)
+    quote_asset = 'USD' if clean_sym.endswith('USD') and not clean_sym.endswith('USDT') else 'USDT' if clean_sym.endswith('USDT') else 'USD'
+
+    total_locked = 0.0
+
+    # 1. Trailing Orders
+    trails = TrailingOrder.query.filter(
+        TrailingOrder.user_id == user_id,
+        TrailingOrder.status.in_(WORKING_PARENTS),
+        TrailingOrder.test_mode == test_mode,
+        TrailingOrder.side == clean_side
+    ).all()
+    for to in trails:
+        if exclude_order_id and str(exclude_order_id) in (f"trail_{to.id}", str(to.id)):
+            continue
+        to_broker = (to.broker or 'binance').lower()
+        if clean_broker and to_broker != clean_broker:
+            continue
+        to_sym = (to.symbol or '').upper()
+        to_base = next((to_sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if to_sym.endswith(q)), to_sym)
+        to_quote = 'USD' if to_sym.endswith('USD') and not to_sym.endswith('USDT') else 'USDT' if to_sym.endswith('USDT') else 'USD'
+        if clean_side == 'SELL' and to_base == base_asset:
+            total_locked += float(to.quantity or 0.0)
+        elif clean_side == 'BUY' and to_quote == quote_asset:
+            total_locked += float(to.quantity or 0.0) * float(to.current_stop_price or 0.0)
+
+    # 2. Ladder Orders
+    ladders = LadderOrder.query.filter(
+        LadderOrder.user_id == user_id,
+        LadderOrder.status.in_(WORKING_PARENTS),
+        LadderOrder.test_mode == test_mode,
+        LadderOrder.side == clean_side
+    ).all()
+    for lo in ladders:
+        if exclude_order_id and str(exclude_order_id) in (f"ladder_{lo.id}", str(lo.id)):
+            continue
+        lo_broker = (lo.broker or 'binance').lower()
+        if clean_broker and lo_broker != clean_broker:
+            continue
+        lo_sym = (lo.symbol or '').upper()
+        lo_base = next((lo_sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if lo_sym.endswith(q)), lo_sym)
+        lo_quote = 'USD' if lo_sym.endswith('USD') and not lo_sym.endswith('USDT') else 'USDT' if lo_sym.endswith('USDT') else 'USD'
+        lo_details = lo.to_dict()
+        rem_qty = float(lo_details.get('remaining_quantity', lo.total_quantity) or 0.0)
+        if clean_side == 'SELL' and lo_base == base_asset:
+            total_locked += rem_qty
+        elif clean_side == 'BUY' and lo_quote == quote_asset:
+            tot_qty = float(lo.total_quantity or 1.0)
+            if lo.total_budget_usd:
+                total_locked += float(lo.total_budget_usd) * (rem_qty / tot_qty)
+            else:
+                lo_px = float(lo.upside_target_price or lo.downside_target_price or 0.0)
+                total_locked += rem_qty * lo_px
+
+    return total_locked
+
+
+def check_synthetic_order_capacity(user_id, symbol, side, quantity, broker='binance', test_mode=False, account_id=None):
+    """
+    Check if existing pending synthetic orders tie up available funds when creating a new (non-replacement) synthetic order.
+    Raises ValueError with user-friendly message if funds are exhausted.
+    """
+    if test_mode:
+        return
+    clean_sym = str(symbol or '').strip().upper()
+    clean_side = str(side or '').strip().upper()
+    clean_broker = str(broker or 'binance').strip().lower()
+    qty = float(quantity or 0.0)
+
+    locked = get_synthetic_locked_funds(user_id, clean_sym, clean_side, broker=clean_broker, test_mode=False)
+    if locked <= 0:
+        return
+
+    if clean_broker == 'binance':
+        try:
+            client = binance_client(user_id)
+            account = client.get_account()
+        except Exception as err:
+            logger.warning(f"Could not fetch Binance balance in check_synthetic_order_capacity: {err}")
+            return
+        balances = {b['asset']: float(b.get('free') or 0.0) for b in account.get('balances', [])}
+        if clean_side == 'SELL':
+            base_asset = next((clean_sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if clean_sym.endswith(q)), clean_sym)
+            avail = balances.get(base_asset, 0.0)
+            if avail <= locked or (qty > max(0.0, avail - locked) + 1e-8):
+                raise ValueError('Pending synthetic order ties up all available funds. Replace the existing order instead.')
+        elif clean_side == 'BUY':
+            quote_asset = 'USD' if clean_sym.endswith('USD') and not clean_sym.endswith('USDT') else 'USDT' if clean_sym.endswith('USDT') else 'USD'
+            avail = balances.get(quote_asset, 0.0)
+            if avail <= locked:
+                raise ValueError('Pending synthetic order ties up all available funds. Replace the existing order instead.')
+    elif clean_broker == 'webull':
+        try:
+            from services.webull_service import get_webull_account_positions, get_webull_account_balance
+            from trading_models import WebullCredential
+            cred = WebullCredential.query.filter_by(user_id=user_id).first()
+            if not cred or not cred.webull_app_key:
+                return
+            env = 'trade'
+            args = (cred.webull_app_key, cred.webull_app_secret, env, cred.webull_access_token, account_id)
+            if clean_side == 'SELL':
+                positions = get_webull_account_positions(*args)
+                def matches(position):
+                    s = str(position.get('symbol') or '').upper()
+                    if not s.endswith('USD'):
+                        s += 'USD'
+                    return s == clean_sym and str(position.get('side') or '').upper() != 'SHORT'
+                avail = sum(max(0, float(p.get('available_quantity', p.get('quantity', 0)) or 0)) for p in positions if matches(p))
+                if avail <= locked or (qty > max(0.0, avail - locked) + 1e-8):
+                    raise ValueError('Pending synthetic order ties up all available funds. Replace the existing order instead.')
+            elif clean_side == 'BUY':
+                balance = get_webull_account_balance(*args)
+                avail = float(balance.get('available_cash', balance.get('total_cash_balance', 0)) or 0)
+                if avail <= locked:
+                    raise ValueError('Pending synthetic order ties up all available funds. Replace the existing order instead.')
+        except Exception as webull_err:
+            if isinstance(webull_err, ValueError) and 'Pending synthetic order' in str(webull_err):
+                raise
+            logger.warning(f"Could not verify Webull balance in check_synthetic_order_capacity: {webull_err}")
+
 
 
 @contextmanager

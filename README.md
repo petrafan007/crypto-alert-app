@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.8.0
+**Version:** 4.8.1
 
 ## Recent Updates
+
+### v4.8.1
+* **Disallow Sell and Buy When Synthetic Orders Tie Up Funds:** Prohibited placing new Sell or Buy orders when active pending synthetic orders (e.g. Smart Bracket Ladders or Trailing Stops) tie up all available funds for that asset or side.
+* **Keep Order Replacement Enabled:** Kept universal order replacement fully enabled (`Replace`) so traders can always replace active synthetic orders with new strategies or order types without artificial restrictions.
+* **Informative Tooltips & Context Explanations:** Updated Actions context menus, Trade Quote submenus, mobile sheets, and portfolio/watchlist table rows to disable unavailable Sell and Buy actions with clear explanatory tooltips: `"Pending synthetic order ties up all available funds. You can replace the order."`
+* **Comprehensive Backend Funding Protection:** Added capacity checks to real order placement and synthetic order creation endpoints to prevent double-pledging locked assets or cash while ensuring replacements cleanly bypass capacity rejections.
 
 ### v4.8.0
 * **Revamped Watchlist & Context "Buy" Menus with Grouped Platform Sorting:** Redesigned the trade quote options menu across Watchlist row action buttons, the Actions dropdown context menus, and mobile bottom sheets. Options are organized strictly by platform: all Binance trading options appear first, followed by a visual divider and all Webull options second.

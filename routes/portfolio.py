@@ -1015,10 +1015,15 @@ def api_pending_orders():
                 for lo in active_ladders:
                     sym = lo.symbol.upper()
                     base_asset = next((sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if sym.endswith(q)), sym)
-                    details = lo.to_dict()
-                    pending_rungs = [r for r in lo.rungs if r.status == 'PENDING' and r.rung_type == 'TAKE_PROFIT']
+                    pending_rungs = [r for r in lo.rungs if r.status == 'PENDING']
                     next_rung = pending_rungs[0] if pending_rungs else None
-                    target_px = next_rung.target_price if next_rung else 0.0
+                    target_px = next_rung.target_price if next_rung else (lo.upside_target_price or lo.downside_target_price or 0.0)
+                    rem_qty = float(details.get('remaining_quantity', lo.total_quantity) or 0.0)
+                    tot_qty = float(lo.total_quantity or 1.0)
+                    if lo.total_budget_usd:
+                        rem_budget = float(lo.total_budget_usd) * (rem_qty / tot_qty)
+                    else:
+                        rem_budget = rem_qty * target_px
                     pending_orders.append({
                         'order_id': f"ladder_{lo.id}",
                         'symbol': sym,
@@ -1032,7 +1037,7 @@ def api_pending_orders():
                         'quantity': details['remaining_quantity'],
                         'synthetic_details': details,
                         'account_id': lo.account_id,
-                        'quantity_usdt': lo.total_budget_usd or (lo.total_quantity * target_px),
+                        'quantity_usdt': rem_budget,
                         'status': lo.status,
                         'direction': 'rises to' if lo.side == 'SELL' else 'drops to',
                         'is_ladder': True,
@@ -3376,6 +3381,41 @@ def place_real_order():
             if not valid:
                 return jsonify({'success': False, 'error': collar_err}), 400
 
+        # Validate that pending synthetic orders do not tie up all available funds (unless replacing)
+        if not replacing_order_id:
+            try:
+                from services.synthetic_execution_service import get_synthetic_locked_funds
+                if side == 'SELL':
+                    base_asset = next((symbol[:-len(q)] for q in ('USDT', 'USDC', 'USD') if symbol.endswith(q)), symbol)
+                    synth_locked_base = get_synthetic_locked_funds(current_user.id, symbol, 'SELL', broker='binance', test_mode=False)
+                    if synth_locked_base > 0:
+                        account = client.get_account()
+                        balances = {balance['asset']: _coerce_float(balance.get('free'), 0.0) or 0.0 for balance in account.get('balances', [])}
+                        available_base = balances.get(base_asset, 0.0)
+                        usable_base = max(0.0, available_base - synth_locked_base)
+                        if usable_base <= 0 or (formatted_quantity - usable_base) > 1e-8:
+                            return jsonify({
+                                'success': False,
+                                'error': 'Pending synthetic order ties up all available funds. Replace the existing order instead.'
+                            }), 400
+                elif side == 'BUY':
+                    synth_locked_quote = get_synthetic_locked_funds(current_user.id, symbol, 'BUY', broker='binance', test_mode=False)
+                    if synth_locked_quote > 0:
+                        quote_asset = 'USDT' if symbol.endswith('USDT') else 'USD' if symbol.endswith('USD') else 'USDT'
+                        ref_price = formatted_price if formatted_price > 0 else current_price
+                        requested_quote = quote_amount if (order_type == 'MARKET' and has_quote) else formatted_quantity * ref_price
+                        account = client.get_account()
+                        balances = {balance['asset']: _coerce_float(balance.get('free'), 0.0) or 0.0 for balance in account.get('balances', [])}
+                        available_quote = balances.get(quote_asset, 0.0)
+                        usable_quote = max(0.0, available_quote - synth_locked_quote)
+                        if usable_quote <= 0 or (requested_quote - usable_quote) > 1e-8:
+                            return jsonify({
+                                'success': False,
+                                'error': 'Pending synthetic order ties up all available funds. Replace the existing order instead.'
+                            }), 400
+            except Exception as synth_chk_err:
+                logger.warning(f"Error checking synthetic locked balances in place_real_order: {synth_chk_err}")
+
         # Reserve the exchange fee before submitting real buy orders. Binance.US charges
         # this fee in the quote asset, so a 100% quote balance order would otherwise fail.
         if side == 'BUY':
@@ -3393,6 +3433,10 @@ def place_real_order():
                     account = client.get_account()
                     balances = {balance['asset']: _coerce_float(balance.get('free'), 0.0) or 0.0 for balance in account.get('balances', [])}
                     available_quote = balances.get(quote_asset, 0.0)
+                    if not replacing_order_id:
+                        from services.synthetic_execution_service import get_synthetic_locked_funds
+                        synth_locked_quote = get_synthetic_locked_funds(current_user.id, symbol, 'BUY', broker='binance', test_mode=False)
+                        available_quote = max(0.0, available_quote - synth_locked_quote)
                     max_spendable_quote = available_quote / (1 + fee_reserve_rate)
                     requested_quote = quote_amount if order_type == 'MARKET' and has_quote else formatted_quantity * reference_price
 
@@ -3674,6 +3718,18 @@ def api_create_trailing_order():
 
         replaced_order_id = _cancel_replaced_synthetic_order(data, current_user.id, test_mode)
 
+        if not replaced_order_id:
+            from services.synthetic_execution_service import check_synthetic_order_capacity
+            check_synthetic_order_capacity(
+                user_id=current_user.id,
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                broker=broker,
+                test_mode=test_mode,
+                account_id=account_id
+            )
+
         order_dict = create_trailing_order(
             user_id=current_user.id,
             symbol=symbol,
@@ -3776,6 +3832,18 @@ def api_create_ladder_order():
         downside_rungs = data.get('downside_rungs')
 
         replaced_order_id = _cancel_replaced_synthetic_order(data, current_user.id, test_mode)
+
+        if not replaced_order_id:
+            from services.synthetic_execution_service import check_synthetic_order_capacity
+            check_synthetic_order_capacity(
+                user_id=current_user.id,
+                symbol=symbol,
+                side=side,
+                quantity=total_quantity,
+                broker=broker,
+                test_mode=test_mode,
+                account_id=account_id
+            )
 
         ladder_dict = create_ladder_order(
             user_id=current_user.id,
@@ -4145,17 +4213,30 @@ def get_trading_balances(symbol):
             except Exception as res_err:
                 logger.error(f"Error computing auto-buy reservations: {res_err}")
 
-            quote_usable = max(0.0, round(quote_free - quote_reserved, 2))
+            base_reserved_synthetic = 0.0
+            quote_reserved_synthetic = 0.0
+            try:
+                from services.synthetic_execution_service import get_synthetic_locked_funds
+                base_reserved_synthetic = get_synthetic_locked_funds(current_user.id, symbol, 'SELL', broker='binance', test_mode=False)
+                quote_reserved_synthetic = get_synthetic_locked_funds(current_user.id, symbol, 'BUY', broker='binance', test_mode=False)
+            except Exception as synth_calc_err:
+                logger.warning(f"Error computing synthetic reserved balances: {synth_calc_err}")
+
+            base_usable = max(0.0, round(base_free - base_reserved_synthetic, 8))
+            quote_usable = max(0.0, round(quote_free - quote_reserved - quote_reserved_synthetic, 2))
 
             return jsonify({
                 'success': True,
                 'balances': {
                     'base': base_free,
+                    'base_usable': base_usable,
+                    'base_reserved_synthetic': base_reserved_synthetic,
                     'base_locked': base_locked,
                     'base_total': base_free + base_locked,
                     'quote': quote_free,
                     'quote_usable': quote_usable,
                     'quote_reserved_auto_buy': quote_reserved,
+                    'quote_reserved_synthetic': quote_reserved_synthetic,
                     'quote_reservations': reservations,
                     'quote_locked': quote_locked,
                     'quote_total': quote_free + quote_locked,

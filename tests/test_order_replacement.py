@@ -165,6 +165,54 @@ class OrderReplacementTests(unittest.TestCase):
         updated = LadderOrder.query.get(808)
         self.assertEqual(updated.status, 'CANCELLED')
 
+    def test_synthetic_locked_funds_calculation(self):
+        """Verify get_synthetic_locked_funds sums active synthetic orders for asset and side."""
+        from services.synthetic_execution_service import get_synthetic_locked_funds
+        ladder = LadderOrder(
+            id=901,
+            user_id=1,
+            symbol='BTCUSDT',
+            side='SELL',
+            total_quantity=0.00888,
+            status='ACTIVE',
+            broker='binance',
+            test_mode=False
+        )
+        db.session.add(ladder)
+        db.session.commit()
+
+        locked = get_synthetic_locked_funds(1, 'BTCUSDT', 'SELL', broker='binance', test_mode=False)
+        self.assertAlmostEqual(locked, 0.00888)
+
+        # Excluding this order (as in a replacement) yields 0
+        locked_excluded = get_synthetic_locked_funds(1, 'BTCUSDT', 'SELL', broker='binance', test_mode=False, exclude_order_id='ladder_901')
+        self.assertEqual(locked_excluded, 0.0)
+
+    def test_check_synthetic_order_capacity_blocks_when_funds_tied_up(self):
+        """Verify check_synthetic_order_capacity raises ValueError when synthetic orders tie up balance."""
+        from services.synthetic_execution_service import check_synthetic_order_capacity
+        ladder = LadderOrder(
+            id=902,
+            user_id=1,
+            symbol='BTCUSDT',
+            side='SELL',
+            total_quantity=0.00888,
+            status='ACTIVE',
+            broker='binance',
+            test_mode=False
+        )
+        db.session.add(ladder)
+        db.session.commit()
+
+        mock_client = Mock()
+        mock_client.get_account.return_value = {
+            'balances': [{'asset': 'BTC', 'free': '0.0089', 'locked': '0.0'}]
+        }
+        with patch('services.synthetic_execution_service.binance_client', return_value=mock_client):
+            with self.assertRaises(ValueError) as ctx:
+                check_synthetic_order_capacity(1, 'BTCUSDT', 'SELL', 0.005, broker='binance', test_mode=False)
+            self.assertIn('Pending synthetic order ties up all available funds', str(ctx.exception))
+
 
 if __name__ == '__main__':
     unittest.main()
