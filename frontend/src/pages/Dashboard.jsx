@@ -734,7 +734,7 @@ function Dashboard({ isLightMode }) {
 
   const tradeQuoteMenuStyle = isMobile
     ? { display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 4px' }
-    : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 10001, display: 'flex', flexDirection: 'column', gap: 4, width: 220, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' };
+    : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 10001, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 260, width: 'max-content', maxWidth: 320, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' };
 
 
 
@@ -812,7 +812,7 @@ function Dashboard({ isLightMode }) {
   // 2. Reserved allocations in active Auto-Buy triggers for that quote currency
   const getQuoteBalance = (quote) => {
     const cleanQuote = (quote || '').toUpperCase();
-    const found = (portfolio || []).find(c => (c.symbol || '').toUpperCase() === cleanQuote);
+    const found = (portfolio || []).find(c => (c.symbol || '').toUpperCase() === cleanQuote && !isWebullAsset(c));
     const rawBal = found ? Math.max(0, Number(found.amount ?? found.current_value ?? 0)) : 0.0;
     if (rawBal <= 0) return 0.0;
 
@@ -868,6 +868,20 @@ function Dashboard({ isLightMode }) {
     });
 
     return Math.max(0, rawBal - lockedInBuyOrders - reservedInAutoBuys);
+  };
+
+  const getWebullCashBalance = () => {
+    const webullCashHoldings = (portfolio || []).filter(c =>
+      isWebullAsset(c) && ((c.symbol || '').toUpperCase() === 'USD' || isNonTradableWebullCashAsset(c))
+    );
+    if (webullCashHoldings.length > 0) {
+      return webullCashHoldings.reduce((sum, c) => sum + Math.max(0, Number(c.amount ?? c.current_value ?? 0)), 0);
+    }
+    const hasWebullAssets = (portfolio || []).some(c => isWebullAsset(c));
+    if (!hasWebullAssets && Number(accountTotals?.webull ?? 0) > 0) {
+      return Number(accountTotals.webull);
+    }
+    return 0.0;
   };
 
   // Helper to determine Buy eligibility based on pair availability and minimum $1.00 balance
@@ -1099,9 +1113,23 @@ function Dashboard({ isLightMode }) {
       ? event.currentTarget.getBoundingClientRect()
       : null;
     const isContextSubmenu = !!event?.currentTarget?.closest?.('.desktop-actions-context-menu');
-    const submenuWidth = 220;
-    const submenuItems = (hasUsdPair(key) ? 2 : 0) + (hasUsdtPair(key) ? 2 : 0);
-    const submenuHeight = Math.max(52, submenuItems * 40 + 12);
+    const submenuWidth = 270;
+    const isWatchlist = type === 'watchlist';
+    const coin = isWatchlist
+      ? (watchlist || []).find(w => w.symbol === key)
+      : (portfolio || []).find(c => c.symbol === key);
+    const isTraditional = isTraditionalAsset(coin);
+    let submenuItems = 4;
+    if (side === 'BUY') {
+      if (isWatchlist) {
+        submenuItems = isTraditional ? 2 : 8;
+      } else {
+        submenuItems = (hasUsdPair(key) ? 2 : 0) + (hasUsdtPair(key) ? 2 : 0);
+      }
+    } else {
+      submenuItems = (hasUsdPair(key) ? 2 : 0) + (hasUsdtPair(key) ? 2 : 0);
+    }
+    const submenuHeight = Math.max(52, submenuItems * 38 + 16);
     let submenuPosition = null;
     if (buttonRect) {
       if (isContextSubmenu) {
@@ -1383,19 +1411,50 @@ function Dashboard({ isLightMode }) {
     const { key: symbol, side, type } = openTradeQuoteMenu;
     const isBuy = side === 'BUY';
     const isUsdt = symbol === 'USDT';
-    const coin = type === 'watchlist'
+    const isWatchlist = type === 'watchlist';
+    const coin = isWatchlist
       ? (watchlist || []).find(w => w.symbol === symbol)
       : (portfolio || []).find(c => c.symbol === symbol);
+    const isTraditional = isTraditionalAsset(coin);
     const showUsd = hasUsdPair(symbol);
     const showUsdt = hasUsdtPair(symbol);
     const buyEligibility = isBuy ? getBuyEligibility(symbol) : null;
+    const webullCash = getWebullCashBalance();
+    const canBuyWebullUsd = webullCash >= 1.00;
 
     return createPortal(
       <div className="trade-quote-menu" style={tradeQuoteMenuStyle} role="menu" aria-label={`${isBuy ? 'Buy' : 'Sell'} ${symbol}`}>
         {isBuy ? (
-          <>
-            {showUsd && (
+          isWatchlist ? (
+            isTraditional ? (
               <>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    if (canBuyWebullUsd) {
+                      navigateToWebullInstrument(coin, 'BUY');
+                      closeTradeQuoteMenu();
+                      closeActionMenu();
+                    }
+                  }}
+                  disabled={!canBuyWebullUsd}
+                  title={!canBuyWebullUsd ? `Insufficient Webull USD balance ($${webullCash.toFixed(2)} / min $1.00)` : undefined}
+                  style={!canBuyWebullUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                >
+                  Buy with USD (Webull)
+                </button>
+                <button
+                  role="menuitem"
+                  disabled={true}
+                  title="Webull does not support automated Auto-Buy triggers"
+                  style={{ opacity: 0.4, cursor: 'not-allowed' }}
+                >
+                  Trigger Auto-Buy (USD - Webull)
+                </button>
+              </>
+            ) : (
+              <>
+                {/* 1. Buy with USD (Binance) */}
                 <button
                   role="menuitem"
                   onClick={() => {
@@ -1406,11 +1465,13 @@ function Dashboard({ isLightMode }) {
                     }
                   }}
                   disabled={!buyEligibility?.canBuyUsd}
-                  title={!buyEligibility?.canBuyUsd ? `Insufficient USD balance ($${(buyEligibility?.usdBalance ?? 0).toFixed(2)} / min $1.00)` : undefined}
+                  title={!showUsd ? `No Binance USD trading pair available for ${symbol}` : (!buyEligibility?.canBuyUsd ? `Insufficient USD balance ($${(buyEligibility?.usdBalance ?? 0).toFixed(2)} / min $1.00)` : undefined)}
                   style={!buyEligibility?.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                 >
-                  Buy with USD
+                  Buy with USD (Binance)
                 </button>
+
+                {/* 2. Trigger Auto-Buy (USD - Binance) */}
                 <button
                   role="menuitem"
                   onClick={() => {
@@ -1421,15 +1482,13 @@ function Dashboard({ isLightMode }) {
                     }
                   }}
                   disabled={!buyEligibility?.canBuyUsd}
-                  title={!buyEligibility?.canBuyUsd ? `Insufficient USD balance ($${(buyEligibility?.usdBalance ?? 0).toFixed(2)} / min $1.00)` : undefined}
+                  title={!showUsd ? `No Binance USD trading pair available for ${symbol}` : (!buyEligibility?.canBuyUsd ? `Insufficient USD balance ($${(buyEligibility?.usdBalance ?? 0).toFixed(2)} / min $1.00)` : undefined)}
                   style={!buyEligibility?.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                 >
-                  Trigger Auto-Buy (USD)
+                  Trigger Auto-Buy (USD - Binance)
                 </button>
-              </>
-            )}
-            {showUsdt && (
-              <>
+
+                {/* 3. Buy with USDT (Binance) */}
                 <button
                   role="menuitem"
                   onClick={() => {
@@ -1440,11 +1499,13 @@ function Dashboard({ isLightMode }) {
                     }
                   }}
                   disabled={!buyEligibility?.canBuyUsdt}
-                  title={isUsdt ? 'Cannot purchase USDT with USDT' : (!buyEligibility?.canBuyUsdt ? `Insufficient USDT balance ($${(buyEligibility?.usdtBalance ?? 0).toFixed(2)} / min $1.00)` : undefined)}
+                  title={isUsdt ? 'Cannot purchase USDT with USDT' : (!showUsdt ? `No Binance USDT trading pair available for ${symbol}` : (!buyEligibility?.canBuyUsdt ? `Insufficient USDT balance ($${(buyEligibility?.usdtBalance ?? 0).toFixed(2)} / min $1.00)` : undefined))}
                   style={!buyEligibility?.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                 >
-                  Buy with USDT
+                  Buy with USDT (Binance)
                 </button>
+
+                {/* 4. Trigger Auto-Buy (USDT - Binance) */}
                 <button
                   role="menuitem"
                   onClick={() => {
@@ -1455,14 +1516,135 @@ function Dashboard({ isLightMode }) {
                     }
                   }}
                   disabled={!buyEligibility?.canBuyUsdt}
-                  title={isUsdt ? 'Cannot auto-buy USDT with USDT' : (!buyEligibility?.canBuyUsdt ? `Insufficient USDT balance ($${(buyEligibility?.usdtBalance ?? 0).toFixed(2)} / min $1.00)` : undefined)}
+                  title={isUsdt ? 'Cannot auto-buy USDT with USDT' : (!showUsdt ? `No Binance USDT trading pair available for ${symbol}` : (!buyEligibility?.canBuyUsdt ? `Insufficient USDT balance ($${(buyEligibility?.usdtBalance ?? 0).toFixed(2)} / min $1.00)` : undefined))}
                   style={!buyEligibility?.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                 >
-                  Trigger Auto-Buy (USDT)
+                  Trigger Auto-Buy (USDT - Binance)
+                </button>
+
+                {/* Platform divider */}
+                <div style={{ height: '1px', background: 'var(--border-color, rgba(255, 255, 255, 0.1))', margin: '4px 0' }} />
+
+                {/* 5. Buy with USD (Webull) */}
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    if (canBuyWebullUsd) {
+                      navigateToWebullTrading(symbol, 'BUY', null, { instrumentType: 'CRYPTO' });
+                      closeTradeQuoteMenu();
+                      closeActionMenu();
+                    }
+                  }}
+                  disabled={!canBuyWebullUsd}
+                  title={!canBuyWebullUsd ? `Insufficient Webull USD balance ($${webullCash.toFixed(2)} / min $1.00)` : undefined}
+                  style={!canBuyWebullUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                >
+                  Buy with USD (Webull)
+                </button>
+
+                {/* 6. Trigger Auto-Buy (USD - Webull) */}
+                <button
+                  role="menuitem"
+                  disabled={true}
+                  title="Webull does not support automated Auto-Buy triggers"
+                  style={{ opacity: 0.4, cursor: 'not-allowed' }}
+                >
+                  Trigger Auto-Buy (USD - Webull)
+                </button>
+
+                {/* 7. Buy with USDT (Webull) */}
+                <button
+                  role="menuitem"
+                  disabled={true}
+                  title="Webull does not support USDT trading pairs"
+                  style={{ opacity: 0.4, cursor: 'not-allowed' }}
+                >
+                  Buy with USDT (Webull)
+                </button>
+
+                {/* 8. Trigger Auto-Buy (USDT - Webull) */}
+                <button
+                  role="menuitem"
+                  disabled={true}
+                  title="Webull does not support USDT trading pairs"
+                  style={{ opacity: 0.4, cursor: 'not-allowed' }}
+                >
+                  Trigger Auto-Buy (USDT - Webull)
                 </button>
               </>
-            )}
-          </>
+            )
+          ) : (
+            <>
+              {showUsd && (
+                <>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      if (buyEligibility?.canBuyUsd) {
+                        navigateToTrading(symbol, 'BUY', 'USD');
+                        closeTradeQuoteMenu();
+                        closeActionMenu();
+                      }
+                    }}
+                    disabled={!buyEligibility?.canBuyUsd}
+                    title={!buyEligibility?.canBuyUsd ? `Insufficient USD balance ($${(buyEligibility?.usdBalance ?? 0).toFixed(2)} / min $1.00)` : undefined}
+                    style={!buyEligibility?.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                  >
+                    Buy with USD
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      if (buyEligibility?.canBuyUsd) {
+                        handleTriggerAutoBuyClick(symbol, coin, 'USD', type);
+                        closeTradeQuoteMenu();
+                        closeActionMenu();
+                      }
+                    }}
+                    disabled={!buyEligibility?.canBuyUsd}
+                    title={!buyEligibility?.canBuyUsd ? `Insufficient USD balance ($${(buyEligibility?.usdBalance ?? 0).toFixed(2)} / min $1.00)` : undefined}
+                    style={!buyEligibility?.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                  >
+                    Trigger Auto-Buy (USD)
+                  </button>
+                </>
+              )}
+              {showUsdt && (
+                <>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      if (buyEligibility?.canBuyUsdt) {
+                        navigateToTrading(symbol, 'BUY', 'USDT');
+                        closeTradeQuoteMenu();
+                        closeActionMenu();
+                      }
+                    }}
+                    disabled={!buyEligibility?.canBuyUsdt}
+                    title={isUsdt ? 'Cannot purchase USDT with USDT' : (!buyEligibility?.canBuyUsdt ? `Insufficient USDT balance ($${(buyEligibility?.usdtBalance ?? 0).toFixed(2)} / min $1.00)` : undefined)}
+                    style={!buyEligibility?.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                  >
+                    Buy with USDT
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      if (buyEligibility?.canBuyUsdt) {
+                        handleTriggerAutoBuyClick(symbol, coin, 'USDT', type);
+                        closeTradeQuoteMenu();
+                        closeActionMenu();
+                      }
+                    }}
+                    disabled={!buyEligibility?.canBuyUsdt}
+                    title={isUsdt ? 'Cannot auto-buy USDT with USDT' : (!buyEligibility?.canBuyUsdt ? `Insufficient USDT balance ($${(buyEligibility?.usdtBalance ?? 0).toFixed(2)} / min $1.00)` : undefined)}
+                    style={!buyEligibility?.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                  >
+                    Trigger Auto-Buy (USDT)
+                  </button>
+                </>
+              )}
+            </>
+          )
         ) : (
           <>
             {showUsd && (
@@ -2939,48 +3121,167 @@ function Dashboard({ isLightMode }) {
             {(() => {
               const sym = isPortfolio ? coin.symbol : item.symbol;
               const target = isPortfolio ? coin : item;
-              if ((isWebullAsset(target) || target.asset_type === 'stock') && isNonTradableWebullCashAsset(target)) {
+              if (isPortfolio) {
+                if ((isWebullAsset(target) || target.asset_type === 'stock') && isNonTradableWebullCashAsset(target)) {
+                  return (
+                    <button
+                      onClick={() => {
+                        navigateToWebullInstrument(target, 'BUY');
+                        closeActionMenu();
+                      }}
+                    >
+                      Buy on Webull
+                    </button>
+                  );
+                }
+                if (isTradableWebullAsset(target)) {
+                  return (
+                    <button
+                      onClick={() => {
+                        navigateToWebullInstrument(target, 'BUY');
+                        closeActionMenu();
+                      }}
+                    >
+                      Buy on Webull
+                    </button>
+                  );
+                }
+                const buyElig = getBuyEligibility(sym);
                 return (
-                  <button
-                    onClick={() => {
-                      navigateToWebullInstrument(target, 'BUY');
-                      closeActionMenu();
-                    }}
-                  >
-                    Buy on Webull
-                  </button>
+                  <>
+                    <button
+                      onClick={(event) => {
+                        if (buyElig.canBuy) {
+                          toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event);
+                        }
+                      }}
+                      disabled={!buyElig.canBuy}
+                      title={buyElig.canBuy ? 'Buy' : (buyElig.reason || 'Insufficient balance to buy')}
+                      style={!buyElig.canBuy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                    >
+                      Buy
+                    </button>
+                    {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'BUY' && (
+                      <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
+                        {hasUsdPair(sym) && (
+                          <>
+                            <button
+                              onClick={() => {
+                                if (buyElig.canBuyUsd) {
+                                  navigateToTrading(sym, 'BUY', 'USD');
+                                  closeActionMenu();
+                                  closeTradeQuoteMenu();
+                                }
+                              }}
+                              disabled={!buyElig.canBuyUsd}
+                              title={!buyElig.canBuyUsd ? `Insufficient USD balance ($${buyElig.usdBalance.toFixed(2)} / min $1.00)` : undefined}
+                              style={!buyElig.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                            >
+                              Buy with USD
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (buyElig.canBuyUsd) {
+                                  handleTriggerAutoBuyClick(sym, coin, 'USD', openActionMenu.type);
+                                  closeActionMenu();
+                                  closeTradeQuoteMenu();
+                                }
+                              }}
+                              disabled={!buyElig.canBuyUsd}
+                              title={!buyElig.canBuyUsd ? `Insufficient USD balance ($${buyElig.usdBalance.toFixed(2)} / min $1.00)` : undefined}
+                              style={!buyElig.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                            >
+                              Trigger Auto-Buy (USD)
+                            </button>
+                          </>
+                        )}
+                        {hasUsdtPair(sym) && (
+                          <>
+                            <button
+                              onClick={() => {
+                                if (buyElig.canBuyUsdt) {
+                                  navigateToTrading(sym, 'BUY', 'USDT');
+                                  closeActionMenu();
+                                  closeTradeQuoteMenu();
+                                }
+                              }}
+                              disabled={!buyElig.canBuyUsdt}
+                              title={sym === 'USDT' ? 'Cannot purchase USDT with USDT' : (!buyElig.canBuyUsdt ? `Insufficient USDT balance ($${buyElig.usdtBalance.toFixed(2)} / min $1.00)` : undefined)}
+                              style={!buyElig.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                            >
+                              Buy with USDT
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (buyElig.canBuyUsdt) {
+                                  handleTriggerAutoBuyClick(sym, coin, 'USDT', openActionMenu.type);
+                                  closeActionMenu();
+                                  closeTradeQuoteMenu();
+                                }
+                              }}
+                              disabled={!buyElig.canBuyUsdt}
+                              title={sym === 'USDT' ? 'Cannot auto-buy USDT with USDT' : (!buyElig.canBuyUsdt ? `Insufficient USDT balance ($${buyElig.usdtBalance.toFixed(2)} / min $1.00)` : undefined)}
+                              style={!buyElig.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                            >
+                              Trigger Auto-Buy (USDT)
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </>
                 );
               }
-              if (isTradableWebullAsset(target)) {
-                return (
-                  <button
-                    onClick={() => {
-                      navigateToWebullInstrument(target, 'BUY');
-                      closeActionMenu();
-                    }}
-                  >
-                    Buy on Webull
-                  </button>
-                );
-              }
+
+              // Watchlist items (both stocks and crypto)
+              const isTraditional = isTraditionalAsset(target);
+              const webullCash = getWebullCashBalance();
+              const canBuyWebullUsd = webullCash >= 1.00;
               const buyElig = getBuyEligibility(sym);
+              const canBuy = isTraditional ? canBuyWebullUsd : (buyElig.canBuy || canBuyWebullUsd);
+              const isMenuOpen = openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'BUY';
+
               return (
                 <>
                   <button
                     onClick={(event) => {
-                      if (buyElig.canBuy) {
+                      if (canBuy) {
                         toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event);
                       }
                     }}
-                    disabled={!buyElig.canBuy}
-                    title={buyElig.canBuy ? 'Buy' : (buyElig.reason || 'Insufficient balance to buy')}
-                    style={!buyElig.canBuy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                    disabled={!canBuy}
+                    title={canBuy ? 'Buy' : (isTraditional ? `Insufficient Webull USD cash balance ($${webullCash.toFixed(2)} / min $1.00)` : 'Insufficient balance on Binance and Webull (min $1.00)')}
+                    style={!canBuy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                   >
                     Buy
                   </button>
-                  {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'BUY' && (
+                  {isMenuOpen && (
                     <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
-                      {hasUsdPair(sym) && (
+                      {isTraditional ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              if (canBuyWebullUsd) {
+                                navigateToWebullInstrument(target, 'BUY');
+                                closeActionMenu();
+                                closeTradeQuoteMenu();
+                              }
+                            }}
+                            disabled={!canBuyWebullUsd}
+                            title={!canBuyWebullUsd ? `Insufficient Webull USD balance ($${webullCash.toFixed(2)} / min $1.00)` : undefined}
+                            style={!canBuyWebullUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                          >
+                            Buy with USD (Webull)
+                          </button>
+                          <button
+                            disabled={true}
+                            title="Webull does not support automated Auto-Buy triggers"
+                            style={{ opacity: 0.4, cursor: 'not-allowed' }}
+                          >
+                            Trigger Auto-Buy (USD - Webull)
+                          </button>
+                        </>
+                      ) : (
                         <>
                           <button
                             onClick={() => {
@@ -2991,29 +3292,25 @@ function Dashboard({ isLightMode }) {
                               }
                             }}
                             disabled={!buyElig.canBuyUsd}
-                            title={!buyElig.canBuyUsd ? `Insufficient USD balance ($${buyElig.usdBalance.toFixed(2)} / min $1.00)` : undefined}
+                            title={!hasUsdPair(sym) ? `No Binance USD trading pair available for ${sym}` : (!buyElig.canBuyUsd ? `Insufficient USD balance ($${buyElig.usdBalance.toFixed(2)} / min $1.00)` : undefined)}
                             style={!buyElig.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                           >
-                            Buy with USD
+                            Buy with USD (Binance)
                           </button>
                           <button
                             onClick={() => {
                               if (buyElig.canBuyUsd) {
-                                handleTriggerAutoBuyClick(sym, isPortfolio ? coin : item, 'USD', openActionMenu.type);
+                                handleTriggerAutoBuyClick(sym, target, 'USD', openActionMenu.type);
                                 closeActionMenu();
                                 closeTradeQuoteMenu();
                               }
                             }}
                             disabled={!buyElig.canBuyUsd}
-                            title={!buyElig.canBuyUsd ? `Insufficient USD balance ($${buyElig.usdBalance.toFixed(2)} / min $1.00)` : undefined}
+                            title={!hasUsdPair(sym) ? `No Binance USD trading pair available for ${sym}` : (!buyElig.canBuyUsd ? `Insufficient USD balance ($${buyElig.usdBalance.toFixed(2)} / min $1.00)` : undefined)}
                             style={!buyElig.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                           >
-                            Trigger Auto-Buy (USD)
+                            Trigger Auto-Buy (USD - Binance)
                           </button>
-                        </>
-                      )}
-                      {hasUsdtPair(sym) && (
-                        <>
                           <button
                             onClick={() => {
                               if (buyElig.canBuyUsdt) {
@@ -3023,24 +3320,60 @@ function Dashboard({ isLightMode }) {
                               }
                             }}
                             disabled={!buyElig.canBuyUsdt}
-                            title={sym === 'USDT' ? 'Cannot purchase USDT with USDT' : (!buyElig.canBuyUsdt ? `Insufficient USDT balance ($${buyElig.usdtBalance.toFixed(2)} / min $1.00)` : undefined)}
+                            title={sym === 'USDT' ? 'Cannot purchase USDT with USDT' : (!hasUsdtPair(sym) ? `No Binance USDT trading pair available for ${sym}` : (!buyElig.canBuyUsdt ? `Insufficient USDT balance ($${buyElig.usdtBalance.toFixed(2)} / min $1.00)` : undefined))}
                             style={!buyElig.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                           >
-                            Buy with USDT
+                            Buy with USDT (Binance)
                           </button>
                           <button
                             onClick={() => {
                               if (buyElig.canBuyUsdt) {
-                                handleTriggerAutoBuyClick(sym, isPortfolio ? coin : item, 'USDT', openActionMenu.type);
+                                handleTriggerAutoBuyClick(sym, target, 'USDT', openActionMenu.type);
                                 closeActionMenu();
                                 closeTradeQuoteMenu();
                               }
                             }}
                             disabled={!buyElig.canBuyUsdt}
-                            title={sym === 'USDT' ? 'Cannot auto-buy USDT with USDT' : (!buyElig.canBuyUsdt ? `Insufficient USDT balance ($${buyElig.usdtBalance.toFixed(2)} / min $1.00)` : undefined)}
+                            title={sym === 'USDT' ? 'Cannot auto-buy USDT with USDT' : (!hasUsdtPair(sym) ? `No Binance USDT trading pair available for ${sym}` : (!buyElig.canBuyUsdt ? `Insufficient USDT balance ($${buyElig.usdtBalance.toFixed(2)} / min $1.00)` : undefined))}
                             style={!buyElig.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                           >
-                            Trigger Auto-Buy (USDT)
+                            Trigger Auto-Buy (USDT - Binance)
+                          </button>
+                          <div style={{ height: '1px', background: 'var(--border-color, rgba(255, 255, 255, 0.1))', margin: '4px 0' }} />
+                          <button
+                            onClick={() => {
+                              if (canBuyWebullUsd) {
+                                navigateToWebullTrading(sym, 'BUY', null, { instrumentType: 'CRYPTO' });
+                                closeActionMenu();
+                                closeTradeQuoteMenu();
+                              }
+                            }}
+                            disabled={!canBuyWebullUsd}
+                            title={!canBuyWebullUsd ? `Insufficient Webull USD balance ($${webullCash.toFixed(2)} / min $1.00)` : undefined}
+                            style={!canBuyWebullUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                          >
+                            Buy with USD (Webull)
+                          </button>
+                          <button
+                            disabled={true}
+                            title="Webull does not support automated Auto-Buy triggers"
+                            style={{ opacity: 0.4, cursor: 'not-allowed' }}
+                          >
+                            Trigger Auto-Buy (USD - Webull)
+                          </button>
+                          <button
+                            disabled={true}
+                            title="Webull does not support USDT trading pairs"
+                            style={{ opacity: 0.4, cursor: 'not-allowed' }}
+                          >
+                            Buy with USDT (Webull)
+                          </button>
+                          <button
+                            disabled={true}
+                            title="Webull does not support USDT trading pairs"
+                            style={{ opacity: 0.4, cursor: 'not-allowed' }}
+                          >
+                            Trigger Auto-Buy (USDT - Webull)
                           </button>
                         </>
                       )}
@@ -3304,22 +3637,42 @@ function Dashboard({ isLightMode }) {
             <span>🟢</span>Buy on Webull
           </button>
         ) : isTradableWebullAsset(subject) ? (
-          <button
-            role="menuitem"
-            onClick={() => {
-              navigateToWebullInstrument(subject, 'BUY');
-              closeActionMenu();
-            }}
-          >
-            <span>🟢</span>Buy on Webull
-          </button>
+          openActionMenu.type === 'watchlist' ? (
+            <button
+              className="trade-action-btn desktop-actions-context-menu__submenu-trigger"
+              role="menuitem"
+              onClick={(event) => {
+                const webullCash = getWebullCashBalance();
+                if (webullCash >= 1.00) toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event);
+              }}
+              disabled={getWebullCashBalance() < 1.00}
+              title={getWebullCashBalance() >= 1.00 ? 'Buy' : `Insufficient Webull USD balance ($${getWebullCashBalance().toFixed(2)} / min $1.00)`}
+            >
+              <span>🟢</span>Buy<span className="desktop-actions-context-menu__chevron">›</span>
+            </button>
+          ) : (
+            <button
+              role="menuitem"
+              onClick={() => {
+                navigateToWebullInstrument(subject, 'BUY');
+                closeActionMenu();
+              }}
+            >
+              <span>🟢</span>Buy on Webull
+            </button>
+          )
         ) : (
           <button
             className="trade-action-btn desktop-actions-context-menu__submenu-trigger"
             role="menuitem"
-            onClick={(event) => buyEligibility.canBuy && toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event)}
-            disabled={!buyEligibility.canBuy}
-            title={buyEligibility.canBuy ? 'Buy' : (buyEligibility.reason || 'Insufficient balance to buy')}
+            onClick={(event) => {
+              const canBuy = openActionMenu.type === 'watchlist'
+                ? (buyEligibility.canBuy || getWebullCashBalance() >= 1.00)
+                : buyEligibility.canBuy;
+              if (canBuy) toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event);
+            }}
+            disabled={openActionMenu.type === 'watchlist' ? !(buyEligibility.canBuy || getWebullCashBalance() >= 1.00) : !buyEligibility.canBuy}
+            title={buyEligibility.canBuy || (openActionMenu.type === 'watchlist' && getWebullCashBalance() >= 1.00) ? 'Buy' : (buyEligibility.reason || 'Insufficient balance to buy')}
           >
             <span>🟢</span>Buy<span className="desktop-actions-context-menu__chevron">›</span>
           </button>
@@ -5831,34 +6184,32 @@ function Dashboard({ isLightMode }) {
                                             <button
                                               type="button"
                                               className="trade-action-btn buy"
-                                              onClick={() => navigateToWebullInstrument(item, 'BUY')}
-                                              title={`Trade on Webull with Cash`}
+                                              disabled={true}
+                                              title="Cannot purchase fiat cash"
+                                              style={{ opacity: 0.4, cursor: 'not-allowed' }}
                                             >
                                               Buy
                                             </button>
                                           );
                                         }
-                                        if (isTradableWebullAsset(item)) {
-                                          return (
-                                            <button
-                                              type="button"
-                                              className="trade-action-btn buy"
-                                              onClick={() => navigateToWebullInstrument(item, 'BUY')}
-                                              title={`Buy ${item.symbol} on Webull`}
-                                            >
-                                              Buy
-                                            </button>
-                                          );
-                                        }
+                                        const isTraditional = isTraditionalAsset(item);
+                                        const webullCash = getWebullCashBalance();
+                                        const canBuyWebullUsd = webullCash >= 1.00;
                                         const buyElig = getBuyEligibility(item.symbol);
+                                        const canBuy = isTraditional ? canBuyWebullUsd : (buyElig.canBuy || canBuyWebullUsd);
+                                        const buyTitle = canBuy
+                                          ? 'Buy'
+                                          : (isTraditional
+                                              ? `Insufficient Webull USD cash balance ($${webullCash.toFixed(2)} / min $1.00)`
+                                              : 'Insufficient balance on Binance and Webull (min $1.00)');
                                         return (
                                           <button
                                             type="button"
                                             className="trade-action-btn buy"
-                                            onClick={(event) => buyElig.canBuy && toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
-                                            disabled={!buyElig.canBuy}
-                                            title={buyElig.canBuy ? 'Buy' : (buyElig.reason || 'Insufficient balance to buy')}
-                                            style={!buyElig.canBuy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                            onClick={(event) => canBuy && toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
+                                            disabled={!canBuy}
+                                            title={buyTitle}
+                                            style={!canBuy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                                           >
                                             Buy
                                           </button>

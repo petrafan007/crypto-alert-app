@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.7.4
+**Version:** 4.8.0
 
 ## Recent Updates
+
+### v4.8.0
+* **Revamped Watchlist & Context "Buy" Menus with Grouped Platform Sorting:** Redesigned the trade quote options menu across Watchlist row action buttons, the Actions dropdown context menus, and mobile bottom sheets. Options are organized strictly by platform: all Binance trading options appear first, followed by a visual divider and all Webull options second.
+* **Full Multi-Platform Crypto Trading & Auto-Buy Coverage:** Watchlist crypto assets present comprehensive 8-option execution coverage: Buy with USD (Binance), Trigger Auto-Buy (USD - Binance), Buy with USDT (Binance), Trigger Auto-Buy (USDT - Binance), Buy with USD (Webull), and disabled/informative options for Webull Auto-Buy triggers and USDT trading pairs.
+* **Context-Aware Securities & Stock Action Filtering:** For traditional stocks and ETFs, the menu cleanly filters out crypto-only Binance options and presents relevant Webull USD cash trading actions with clear balance gating and tooltips.
+* **Strict Balance & Platform Isolation:** Improved cash accounting to cleanly isolate Binance USD and USDT balances from Webull cash balances (`getWebullCashBalance`), with dynamic enable/disable states and explanatory tooltips when balances are below the $1.00 minimum or pairs are unsupported.
 
 ### v4.7.4
 * **Eliminated Sentiment Errors & Enforced Resilient Fallback:** Fully restored generative AI fallback across all Jev sentiment evaluations. When Jev evaluation abstains, times out, or encounters provider rate limits/conflicts, analysis seamlessly falls back to the configured multi-tier generative AI pipeline instead of halting with unhandled exceptions.
