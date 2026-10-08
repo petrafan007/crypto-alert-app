@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.8.1
+**Version:** 4.8.2
 
 ## Recent Updates
+
+### v4.8.2
+* **Restored Synthetic Order Pending Highlights & Tooltips:** Fixed an unassigned reference in the pending orders endpoint when formatting active synthetic ladder orders, ensuring assets with active smart bracket ladders or trailing stops immediately display the pending order yellow row highlight and detailed strategy tooltip.
+* **Full Synthetic Protection Verification:** Confirmed active and partially-filled synthetic ladder orders properly convey remaining quantities and trigger thresholds to the dashboard portfolio view.
 
 ### v4.8.1
 * **Disallow Sell and Buy When Synthetic Orders Tie Up Funds:** Prohibited placing new Sell or Buy orders when active pending synthetic orders (e.g. Smart Bracket Ladders or Trailing Stops) tie up all available funds for that asset or side.

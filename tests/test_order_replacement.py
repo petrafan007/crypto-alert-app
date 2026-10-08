@@ -213,6 +213,87 @@ class OrderReplacementTests(unittest.TestCase):
                 check_synthetic_order_capacity(1, 'BTCUSDT', 'SELL', 0.005, broker='binance', test_mode=False)
             self.assertIn('Pending synthetic order ties up all available funds', str(ctx.exception))
 
+    def test_synthetic_ladder_pending_orders_formatting(self):
+        """Verify active LadderOrder converts to dictionary and formats into pending_orders payload."""
+        from services.synthetic_execution_service import WORKING_PARENTS
+        ladder = LadderOrder(
+            id=903,
+            user_id=1,
+            symbol='BTCUSDT',
+            side='SELL',
+            total_quantity=0.01331,
+            status='PARTIALLY_FILLED',
+            broker='binance',
+            test_mode=False,
+            engine_version=2
+        )
+        db.session.add(ladder)
+        db.session.flush()
+
+        rung1 = LadderRung(
+            ladder_id=ladder.id,
+            rung_number=1,
+            rung_type='TAKE_PROFIT',
+            target_price=87337.16,
+            quantity=0.00332,
+            status='PENDING'
+        )
+        db.session.add(rung1)
+        db.session.commit()
+
+        active_ladders = LadderOrder.query.filter(
+            LadderOrder.user_id == 1,
+            LadderOrder.status.in_(WORKING_PARENTS),
+            LadderOrder.test_mode.is_(False)
+        ).all()
+
+        pending_orders = []
+        for lo in active_ladders:
+            sym = lo.symbol.upper()
+            base_asset = next((sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if sym.endswith(q)), sym)
+            details = lo.to_dict()
+            pending_rungs = [r for r in lo.rungs if r.status == 'PENDING']
+            next_rung = pending_rungs[0] if pending_rungs else None
+            target_px = next_rung.target_price if next_rung else (lo.upside_target_price or lo.downside_target_price or 0.0)
+            rem_qty = float((details.get('remaining_quantity') if details.get('remaining_quantity') is not None else lo.total_quantity) or 0.0)
+            tot_qty = float(lo.total_quantity or 1.0)
+            if lo.total_budget_usd:
+                rem_budget = float(lo.total_budget_usd) * (rem_qty / tot_qty)
+            else:
+                rem_budget = rem_qty * target_px
+            pending_orders.append({
+                'order_id': f"ladder_{lo.id}",
+                'symbol': sym,
+                'asset': base_asset,
+                'provider': lo.broker or 'binance',
+                'source': lo.broker or 'binance',
+                'side': lo.side,
+                'type': 'LADDER',
+                'price': target_px,
+                'trigger_price': target_px,
+                'quantity': details.get('remaining_quantity') if details.get('remaining_quantity') is not None else lo.total_quantity,
+                'synthetic_details': details,
+                'account_id': lo.account_id,
+                'quantity_usdt': rem_budget,
+                'status': lo.status,
+                'direction': 'rises to' if lo.side == 'SELL' else 'drops to',
+                'is_ladder': True,
+                'rungs_total': lo.rungs_total,
+                'rungs_filled': lo.rungs_filled,
+                'next_rung_number': next_rung.rung_number if next_rung else None,
+                'next_rung_price': target_px,
+                'next_rung_qty': next_rung.quantity if next_rung else None,
+            })
+
+        self.assertEqual(len(pending_orders), 1)
+        item = pending_orders[0]
+        self.assertEqual(item['order_id'], 'ladder_903')
+        self.assertEqual(item['symbol'], 'BTCUSDT')
+        self.assertEqual(item['asset'], 'BTC')
+        self.assertEqual(item['status'], 'PARTIALLY_FILLED')
+        self.assertIn('synthetic_details', item)
+        self.assertEqual(item['synthetic_details']['id'], 903)
+
 
 if __name__ == '__main__':
     unittest.main()

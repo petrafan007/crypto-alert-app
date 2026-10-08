@@ -1015,10 +1015,11 @@ def api_pending_orders():
                 for lo in active_ladders:
                     sym = lo.symbol.upper()
                     base_asset = next((sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if sym.endswith(q)), sym)
+                    details = lo.to_dict()
                     pending_rungs = [r for r in lo.rungs if r.status == 'PENDING']
                     next_rung = pending_rungs[0] if pending_rungs else None
                     target_px = next_rung.target_price if next_rung else (lo.upside_target_price or lo.downside_target_price or 0.0)
-                    rem_qty = float(details.get('remaining_quantity', lo.total_quantity) or 0.0)
+                    rem_qty = float((details.get('remaining_quantity') if details.get('remaining_quantity') is not None else lo.total_quantity) or 0.0)
                     tot_qty = float(lo.total_quantity or 1.0)
                     if lo.total_budget_usd:
                         rem_budget = float(lo.total_budget_usd) * (rem_qty / tot_qty)
@@ -1034,7 +1035,7 @@ def api_pending_orders():
                         'type': 'LADDER',
                         'price': target_px,
                         'trigger_price': target_px,
-                        'quantity': details['remaining_quantity'],
+                        'quantity': details.get('remaining_quantity') if details.get('remaining_quantity') is not None else lo.total_quantity,
                         'synthetic_details': details,
                         'account_id': lo.account_id,
                         'quantity_usdt': rem_budget,
