@@ -2033,7 +2033,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       const urlAccountId = urlParams.get('account_id')?.trim();
       const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
       const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
-      const urlReplaceOrderId = urlParams.get('replacing_order_id')?.trim();
+      const urlReplaceOrderId = urlParams.get('replacing_order_id')?.trim() || urlParams.get('replace_order_id')?.trim();
       const urlQuantity = urlParams.get('quantity')?.trim();
       const urlPrice = urlParams.get('price')?.trim();
       const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION', 'FUTURES', 'EVENT'].includes(urlInstrumentType) ? urlInstrumentType : null;
@@ -3169,13 +3169,24 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
   const heldQuantity = useMemo(
     () => {
       const baseHeld = nonNegativeNumber(currentHolding?.available_quantity ?? currentHolding?.amount);
-      if (isEmbeddedReplaceMode && orderForm.side === 'SELL') {
-        const orderQty = nonNegativeNumber(embeddedOrder?.quantity ?? embeddedOrder?.origQty ?? embeddedOrder?.amount);
-        return baseHeld > 0 ? baseHeld : orderQty;
+      if (orderForm.side === 'SELL') {
+        if (isEmbeddedReplaceMode && embeddedOrder) {
+          const orderQty = nonNegativeNumber(embeddedOrder?.quantity ?? embeddedOrder?.origQty ?? embeddedOrder?.amount);
+          return baseHeld > 0 ? (baseHeld + orderQty) : orderQty;
+        }
+        if (replacingOrderId) {
+          const repOrder = (openOrders || []).find(o => String(o.id || o.order_id || o.orderId) === String(replacingOrderId));
+          const repQty = repOrder
+            ? nonNegativeNumber(repOrder.quantity ?? repOrder.origQty ?? repOrder.amount)
+            : nonNegativeNumber(new URLSearchParams(window.location.search).get('quantity'));
+          if (repQty > 0) {
+            return baseHeld > 0 ? (baseHeld + repQty) : repQty;
+          }
+        }
       }
       return baseHeld;
     },
-    [currentHolding, isEmbeddedReplaceMode, embeddedOrder, orderForm.side]
+    [currentHolding, isEmbeddedReplaceMode, embeddedOrder, replacingOrderId, openOrders, orderForm.side]
   );
   const heldValue = useMemo(
     () => Math.abs(Number(currentHolding?.current_value ?? (heldQuantity * livePrice)) || 0),

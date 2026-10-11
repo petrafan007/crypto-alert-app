@@ -225,10 +225,10 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
 
   const replacingOrderBaseQty = useMemo(() => {
     if (!isReplaceMode) return 0;
-    const raw = activeReplacingOrder?.quantity ?? activeReplacingOrder?.origQty ?? activeReplacingOrder?.amount ?? 0;
+    const raw = activeReplacingOrder?.quantity ?? activeReplacingOrder?.origQty ?? activeReplacingOrder?.amount ?? (replacingOrderId ? new URLSearchParams(window.location.search).get('quantity') : 0) ?? 0;
     const val = parseFloat(raw);
     return Number.isFinite(val) && val > 0 ? val : 0;
-  }, [isReplaceMode, activeReplacingOrder]);
+  }, [isReplaceMode, activeReplacingOrder, replacingOrderId]);
 
   const replacingOrderQuoteQty = useMemo(() => {
     if (!isReplaceMode) return 0;
