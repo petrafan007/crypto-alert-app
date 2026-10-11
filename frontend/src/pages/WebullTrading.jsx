@@ -1243,6 +1243,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
           side: embeddedOrder.side?.toUpperCase() || 'BUY',
           type: embeddedOrder.type || embeddedOrder.order_type || 'LIMIT',
           price: embeddedOrder.price || embeddedOrder.trigger_price || '',
+          stopPrice: embeddedOrder.stopPrice || embeddedOrder.stop_price || embeddedOrder.trigger_price || '',
           quantity: embeddedOrder.quantity || embeddedOrder.origQty || embeddedOrder.amount || ''
         }));
       }
@@ -3166,8 +3167,15 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     [currentHolding]
   );
   const heldQuantity = useMemo(
-    () => nonNegativeNumber(currentHolding?.available_quantity ?? currentHolding?.amount),
-    [currentHolding]
+    () => {
+      const baseHeld = nonNegativeNumber(currentHolding?.available_quantity ?? currentHolding?.amount);
+      if (isEmbeddedReplaceMode && orderForm.side === 'SELL') {
+        const orderQty = nonNegativeNumber(embeddedOrder?.quantity ?? embeddedOrder?.origQty ?? embeddedOrder?.amount);
+        return baseHeld > 0 ? baseHeld : orderQty;
+      }
+      return baseHeld;
+    },
+    [currentHolding, isEmbeddedReplaceMode, embeddedOrder, orderForm.side]
   );
   const heldValue = useMemo(
     () => Math.abs(Number(currentHolding?.current_value ?? (heldQuantity * livePrice)) || 0),

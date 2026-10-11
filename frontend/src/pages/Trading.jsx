@@ -212,6 +212,35 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
   const [feeError, setFeeError] = useState('');
   const [openOrders, setOpenOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+
+  // Replace Mode and Existing Order Calculations
+  const isReplaceMode = Boolean(isEmbeddedReplaceMode || replacingOrderId);
+  const activeReplacingOrder = useMemo(() => {
+    if (isEmbeddedReplaceMode && embeddedOrder) return embeddedOrder;
+    if (replacingOrderId) {
+      return (openOrders || []).find(o => String(o.order_id || o.orderId || o.id) === String(replacingOrderId)) || null;
+    }
+    return null;
+  }, [isEmbeddedReplaceMode, embeddedOrder, replacingOrderId, openOrders]);
+
+  const replacingOrderBaseQty = useMemo(() => {
+    if (!isReplaceMode) return 0;
+    const raw = activeReplacingOrder?.quantity ?? activeReplacingOrder?.origQty ?? activeReplacingOrder?.amount ?? 0;
+    const val = parseFloat(raw);
+    return Number.isFinite(val) && val > 0 ? val : 0;
+  }, [isReplaceMode, activeReplacingOrder]);
+
+  const replacingOrderQuoteQty = useMemo(() => {
+    if (!isReplaceMode) return 0;
+    const rawQuote = activeReplacingOrder?.quantity_usdt ?? activeReplacingOrder?.quoteQuantity ?? activeReplacingOrder?.quote_amount;
+    const parsedQuote = parseFloat(rawQuote);
+    if (Number.isFinite(parsedQuote) && parsedQuote > 0) return parsedQuote;
+    const px = parseFloat(activeReplacingOrder?.price ?? activeReplacingOrder?.stop_price ?? activeReplacingOrder?.trigger_price ?? 0);
+    if (replacingOrderBaseQty > 0 && px > 0) {
+      return replacingOrderBaseQty * px;
+    }
+    return 0;
+  }, [isReplaceMode, activeReplacingOrder, replacingOrderBaseQty]);
   const [cancelModal, setCancelModal] = useState({
     isVisible: false,
     order: null,
@@ -293,6 +322,16 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
   const handleBaseQuantityChange = (value) => {
     lastEditedRef.current = 'base';
     setOrderForm((prev) => ({ ...prev, quantity: value }));
+
+    const targetBase = (isReplaceMode && replacingOrderBaseQty > 0)
+      ? replacingOrderBaseQty
+      : balances.base;
+    if (targetBase > 0 && parseFloat(value) > 0) {
+      const pct = Math.min(100, Math.round((parseFloat(value) / targetBase) * 100));
+      setBalancePercentage(pct);
+    } else if (!value) {
+      setBalancePercentage(0);
+    }
 
     if (!value) {
       setQuoteQuantity('');
@@ -805,14 +844,34 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
       const currentOrderId = embeddedOrder.orderId || embeddedOrder.clientOrderId || embeddedOrder.id || embeddedOrder.order_id || 'unknown';
       if (initializedEmbeddedOrderIdRef.current !== currentOrderId) {
         initializedEmbeddedOrderIdRef.current = currentOrderId;
+        const rawType = (embeddedOrder.type || embeddedOrder.order_type || 'LIMIT').toUpperCase();
+        const normType = rawType === 'STOP_LOSS_LIMIT' ? 'STOP_LOSS_LIMIT' :
+                         rawType === 'STOP_LOSS' ? 'STOP_LOSS' :
+                         rawType === 'TAKE_PROFIT' ? 'TAKE_PROFIT' :
+                         rawType === 'TAKE_PROFIT_LIMIT' ? 'TAKE_PROFIT_LIMIT' :
+                         rawType === 'LIMIT_MAKER' ? 'LIMIT_MAKER' :
+                         rawType === 'TRAILING_STOP' ? 'TRAILING_STOP' :
+                         (rawType === 'LADDER' || rawType === 'SYNTHETIC') ? 'LADDER' :
+                         rawType === 'MARKET' ? 'MARKET' : 'LIMIT';
+        const initialStopPrice = embeddedOrder.stop_price ?? embeddedOrder.stopPrice ?? embeddedOrder.trigger_price ?? embeddedOrder.triggerPrice ?? '';
+        const initialPrice = embeddedOrder.price ?? (normType === 'STOP_LOSS' ? '' : (embeddedOrder.trigger_price ?? ''));
+        const initialQty = embeddedOrder.quantity ?? embeddedOrder.origQty ?? embeddedOrder.amount ?? '';
         setOrderForm(prev => ({
           ...prev,
           symbol: embeddedOrder.symbol || embeddedCoin?.symbol || prev.symbol,
           side: embeddedOrder.side?.toUpperCase() || 'BUY',
-          type: embeddedOrder.type || embeddedOrder.order_type || 'LIMIT',
-          price: embeddedOrder.price || embeddedOrder.trigger_price || '',
-          quantity: embeddedOrder.quantity || embeddedOrder.origQty || embeddedOrder.amount || ''
+          type: normType,
+          price: initialPrice !== '' && initialPrice !== null && initialPrice !== undefined ? String(initialPrice) : '',
+          stopPrice: initialStopPrice !== '' && initialStopPrice !== null && initialStopPrice !== undefined ? String(initialStopPrice) : '',
+          quantity: initialQty !== '' && initialQty !== null && initialQty !== undefined ? String(initialQty) : ''
         }));
+        setBalancePercentage(100);
+        if (initialQty) {
+          const calcPrice = parseFloat(initialPrice || initialStopPrice || 0);
+          if (calcPrice > 0) {
+            setQuoteQuantity(formatNumberString(parseFloat(initialQty) * calcPrice, 2));
+          }
+        }
       }
     }
   }, [isEmbeddedReplaceMode, embeddedOrder, embeddedCoin]);
@@ -1542,12 +1601,16 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
 
     if (orderForm.side === 'SELL') {
       lastEditedRef.current = 'base';
-      const availableQty = balances.base;
+      const availableQty = (isReplaceMode && replacingOrderBaseQty > 0)
+        ? replacingOrderBaseQty
+        : balances.base;
       const selectedQty = (availableQty * percentage) / 100;
       handleBaseQuantityChange(selectedQty > 0 ? selectedQty.toFixed(8) : '');
     } else {
       lastEditedRef.current = 'quote';
-      const availableQuote = balances.quote_usable !== undefined ? balances.quote_usable : balances.quote;
+      const availableQuote = (isReplaceMode && replacingOrderQuoteQty > 0)
+        ? replacingOrderQuoteQty
+        : (balances.quote_usable !== undefined ? balances.quote_usable : balances.quote);
       const price = determinePriceForCalculations();
       if (price > 0 && availableQuote > 0) {
         const selectedBalance = (availableQuote * percentage) / 100;
@@ -2447,14 +2510,34 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
               <div className="trading-asset-card">
                 <CryptoIcon symbol={baseAsset} size={32} />
                 <div className="trading-asset-card-details">
-                  <span className="trading-asset-card-label">{baseAsset} Available</span>
-                  <span className="trading-asset-card-value">
-                    {balances.base.toFixed(8)} <small>{baseAsset}</small>
+                  <span className="trading-asset-card-label">
+                    {isReplaceMode && orderForm.side === 'SELL' && replacingOrderBaseQty > 0
+                      ? `${baseAsset} Replaceable`
+                      : `${baseAsset} Available`}
                   </span>
-                  {currentPrices.base > 0 && balances.base > 0 && (
-                    <span className="trading-asset-card-sub">
-                      ≈ ${(balances.base * currentPrices.base).toFixed(2)} USD
+                  <span className="trading-asset-card-value">
+                    {isReplaceMode && orderForm.side === 'SELL' && replacingOrderBaseQty > 0 ? (
+                      <>
+                        {(replacingOrderBaseQty + (balances.base || 0)).toFixed(8)} <small>{baseAsset}</small>
+                      </>
+                    ) : (
+                      <>
+                        {balances.base.toFixed(8)} <small>{baseAsset}</small>
+                      </>
+                    )}
+                  </span>
+                  {isReplaceMode && orderForm.side === 'SELL' && replacingOrderBaseQty > 0 ? (
+                    <span className="trading-asset-card-sub" style={{ color: '#38bdf8' }}>
+                      {balances.base > 0.00000001
+                        ? `${replacingOrderBaseQty} in order + ${balances.base.toFixed(4)} free`
+                        : `${replacingOrderBaseQty} in pending order`}
                     </span>
+                  ) : (
+                    currentPrices.base > 0 && balances.base > 0 && (
+                      <span className="trading-asset-card-sub">
+                        ≈ ${(balances.base * currentPrices.base).toFixed(2)} USD
+                      </span>
+                    )
                   )}
                 </div>
               </div>
@@ -2462,18 +2545,34 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
               <div className="trading-asset-card">
                 <CryptoIcon symbol={quoteAsset === 'USDT' ? 'USDT' : 'USD'} size={32} />
                 <div className="trading-asset-card-details">
-                  <span className="trading-asset-card-label">{quoteAsset} Available</span>
+                  <span className="trading-asset-card-label">
+                    {isReplaceMode && orderForm.side === 'BUY' && replacingOrderQuoteQty > 0
+                      ? `${quoteAsset} Replaceable`
+                      : `${quoteAsset} Available`}
+                  </span>
                   <span className="trading-asset-card-value">
-                    {(balances.quote_usable !== undefined ? balances.quote_usable : balances.quote).toFixed(2)}
+                    {isReplaceMode && orderForm.side === 'BUY' && replacingOrderQuoteQty > 0 ? (
+                      (replacingOrderQuoteQty + (balances.quote_usable !== undefined ? balances.quote_usable : balances.quote)).toFixed(2)
+                    ) : (
+                      (balances.quote_usable !== undefined ? balances.quote_usable : balances.quote).toFixed(2)
+                    )}
                     {balances.quote_reserved_auto_buy > 0 && <span style={{ color: '#38bdf8', marginLeft: '3px' }} title={`$${balances.quote_reserved_auto_buy.toFixed(2)} reserved for active Auto-Buy triggers`}>*</span>}
                     <small> {quoteAsset}</small>
                   </span>
-                  {balances.quote_reserved_auto_buy > 0 ? (
-                    <span className="trading-asset-card-sub" style={{ color: '#38bdf8' }} title={`Total on Binance: $${balances.quote.toFixed(2)}. $${balances.quote_reserved_auto_buy.toFixed(2)} is reserved for Auto-Buys.`}>
-                      ${balances.quote_reserved_auto_buy.toFixed(2)} reserved
+                  {isReplaceMode && orderForm.side === 'BUY' && replacingOrderQuoteQty > 0 ? (
+                    <span className="trading-asset-card-sub" style={{ color: '#38bdf8' }}>
+                      {(balances.quote_usable !== undefined ? balances.quote_usable : balances.quote) > 0.01
+                        ? `$${replacingOrderQuoteQty.toFixed(2)} in order + $${(balances.quote_usable !== undefined ? balances.quote_usable : balances.quote).toFixed(2)} free`
+                        : `$${replacingOrderQuoteQty.toFixed(2)} in pending order`}
                     </span>
                   ) : (
-                    <span className="trading-asset-card-sub">Ready to trade</span>
+                    balances.quote_reserved_auto_buy > 0 ? (
+                      <span className="trading-asset-card-sub" style={{ color: '#38bdf8' }} title={`Total on Binance: $${balances.quote.toFixed(2)}. $${balances.quote_reserved_auto_buy.toFixed(2)} is reserved for Auto-Buys.`}>
+                        ${balances.quote_reserved_auto_buy.toFixed(2)} reserved
+                      </span>
+                    ) : (
+                      <span className="trading-asset-card-sub">Ready to trade</span>
+                    )
                   )}
                 </div>
               </div>
@@ -2604,11 +2703,17 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
                       type="button"
                       className="input-max-btn"
                       onClick={() => handleBalanceSliderChange(100)}
-                      title="Use 100% Available Balance"
+                      title={isReplaceMode && replacingOrderBaseQty > 0 ? `Replace 100% of order (${replacingOrderBaseQty} ${baseAsset})` : "Use 100% Available Balance"}
                     >
                       MAX
                     </button>
                   </div>
+                  {isReplaceMode && replacingOrderBaseQty > 0 && orderForm.side === 'SELL' && (
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Order size: {replacingOrderBaseQty} {baseAsset}</span>
+                      <span>Total holdings: {(replacingOrderBaseQty + (balances.base || 0)).toFixed(4)} {baseAsset}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="order-input-group">
@@ -2636,12 +2741,20 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
               {/* Row 3: Use Balance Slider Section */}
               <div className="order-slider-section">
                 <div className="order-slider-header">
-                  <span className="order-field-label">Use Balance: {balancePercentage}%</span>
+                  <span className="order-field-label">
+                    {isReplaceMode && ((orderForm.side === 'SELL' && replacingOrderBaseQty > 0) || (orderForm.side === 'BUY' && replacingOrderQuoteQty > 0))
+                      ? `Use Order Size: ${balancePercentage}%`
+                      : `Use Balance: ${balancePercentage}%`}
+                  </span>
                   {balancePercentage > 0 && (
                     <span className="order-slider-amount">
                       ({orderForm.side === 'SELL'
-                        ? `${((balances.base * balancePercentage) / 100).toFixed(8)} ${baseAsset}`
-                        : `$${(((balances.quote_usable !== undefined ? balances.quote_usable : balances.quote) * balancePercentage) / 100).toFixed(2)} ${quoteAsset}`})
+                        ? `${(isReplaceMode && replacingOrderBaseQty > 0
+                            ? ((replacingOrderBaseQty * balancePercentage) / 100).toFixed(8)
+                            : ((balances.base * balancePercentage) / 100).toFixed(8))} ${baseAsset}`
+                        : `$${(isReplaceMode && replacingOrderQuoteQty > 0
+                            ? ((replacingOrderQuoteQty * balancePercentage) / 100).toFixed(2)
+                            : ((((balances.quote_usable !== undefined ? balances.quote_usable : balances.quote) * balancePercentage) / 100).toFixed(2)))} ${quoteAsset}`})
                     </span>
                   )}
                 </div>
@@ -2665,9 +2778,24 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
                       className={`slider-pct-pill ${balancePercentage === pct ? 'active' : ''}`}
                       onClick={() => handleBalanceSliderChange(pct)}
                     >
-                      {pct}%
+                      {pct === 100 && isReplaceMode && replacingOrderBaseQty > 0 ? '100% (Order)' : `${pct}%`}
                     </button>
                   ))}
+                  {isReplaceMode && orderForm.side === 'SELL' && (balances.base || 0) > 0.00000001 && (
+                    <button
+                      type="button"
+                      className="slider-pct-pill"
+                      style={{ marginLeft: '4px', borderColor: '#38bdf8', color: '#38bdf8' }}
+                      title={`Include free wallet balance (${balances.base.toFixed(4)} ${baseAsset})`}
+                      onClick={() => {
+                        const totalQty = replacingOrderBaseQty + balances.base;
+                        handleBaseQuantityChange(totalQty.toFixed(8));
+                        setBalancePercentage(100);
+                      }}
+                    >
+                      + Free Balance
+                    </button>
+                  )}
                 </div>
               </div>
 

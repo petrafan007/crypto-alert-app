@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.8.2
+**Version:** 4.8.3
 
 ## Recent Updates
+
+### v4.8.3
+* **Accurate Replaceable Balances & Order-Scoped MAX:** Fixed replace pending order flow so locked quantities held by the order being modified are recognized as replaceable rather than displaying zero available balance.
+* **Order-Proportional Quantity Scaling & Flexible Top-Up:** Configured MAX and slider percentages (0%–100%) in replace mode to scale against the existing order's size (e.g. 50% releases half, 100% replaces the full order), with a `+ Free Balance` option and input flexibility allowing traders to increase order size using uncommitted liquid funds.
+* **Preserved Stop Price & Real-Time Valuation:** Ensured existing trigger/stop prices and order valuations pre-populate accurately upon opening the Replace Order ticket across Binance and Webull trading interfaces.
 
 ### v4.8.2
 * **Restored Synthetic Order Pending Highlights & Tooltips:** Fixed an unassigned reference in the pending orders endpoint when formatting active synthetic ladder orders, ensuring assets with active smart bracket ladders or trailing stops immediately display the pending order yellow row highlight and detailed strategy tooltip.
