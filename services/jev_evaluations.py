@@ -98,7 +98,10 @@ def process_evaluation(evaluation_id):
         config = json.loads(row.settings_json)
         current = settings_for(session.get(UserSetting, row.user_id))
         credential = session.query(Credential).filter_by(user_id=row.user_id).first()
-        from services.jev_settings import normalize_transport, DEFAULT_ENDPOINT, OPENROUTER_ENDPOINT, OPENROUTER_MODEL
+        from services.jev_settings import (
+            normalize_transport, key_for_transport, DEFAULT_ENDPOINT,
+            OPENROUTER_ENDPOINT, OPENROUTER_MODEL,
+        )
         config = normalize_transport(config)
         if 'questions' not in config:
             from services.prompt_catalog import prompt_for
@@ -108,7 +111,7 @@ def process_evaluation(evaluation_id):
             config['questions'] = (build_sentiment_questions(None, state.get('is_watchlist', False), overrides)
                 if row.use_case == 'sentiment' else build_crypto_quant_questions(None, overrides))
         transport = config.get('jev_transport', 'vercel')
-        key = (credential.openrouter_api_key if transport == 'openrouter' else credential.ai_gateway_key) if credential else None
+        key = key_for_transport(credential, transport)
         if (not key or key == '********') and credential:
             if transport == 'openrouter' and credential.ai_gateway_key:
                 transport = 'vercel'

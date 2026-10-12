@@ -5,7 +5,7 @@ from core.extensions import db
 from credentials import Credential, UserSetting
 from portfolio_algo_models import PortfolioStrategyConfig
 from services.jev_service import JevClient, JevError, number
-from services.jev_settings import settings_for
+from services.jev_settings import key_for_transport, settings_for
 from services.provider_resilience import AIRequestDeferred
 
 CONTRACT_VERSION = 'event-jev-v1'
@@ -45,8 +45,7 @@ def predict(user_id, markets, config, guard):
     settings = dict(settings_for(db.session.get(UserSetting, user_id)))
     credential = Credential.query.filter_by(user_id=user_id).first()
     transport = settings.get('jev_transport', 'vercel')
-    key = (credential.openrouter_api_key if transport == 'openrouter'
-           else credential.ai_gateway_key) if credential else None
+    key = key_for_transport(credential, transport)
     if (not key or key == '********') and credential:
         from services.jev_settings import DEFAULT_ENDPOINT, OPENROUTER_ENDPOINT, OPENROUTER_MODEL
         if transport == 'openrouter' and credential.ai_gateway_key:
@@ -65,7 +64,8 @@ def predict(user_id, markets, config, guard):
              'contract_version': CONTRACT_VERSION,
              'contracts': [_event_model_context(market) for market in markets]}
     questions = build_questions(markets, user_id)
-    metadata = {'tier': 'jev', 'provider': 'typesafe-ai', 'model': settings['jev_model'],
+    provider = 'SubQ' if settings['jev_transport'] == 'subq' else 'typesafe-ai'
+    metadata = {'tier': 'jev', 'provider': provider, 'model': settings['jev_model'],
                 'transport': settings['jev_transport'], 'question_schema_version': CONTRACT_VERSION,
                 'search_status': 'Recorded Event evidence only', 'attempts': [],
                 'confidence_basis': 'JEV_CHOICE_DISTRIBUTION', 'generative_fallback': False}

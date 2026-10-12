@@ -35,7 +35,7 @@ class JevEventTests(TestCase):
             database.session.get.return_value = self.settings
             database.session.commit.side_effect = lambda: order.append('commit')
             credentials.query.filter_by.return_value.first.return_value = SimpleNamespace(
-                openrouter_api_key='openrouter-test', ai_gateway_key='vercel-test')
+                openrouter_api_key='openrouter-test', ai_gateway_key='vercel-test', subq_api_key='subq-test')
             def evaluate(**kwargs):
                 kwargs['before_request']()
                 order.append('request')
@@ -58,6 +58,15 @@ class JevEventTests(TestCase):
         self.assertEqual(result['model_confidence'], .9)
         self.assertEqual(result['metadata']['estimated_cost_usd'], '0.000001')
         self.assertFalse(result['metadata']['generative_fallback'])
+
+    def test_subq_provider_uses_its_saved_key_and_pinned_model_for_event_decisions(self):
+        self.settings.jev_transport = 'subq'
+        result, args, _, _ = self.run_prediction()
+        self.assertEqual(args.args[0], 'subq-test')
+        self.assertEqual(args.args[1], 'https://api.subq.ai/v1/systemone')
+        self.assertEqual(args.args[2], 'subq-snap-preview')
+        self.assertEqual(args.kwargs['transport'], 'subq')
+        self.assertEqual(result['metadata']['provider'], 'SubQ')
 
     def test_missing_low_confidence_or_weak_evidence_never_authorizes_entry(self):
         for field in ('missing_confidence', 'low_confidence', 'missing_evidence', 'low_evidence_probability'):

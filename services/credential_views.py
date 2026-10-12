@@ -1,7 +1,7 @@
 """Write-only credential fields for browser settings; never export stored secrets."""
 MASK = '********'
 SECRET_FIELDS = frozenset({
-    'ai_gateway_key', 'openrouter_api_key', 'api_key', 'api_secret', 'trading_api_key', 'trading_api_secret',
+    'ai_gateway_key', 'openrouter_api_key', 'subq_api_key', 'api_key', 'api_secret', 'trading_api_key', 'trading_api_secret',
     'telegram_token', 'telegram_chat_id', 'news_api', 'news_api_key',
     'brave_search_api_key', 'brave_search_api_key_fallback',
     'coingecko_api_key', 'coinstats_api_key',
@@ -32,7 +32,7 @@ def saved_or_supplied(value, credential, field):
 def jev_credential_status(credential):
     """Confirm usable stored values without returning keys or key fingerprints."""
     values = {}
-    for field in ('ai_gateway_key', 'openrouter_api_key'):
+    for field in ('ai_gateway_key', 'openrouter_api_key', 'subq_api_key'):
         value = getattr(credential, field, None) if credential else None
         configured = bool(value and value.strip() and value.strip() != MASK)
         values[field] = MASK if configured else ''

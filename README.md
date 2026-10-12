@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.8.3
+**Version:** 4.9.0
 
 ## Recent Updates
+
+### v4.9.0
+* **SubQ Decision Provider:** Added SubQ’s `subq-snap-preview` through its Decisions API for Jev sentiment, crypto-quant shadow, and Event probability evaluations. Existing typed questions are translated to SubQ’s `noul`, choice, and score contract, and validated answers are normalized for the app’s existing decision consumers.
+* **Encrypted SubQ Credentials:** Added masked, encrypted-at-rest SubQ API key settings, connection testing, and an additive database migration. SubQ is restricted to its official HTTPS endpoint and supported preview model; the provider does not add generative fallback or trading execution. Requests send decision state and instructions to SubQ, with stored decisions governed by SubQ’s data-retention policy.
+* **Configuration:** Choose SubQ under **Settings → AI Providers & Models**, enter an API key, and test the connection. See the [SubQ Decisions API documentation](https://docs.subq.ai/endpoints/decisions-api/).
 
 ### v4.8.3
 * **Accurate Replaceable Balances & Order-Scoped MAX:** Fixed replace pending order flow so locked quantities held by the order being modified are recognized as replaceable rather than displaying zero available balance.

@@ -4,7 +4,9 @@ from credentials import Credential, UserSetting
 from core.extensions import db
 from routes import system, ai
 from services.jev_service import JevError
-from services.jev_settings import validate_settings
+from services.jev_settings import (
+    DEFAULT_ENDPOINT, SUBQ_ENDPOINT, SUBQ_MODEL, normalize_transport, validate_settings,
+)
 from tests.jev_helpers import JevTestCase
 
 
@@ -73,6 +75,51 @@ class JevSettingsTests(JevTestCase):
             result = handler.__wrapped__()
         return result if isinstance(result, tuple) else (result, 200)
 
+    def test_subq_model_and_endpoint_are_pinned_to_official_decisions_api(self):
+        from services.jev_settings import schema_columns
+        self.assertIn(('credentials', 'subq_api_key', 'VARCHAR'), schema_columns())
+        self.assertEqual(validate_settings({
+            'jev_transport': 'subq', 'jev_model': SUBQ_MODEL, 'jev_endpoint': SUBQ_ENDPOINT,
+        })['jev_model'], SUBQ_MODEL)
+        normalized = normalize_transport({
+            'jev_transport': 'subq', 'jev_model': 'typesafe-ai/jev', 'jev_endpoint': DEFAULT_ENDPOINT,
+        })
+        self.assertEqual(normalized['jev_model'], SUBQ_MODEL)
+        self.assertEqual(normalized['jev_endpoint'], SUBQ_ENDPOINT)
+        for invalid in (
+            {'jev_transport': 'subq', 'jev_model': 'other-model'},
+            {'jev_transport': 'subq', 'jev_endpoint': 'https://attacker.example/decisions'},
+            {'jev_transport': 'unknown'},
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_settings(invalid)
+
+    def test_subq_key_encrypts_masks_and_round_trips_in_both_settings_apis(self):
+        for route in ('/api/settings', '/api/ai/settings'):
+            with self.subTest(route=route):
+                response, status = self.request('POST', {
+                    'subq_api_key': 'synthetic-subq-secret', 'jev_transport': 'subq',
+                    'jev_model': SUBQ_MODEL, 'jev_endpoint': SUBQ_ENDPOINT,
+                }, route=route)
+                self.assertEqual(status, 200, response.json)
+                self.assertNotIn('synthetic-subq-secret', str(response.json))
+                self.assertEqual(response.json['subq_api_key'], '********')
+                self.assertTrue(response.json['subq_api_key_configured'])
+                credential = Credential.query.filter_by(user_id=1).one()
+                self.assertEqual(credential.subq_api_key, 'synthetic-subq-secret')
+                self.assertNotEqual(credential._subq_api_key, 'synthetic-subq-secret')
+
+                response, status = self.request('POST', {
+                    'subq_api_key': '********', 'jev_enabled': True,
+                }, route=route)
+                self.assertEqual(status, 200, response.json)
+                db.session.expire_all()
+                self.assertEqual(credential.subq_api_key, 'synthetic-subq-secret')
+                response, status = self.request('GET', route=route)
+                self.assertEqual(status, 200)
+                self.assertTrue(response.json['subq_api_key_configured'])
+                self.assertNotIn('synthetic-subq-secret', str(response.json))
+
     def test_save_load_encrypt_mask_preserve_replace_clear(self):
         reply, status = self.request('POST', {'ai_gateway_key': 'new-key', 'jev_enabled': True, 'jev_sentiment_mode': 'first', 'jev_confidence_threshold': .85})
         self.assertEqual(status, 200, reply.json)
@@ -113,6 +160,26 @@ class JevSettingsTests(JevTestCase):
         self.assertEqual(status, 400)
         self.assertNotIn('synthetic-jev-secret', str(reply.json))
         evaluate.assert_called_once()
+
+    def test_subq_connection_test_uses_saved_subq_key_and_model(self):
+        credential = Credential.query.filter_by(user_id=1).one()
+        credential.subq_api_key = 'synthetic-subq-secret'
+        db.session.commit()
+        payload = {
+            'jev_transport': 'subq', 'jev_model': SUBQ_MODEL, 'jev_endpoint': SUBQ_ENDPOINT,
+            'subq_api_key': '********',
+        }
+        with self.app.test_request_context('/api/jev/test-connection', method='POST', json=payload), \
+             patch.object(ai, 'current_user', SimpleNamespace(id=1)), \
+             patch('services.jev_service.JevClient') as client:
+            client.return_value.evaluate.side_effect = JevError('auth')
+            reply, status = ai.test_jev_connection.__wrapped__()
+        self.assertEqual(status, 400)
+        self.assertNotIn('synthetic-subq-secret', str(reply.json))
+        client.assert_called_once_with(
+            'synthetic-subq-secret', SUBQ_ENDPOINT, SUBQ_MODEL, 3.0, transport='subq',
+        )
+        client.return_value.evaluate.assert_called_once()
 
     def test_key_prefix_smart_routing(self):
         for route in ('/api/settings', '/api/ai/settings'):

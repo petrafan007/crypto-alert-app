@@ -886,6 +886,8 @@ def api_ai_settings():
                     cred.ai_gateway_key = val.strip()
                 else:
                     cred.openrouter_api_key = val
+            if 'subq_api_key' in data:
+                cred.subq_api_key = data.pop('subq_api_key')
             if 'openai_key' in data:
                 cred.openai_key = data.pop('openai_key')
             if 'zai_key' in data:
@@ -3472,7 +3474,9 @@ def test_jev_connection():
         config = normalize_transport(config)
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         transport = config.get('jev_transport', 'vercel')
-        key = saved_or_supplied(payload.get('openrouter_api_key', '********') if transport == 'openrouter' else payload.get('ai_gateway_key', '********'), credential, 'openrouter_api_key' if transport == 'openrouter' else 'ai_gateway_key')
+        key_field = {'vercel': 'ai_gateway_key', 'openrouter': 'openrouter_api_key',
+                     'subq': 'subq_api_key'}[transport]
+        key = saved_or_supplied(payload.get(key_field, '********'), credential, key_field)
         if (not key or key == '********') and credential:
             from services.jev_settings import DEFAULT_ENDPOINT, OPENROUTER_ENDPOINT, OPENROUTER_MODEL
             if transport == 'openrouter' and credential.ai_gateway_key:

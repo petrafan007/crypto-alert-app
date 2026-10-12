@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 DEFAULT_ENDPOINT = 'https://ai-gateway.vercel.sh/v1/evaluate'
 OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/alpha/decisions'
 OPENROUTER_MODEL = 'typesafe/jev-1.13'
+SUBQ_ENDPOINT = 'https://api.subq.ai/v1/systemone'
+SUBQ_MODEL = 'subq-snap-preview'
 DEFAULTS = {
     'jev_enabled': False, 'jev_transport': 'vercel', 'jev_model': 'typesafe-ai/jev',
     'jev_endpoint': DEFAULT_ENDPOINT, 'jev_timeout_seconds': 3.0,
@@ -18,7 +20,8 @@ DEFAULTS = {
 def validate_endpoint(endpoint):
     # Additional transports require an operator allowlist, never an arbitrary
     # browser-supplied destination that could receive a saved credential.
-    allowed = {DEFAULT_ENDPOINT, OPENROUTER_ENDPOINT, *filter(None, os.getenv('JEV_ALLOWED_ENDPOINTS', '').split(','))}
+    allowed = {DEFAULT_ENDPOINT, OPENROUTER_ENDPOINT, SUBQ_ENDPOINT,
+               *filter(None, os.getenv('JEV_ALLOWED_ENDPOINTS', '').split(','))}
     parsed = urlsplit(endpoint)
     if endpoint not in allowed or parsed.scheme != 'https' or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError('Jev endpoint must be an operator-approved HTTPS evaluation endpoint.')
@@ -46,21 +49,33 @@ def validate_settings(data):
             low, high = (0.25, 15) if key == 'jev_timeout_seconds' else (0, 1)
             if not math.isfinite(value) or not low <= value <= high:
                 raise ValueError(f'{key} must be between {low} and {high}.')
-        elif key == 'jev_transport' and value not in ('vercel', 'openrouter'):
-            raise ValueError('Only Vercel AI Gateway and OpenRouter transports are supported.')
+        elif key == 'jev_transport' and value not in ('vercel', 'openrouter', 'subq'):
+            raise ValueError('Select Vercel AI Gateway, OpenRouter, or SubQ.')
         elif key == 'jev_sentiment_mode' and value not in ('off', 'shadow', 'first'):
             raise ValueError('Jev sentiment mode must be off, shadow, or first.')
         elif key == 'jev_endpoint':
             validate_endpoint(value if isinstance(value, str) else '')
         elif key == 'jev_model':
-            if not isinstance(value, str) or not value.startswith(('typesafe-ai/jev', 'typesafe/jev', '~typesafe/jev')) or 'router' in value or len(value) > 100 or any(c.isspace() for c in value):
+            transport = data.get('jev_transport', DEFAULTS['jev_transport'])
+            if transport == 'subq':
+                if value != SUBQ_MODEL:
+                    raise ValueError(f'SubQ supports only the {SUBQ_MODEL} decision model.')
+            elif not isinstance(value, str) or not value.startswith(('typesafe-ai/jev', 'typesafe/jev', '~typesafe/jev')) or 'router' in value or len(value) > 100 or any(c.isspace() for c in value):
                 raise ValueError('Select a TypeSafe Jev evaluation model.')
         values[key] = value
     if 'ai_gateway_key' in data and (not isinstance(data['ai_gateway_key'], str) or len(data['ai_gateway_key']) > 4096):
         raise ValueError('Vercel API key must be text of at most 4096 characters.')
     if 'openrouter_api_key' in data and (not isinstance(data['openrouter_api_key'], str) or len(data['openrouter_api_key']) > 4096):
         raise ValueError('OpenRouter API key must be text of at most 4096 characters.')
+    if 'subq_api_key' in data and (not isinstance(data['subq_api_key'], str) or len(data['subq_api_key']) > 4096):
+        raise ValueError('SubQ API key must be text of at most 4096 characters.')
     return values
+
+
+def key_for_transport(credential, transport):
+    field = {'vercel': 'ai_gateway_key', 'openrouter': 'openrouter_api_key',
+             'subq': 'subq_api_key'}.get(transport)
+    return getattr(credential, field, None) if credential and field else None
 
 
 def settings_for(row):
@@ -79,6 +94,9 @@ def normalize_transport(config):
             config['jev_endpoint'] = OPENROUTER_ENDPOINT
         if config.get('jev_model') == 'typesafe-ai/jev':
             config['jev_model'] = OPENROUTER_MODEL
+    elif config.get('jev_transport') == 'subq':
+        config['jev_endpoint'] = SUBQ_ENDPOINT
+        config['jev_model'] = SUBQ_MODEL
     return config
 
 
@@ -99,7 +117,8 @@ def save_settings(row, data):
 
 def schema_columns():
     """Additive PostgreSQL declarations shared by startup migration and verification."""
-    columns = [('credentials', 'ai_gateway_key', 'VARCHAR'), ('credentials', 'openrouter_api_key', 'VARCHAR')]
+    columns = [('credentials', 'ai_gateway_key', 'VARCHAR'), ('credentials', 'openrouter_api_key', 'VARCHAR'),
+               ('credentials', 'subq_api_key', 'VARCHAR')]
     for name, value in DEFAULTS.items():
         if isinstance(value, bool):
             declaration = 'BOOLEAN DEFAULT ' + ('TRUE' if value else 'FALSE')

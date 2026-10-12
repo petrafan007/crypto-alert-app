@@ -73,6 +73,7 @@ class Credential(db.Model):
     
     _ai_gateway_key = db.Column("ai_gateway_key", db.String)
     _openrouter_api_key = db.Column("openrouter_api_key", db.String)
+    _subq_api_key = db.Column("subq_api_key", db.String)
 
     @property
     def ai_gateway_key(self):
@@ -93,6 +94,16 @@ class Credential(db.Model):
         if isinstance(value, str) and value.strip() == '********':
             return
         self._openrouter_api_key = normalize_secret_for_storage(value)
+
+    @property
+    def subq_api_key(self):
+        return decrypt_secret(self._subq_api_key)
+
+    @subq_api_key.setter
+    def subq_api_key(self, value):
+        if isinstance(value, str) and value.strip() == '********':
+            return
+        self._subq_api_key = normalize_secret_for_storage(value)
 
     # AI Integration (Primary)
     _openai_key = db.Column("openai_key", db.String)  # Encrypted OpenAI API Key

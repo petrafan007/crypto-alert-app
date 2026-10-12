@@ -983,7 +983,7 @@ export default function Settings({ isLightMode }) {
 
       // Save regular settings
       const payload = { ...settings };
-      for (const field of ['ai_gateway_key', 'openrouter_api_key']) {
+      for (const field of ['ai_gateway_key', 'openrouter_api_key', 'subq_api_key']) {
         if (payload[field]?.trim() === '********') delete payload[field];
       }
       if (!encryptionKeyDirty || payload.credentials_encryption_key === '********') {

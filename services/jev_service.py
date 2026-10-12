@@ -73,12 +73,17 @@ class JevClient:
     def __init__(self, api_key, endpoint=DEFAULT_ENDPOINT, model='typesafe-ai/jev', timeout_seconds=3.0, transport='vercel'):
         self.key = api_key
         config = normalize_transport({'jev_transport': transport, 'jev_endpoint': endpoint, 'jev_model': model})
+        self.transport = config['jev_transport']
+        if self.transport not in ('vercel', 'openrouter', 'subq'):
+            raise ValueError('Unsupported Jev decision transport.')
         self.endpoint = validate_endpoint(config['jev_endpoint'])
         self.model = config['jev_model']
         self.timeout = timeout_seconds
-        self.transport = transport
 
     def evaluate(self, *, state, questions, model=None, timeout_seconds=None, before_request=None):
+        request_model = model or self.model
+        if self.transport == 'subq' and request_model != self.model:
+            raise ValueError('SubQ supports only the configured decision model.')
         started = time.monotonic()
         latency = lambda: int((time.monotonic()-started)*1000)
         if not self.key or self.key == '********':
@@ -97,21 +102,18 @@ class JevClient:
                 code = 'timeout'
                 break
             try:
-                if self.transport == 'openrouter':
+                if self.transport in ('openrouter', 'subq'):
                     wire_questions = {
                         key: {**question, 'type': 'noul'} if question['type'] == 'boolean' else dict(question)
                         for key, question in questions.items()
                     }
-                    request_json = {'model': model or self.model, 'state': state, 'questions': wire_questions}
-                    headers = {
-                        'Authorization': f'Bearer {self.key}',
-                        'Content-Type': 'application/json',
-                        'HTTP-Referer': 'https://csdapp.online',
-                        'X-Title': 'Crypto Dashboard'
-                    }
+                    request_json = {'model': request_model, 'state': state, 'questions': wire_questions}
+                    headers = {'Authorization': f'Bearer {self.key}', 'Content-Type': 'application/json'}
+                    if self.transport == 'openrouter':
+                        headers.update({'HTTP-Referer': 'https://csdapp.online', 'X-Title': 'Crypto Dashboard'})
                 else:
                     request_json = {
-                        'model': model or self.model, 'state': state, 'questions': questions,
+                        'model': request_model, 'state': state, 'questions': questions,
                         'providerOptions': {'gateway': {'zeroDataRetention': True}}
                     }
                     headers = {'Authorization': f'Bearer {self.key}', 'Content-Type': 'application/json'}
@@ -136,6 +138,26 @@ class JevClient:
                                 number(value)
                             usage = payload.get('usage') or {}
                             cost = Decimal(str(usage['cost'])) if usage.get('cost') is not None else None
+                        elif self.transport == 'subq':
+                            normalized = {}
+                            confidence = {}
+                            for key, question in questions.items():
+                                answer = payload['answers'][key]
+                                if question['type'] == 'boolean':
+                                    if answer.get('type') != 'noul':
+                                        raise JevError('invalid_response')
+                                    normalized[key] = {'type': 'boolean', 'probability': answer['noul']}
+                                else:
+                                    confidence[key] = number(answer['confidence'])
+                                    if question['type'] == 'score':
+                                        legend = {str(index): str(level)
+                                                  for index, level in enumerate(question['criteria'])}
+                                        if answer.get('legend') != legend:
+                                            raise JevError('invalid_response')
+                                    normalized[key] = answer
+                            answers = validate_answers({'answers': normalized}, questions)
+                            usage = payload.get('usage') or {}
+                            cost = None
                         else:
                             answers = validate_answers(payload, questions)
                             metadata = payload.get('providerMetadata') or {}
@@ -152,8 +174,8 @@ class JevClient:
                         
                         if cost is not None and (not cost.is_finite() or cost < 0):
                             raise JevError('invalid_response')
-                        actual_model = payload.get('model', model or self.model)
-                        if not isinstance(actual_model, str) or len(actual_model) > 100:
+                        actual_model = payload.get('model', request_model)
+                        if (self.transport == 'subq' and payload.get('model') != request_model) or not isinstance(actual_model, str) or len(actual_model) > 100:
                             raise JevError('invalid_response')
                         if usage is not None and not isinstance(usage, dict):
                             raise JevError('invalid_response')
@@ -161,7 +183,8 @@ class JevClient:
                         raise JevError('invalid_response') from None
                     with self._lock:
                         type(self)._failures.pop(bucket, None)
-                    return JevEvaluationResult(answers, payload, actual_model, 'typesafe-ai', self.transport, latency(), usage, cost, confidence)
+                    provider = 'SubQ' if self.transport == 'subq' else 'typesafe-ai'
+                    return JevEvaluationResult(answers, payload, actual_model, provider, self.transport, latency(), usage, cost, confidence)
                 code = 'auth' if status in (401, 403) else f'http_{status}'
                 if status not in (408, 429, 500, 502, 503, 504):
                     break

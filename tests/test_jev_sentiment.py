@@ -1,7 +1,8 @@
+import copy
 import json
 from datetime import timedelta
 from unittest.mock import Mock, patch
-from credentials import UserSetting
+from credentials import Credential, UserSetting
 from core.extensions import db
 from models import JevEvaluation, SentimentHistory
 from services.jev_contracts import build_sentiment_questions
@@ -70,6 +71,43 @@ class JevSentimentTests(JevTestCase):
         original.assert_not_called()
         self.assertEqual(get_evaluation(response.jev_evaluation_id).status, 'success')
         self.assertIn('questions', json.loads(prompt))
+
+    def test_subq_provider_runs_through_sentiment_worker_with_saved_key(self):
+        from services.jev_settings import SUBQ_ENDPOINT, SUBQ_MODEL
+        self.first_mode()
+        setting = db.session.get(UserSetting, 1)
+        setting.jev_transport = 'subq'
+        setting.jev_model = SUBQ_MODEL
+        setting.jev_endpoint = SUBQ_ENDPOINT
+        Credential.query.filter_by(user_id=1).one().subq_api_key = 'synthetic-subq-secret'
+        db.session.commit()
+        payload = copy.deepcopy(self.payload)
+        payload['model'] = SUBQ_MODEL
+        for key, answer in list(payload['answers'].items()):
+            question = build_sentiment_questions()[key]
+            if question['type'] == 'boolean':
+                payload['answers'][key] = {'type': 'noul', 'noul': answer['probability']}
+            else:
+                answer['confidence'] = .95
+                if question['type'] == 'score':
+                    answer['legend'] = {str(index): str(level)
+                                        for index, level in enumerate(question['criteria'])}
+        original = Mock()
+        with patch('services.portfolio_audit_lifecycle.active_audit', return_value=None), \
+             patch('services.ai_service.news_api_search', return_value=[{'title': 'News'}]), \
+             patch('services.ai_service.web_search', return_value=[]), \
+             patch('services.jev_service.requests.post', return_value=Mock(status_code=200, json=lambda: payload)) as post:
+            response, _ = run_sentiment(original, self.kwargs, self.state)
+
+        original.assert_not_called()
+        request = post.call_args.kwargs['json']
+        self.assertEqual(post.call_args.args[0], SUBQ_ENDPOINT)
+        self.assertEqual(request['model'], SUBQ_MODEL)
+        self.assertEqual(request['questions']['bullish']['type'], 'noul')
+        row = get_evaluation(response.jev_evaluation_id)
+        self.assertEqual(row.provider, 'SubQ')
+        self.assertEqual(response.provider, 'SubQ')
+        self.assertEqual(row.status, 'success')
 
     def test_first_mode_accepted_avoids_generative(self):
         self.first_mode()

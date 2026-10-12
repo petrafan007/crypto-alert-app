@@ -3,7 +3,7 @@ import axios from 'axios';
 import JevTelemetry from './JevTelemetry';
 
 export const JEV_DEFAULTS = {
-  ai_gateway_key: '', openrouter_api_key: '', jev_enabled: false, jev_transport: 'vercel', jev_model: 'typesafe-ai/jev',
+  ai_gateway_key: '', openrouter_api_key: '', subq_api_key: '', jev_enabled: false, jev_transport: 'vercel', jev_model: 'typesafe-ai/jev',
   jev_endpoint: 'https://ai-gateway.vercel.sh/v1/evaluate', jev_timeout_seconds: 3,
   jev_confidence_threshold: 0.8, jev_conflict_threshold: 0.5, jev_sentiment_mode: 'first',
   jev_generative_fallback_enabled: false, jev_quant_shadow_enabled: false,
@@ -22,9 +22,11 @@ export default function JevSettings({ settings, onChange }) {
       if (action === 'save') {
         if (data.ai_gateway_key !== undefined) onChange('ai_gateway_key', data.ai_gateway_key || '');
         if (data.openrouter_api_key !== undefined) onChange('openrouter_api_key', data.openrouter_api_key || '');
+        if (data.subq_api_key !== undefined) onChange('subq_api_key', data.subq_api_key || '');
         if (data.ai_gateway_key_configured !== undefined) onChange('ai_gateway_key_configured', data.ai_gateway_key_configured);
         if (data.openrouter_api_key_configured !== undefined) onChange('openrouter_api_key_configured', data.openrouter_api_key_configured);
-        const field = value('jev_transport') === 'openrouter' ? 'openrouter_api_key' : 'ai_gateway_key';
+        if (data.subq_api_key_configured !== undefined) onChange('subq_api_key_configured', data.subq_api_key_configured);
+        const field = value('jev_transport') === 'subq' ? 'subq_api_key' : value('jev_transport') === 'openrouter' ? 'openrouter_api_key' : 'ai_gateway_key';
         setMessage(data[`${field}_configured`] === true
           ? 'Jev settings saved. The server confirmed an encrypted API key is stored. Sentiment also requires the main AI toggle to be enabled.'
           : 'Jev settings saved, but no usable key is stored for this provider. Enter the API key and save it.');
@@ -37,23 +39,26 @@ export default function JevSettings({ settings, onChange }) {
   const toggle = (key, label) => <div className="settings-form-group"><label>
     <input type="checkbox" checked={Boolean(value(key))} onChange={e => onChange(key, e.target.checked)} /> {label}
   </label></div>;
+  const transport = value('jev_transport');
+  const keyField = { vercel: 'ai_gateway_key', openrouter: 'openrouter_api_key', subq: 'subq_api_key' }[transport];
+  const providerLabel = { vercel: 'Vercel AI Gateway', openrouter: 'OpenRouter', subq: 'SubQ' }[transport] || 'Vercel AI Gateway';
+  const fallbackField = transport === 'vercel' ? 'openrouter_api_key' : transport === 'openrouter' ? 'ai_gateway_key' : null;
+  const configured = settings[`${keyField}_configured`] === true;
+  const fallbackConfigured = fallbackField && settings[`${fallbackField}_configured`] === true;
   return <div className="settings-page-section" style={{ gridColumn: '1 / -1' }}>
     <h3>Jev Decision Engine</h3>
-    <p>Evaluate news and quantitative setups with TypeSafe Jev through Vercel AI Gateway or OpenRouter.</p>
+    <p>Evaluate news and quantitative setups with TypeSafe Jev or SubQ’s structured decision API.</p>
     <div style={{ margin: '8px 0 12px 0', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
       <div style={{ marginBottom: '4px' }}>
-        <strong>Active Provider ({value('jev_transport') === 'openrouter' ? 'OpenRouter' : 'Vercel AI Gateway'}):</strong>{' '}
-        <span style={{ color: settings[value('jev_transport') === 'openrouter' ? 'openrouter_api_key_configured' : 'ai_gateway_key_configured'] === true ? '#4ade80' : (settings[value('jev_transport') === 'openrouter' ? 'ai_gateway_key_configured' : 'openrouter_api_key_configured'] === true ? '#fbbf24' : '#f87171') }}>
-          {settings[value('jev_transport') === 'openrouter' ? 'openrouter_api_key_configured' : 'ai_gateway_key_configured'] === true
-            ? '✓ Configured'
-            : (settings[value('jev_transport') === 'openrouter' ? 'ai_gateway_key_configured' : 'openrouter_api_key_configured'] === true
-                ? `Ready via fallback (${value('jev_transport') === 'openrouter' ? 'Vercel AI Gateway' : 'OpenRouter'} key saved)`
-                : 'Missing — enter and save the key below')}
+        <strong>Active Provider ({providerLabel}):</strong>{' '}
+        <span style={{ color: configured ? '#4ade80' : fallbackConfigured ? '#fbbf24' : '#f87171' }}>
+          {configured ? '✓ Configured' : fallbackConfigured ? `Ready via fallback (${fallbackField === 'ai_gateway_key' ? 'Vercel AI Gateway' : 'OpenRouter'} key saved)` : 'Missing — enter and save the key below'}
         </span>
       </div>
       <div style={{ fontSize: '12px', opacity: 0.8, display: 'flex', gap: '16px' }}>
         <span>Vercel AI Gateway: {settings.ai_gateway_key_configured === true ? '✓ Configured' : 'Not configured'}</span>
         <span>OpenRouter: {settings.openrouter_api_key_configured === true ? '✓ Configured' : 'Not configured'}</span>
+        <span>SubQ: {settings.subq_api_key_configured === true ? '✓ Configured' : 'Not configured'}</span>
       </div>
     </div>
     {toggle('jev_enabled', 'Enable Jev')}
@@ -61,18 +66,25 @@ export default function JevSettings({ settings, onChange }) {
       <select id="jev-provider" value={value('jev_transport')} onChange={e => {
         const transport = e.target.value;
         onChange('jev_transport', transport);
-        onChange('jev_endpoint', transport === 'openrouter' ? 'https://openrouter.ai/api/alpha/decisions' : JEV_DEFAULTS.jev_endpoint);
-        onChange('jev_model', transport === 'openrouter' ? 'typesafe/jev-1.13' : JEV_DEFAULTS.jev_model);
+        onChange('jev_endpoint', transport === 'openrouter' ? 'https://openrouter.ai/api/alpha/decisions' : transport === 'subq' ? 'https://api.subq.ai/v1/systemone' : JEV_DEFAULTS.jev_endpoint);
+        onChange('jev_model', transport === 'openrouter' ? 'typesafe/jev-1.13' : transport === 'subq' ? 'subq-snap-preview' : JEV_DEFAULTS.jev_model);
       }}>
         <option value="vercel">Vercel AI Gateway</option>
         <option value="openrouter">OpenRouter</option>
+        <option value="subq">SubQ — subq-snap-preview</option>
       </select>
     </div>
     <div className="settings-form-group"><label htmlFor="jev-model">Model</label>
-      <input id="jev-model" value={value('jev_model')} onChange={e => onChange('jev_model', e.target.value)} list="jev-models" />
-      <datalist id="jev-models"><option value={value('jev_transport') === 'openrouter' ? 'typesafe/jev-1.13' : 'typesafe-ai/jev'}>Jev — TypeSafe AI</option></datalist>
+      <input id="jev-model" value={value('jev_model')} readOnly={transport === 'subq'} onChange={e => onChange('jev_model', e.target.value)} list="jev-models" />
+      <datalist id="jev-models"><option value={transport === 'openrouter' ? 'typesafe/jev-1.13' : transport === 'subq' ? 'subq-snap-preview' : 'typesafe-ai/jev'}>{transport === 'subq' ? 'SubQ snap preview' : 'Jev — TypeSafe AI'}</option></datalist>
     </div>
-    {value('jev_transport') === 'vercel' ? (
+    {transport === 'subq' ? (
+      <div className="settings-form-group"><label htmlFor="jev-subq-key">SubQ API key</label>
+        <input id="jev-subq-key" type="password" autoComplete="new-password" value={value('subq_api_key')} onChange={e => onChange('subq_api_key', e.target.value)} placeholder="Enter your SubQ API key" />
+        <p className="settings-form-help">Encrypted when saved. The mask preserves your saved key; clear the field and save to remove it.</p>
+        <p className="settings-form-help">Each request sends its decision state and instructions to SubQ. Stored decisions follow your SubQ data-retention policy.</p>
+      </div>
+    ) : transport === 'vercel' ? (
       <>
         <div className="settings-form-group"><label htmlFor="jev-key">Vercel AI Gateway API key</label>
           <input id="jev-key" type="password" autoComplete="new-password" value={value('ai_gateway_key')} onChange={e => {
@@ -132,8 +144,8 @@ export default function JevSettings({ settings, onChange }) {
         <label htmlFor={key}>{label}</label><input id={key} type="number" min={min} max={max} step={step} value={value(key)} onChange={e => onChange(key, e.target.value === '' ? '' : Number(e.target.value))} />
       </div>)}
       <div className="settings-form-group"><label htmlFor="jev-endpoint">Evaluation endpoint</label>
-        <input id="jev-endpoint" type="url" value={value('jev_endpoint')} onChange={e => onChange('jev_endpoint', e.target.value)} />
-        <p className="settings-form-help">Custom endpoints require an operator-approved HTTPS address. Confidence thresholds apply to evaluation acceptance.</p>
+        <input id="jev-endpoint" type="url" value={value('jev_endpoint')} readOnly={transport === 'subq'} onChange={e => onChange('jev_endpoint', e.target.value)} />
+        <p className="settings-form-help">SubQ always uses its official Decisions API endpoint. Other custom endpoints require an operator-approved HTTPS address. Confidence thresholds apply to evaluation acceptance.</p>
       </div>
     </details>
     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', margin: '12px 0' }}>

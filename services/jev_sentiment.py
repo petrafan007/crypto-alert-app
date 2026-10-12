@@ -130,7 +130,7 @@ def run_sentiment(generative, kwargs, context):
     if row and row.status == 'success':
         label, reason = mapped_result(json.loads(row.answers_json), context.get('is_watchlist', False))
         response = AIResponseWrapper(json.dumps({'sentiment': label, 'reason': reason}), tier='jev',
-            provider='typesafe-ai', model=row.model, search_status=f'Jev grounded ({len(state["evidence"])} sources)')
+            provider=row.provider or 'typesafe-ai', model=row.model, search_status=f'Jev grounded ({len(state["evidence"])} sources)')
         response.jev_evaluation_id = evaluation_id
         try_update_evaluation(evaluation_id, action_taken='sentiment')
         return response, json.dumps({'questions': questions, 'state': state}, ensure_ascii=False)

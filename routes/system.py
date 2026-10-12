@@ -1694,6 +1694,8 @@ def api_settings():
                         cred.ai_gateway_key = val.strip()
                     else:
                         cred.openrouter_api_key = val
+                if 'subq_api_key' in data:
+                    cred.subq_api_key = data['subq_api_key']
                 if 'openai_key' in data:
                     cred.openai_key = data['openai_key']
                 if 'zai_key' in data:
@@ -1857,6 +1859,7 @@ def api_settings():
             "trading_api_secret": getattr(cred, 'trading_api_secret', None),
             "ai_gateway_key": "********" if getattr(cred, '_ai_gateway_key', None) else "",
             "openrouter_api_key": "********" if getattr(cred, '_openrouter_api_key', None) else "",
+            "subq_api_key": "********" if getattr(cred, '_subq_api_key', None) else "",
             "openai_key": cred.openai_key,
             "zai_key": getattr(cred, 'zai_key', None),
             "perplexity_key": getattr(cred, 'perplexity_key', None),
