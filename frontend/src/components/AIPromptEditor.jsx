@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
+const DECISION_PROMPT_GROUPS = new Set(['sentiment', 'watchlist_sentiment', 'contract_probability']);
+
 export default function AIPromptEditor({ groups, title, onChange }) {
   const [entries, setEntries] = useState({});
   const [dirty, setDirty] = useState({});
@@ -28,6 +30,8 @@ export default function AIPromptEditor({ groups, title, onChange }) {
     } catch (error) { setMessage(error.response?.data?.error || 'Instructions could not be saved.'); }
     finally { setBusy(false); }
   };
+  const usesDecisionEngine = groups.some(group => DECISION_PROMPT_GROUPS.has(group));
+  const usesWorkflowAI = groups.some(group => !DECISION_PROMPT_GROUPS.has(group));
   const text = (id, label, value, update) => <label key={id} htmlFor={id} style={{ display: 'block', margin: '12px 0' }}>
     {label}
     <textarea id={id} value={value} rows={4} maxLength={24000} onChange={event => update(event.target.value)}
@@ -35,7 +39,8 @@ export default function AIPromptEditor({ groups, title, onChange }) {
   </label>;
   return <section aria-label={title} style={{ margin: '16px 0', padding: 14, border: '1px solid #64748b', borderRadius: 8 }}>
     <h4>{title}</h4>
-    <p>These are the instructions sent to the evaluator. Jev returns typed answers and probabilities. Missing evidence, uncertainty or a provider failure never calls a generative model.</p>
+    {usesDecisionEngine && <p>Sentiment and contract-probability instructions configure Decision Engine requests. The selected provider/model returns typed answers; workflow enablement and fallback settings still apply.</p>}
+    {usesWorkflowAI && <p>These instructions accompany requests through the AI provider/model cascade configured for their workflow.</p>}
     {!loaded && !message && <p>Loading saved instructions…</p>}
     {Object.entries(entries).filter(([, entry]) => groups.includes(entry.group)).map(([key, entry]) => <details key={key} open={key.startsWith('jev.')}>
       <summary>{entry.label}</summary>

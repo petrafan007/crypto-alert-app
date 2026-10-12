@@ -9,12 +9,12 @@ export default function JevTelemetry({ useCase, refreshKey = 0 }) {
     const controller = new AbortController();
     const load = () => axios.get('/api/jev/telemetry', { params: useCase ? { use_case: useCase } : {}, signal: controller.signal })
       .then(({ data }) => { setData(data); setError(''); })
-      .catch(err => { if (!axios.isCancel(err)) setError('Jev activity could not be loaded.'); });
+      .catch(err => { if (!axios.isCancel(err)) setError('Decision Engine activity could not be loaded.'); });
     load();
     const timer = setInterval(load, 30000);
     return () => { controller.abort(); clearInterval(timer); };
   }, [useCase, refreshKey]);
-  return <div aria-label="Jev evaluation activity">
+  return <div aria-label="Decision Engine evaluation activity">
     {error && <p role="alert">{error}</p>}
     {data && <>
       <p>Last 30 days · {data.sample_count} observations (up to {data.sample_limit}) · {data.pending_count} pending</p>
@@ -23,11 +23,12 @@ export default function JevTelemetry({ useCase, refreshKey = 0 }) {
       {data.last_success && <p>Last success: {new Date(data.last_success).toLocaleString()}</p>}
       {data.last_safe_error && <p>Last error: {data.last_safe_error}</p>}
       <details><summary>Recent evaluations and calibration</summary>
-        {!data.recent.length && <p>No evaluations yet. Enable Jev in AI Providers &amp; Models to begin collecting evaluations.</p>}
+        {!data.recent.length && <p>No decision evaluations yet. Enable the Decision Engine and a supported workflow to begin collecting evaluations.</p>}
         <div style={{ overflowX: 'auto' }}><table className="table">
-          <thead><tr><th>Asset / time</th><th>Result</th><th>Answers</th><th>Action</th><th>Future return</th></tr></thead>
+          <thead><tr><th>Asset / time</th><th>Provider / model</th><th>Result</th><th>Answers</th><th>Action</th><th>Future return</th></tr></thead>
           <tbody>{data.recent.map(row => <tr key={row.id}>
             <td>{row.symbol} · {row.market_source}<br />{new Date(row.decision_time).toLocaleString()}</td>
+            <td>{row.provider || '—'}<br />{row.model || '—'}</td>
             <td>{row.status}<br />{row.result_state || row.error_message_safe}<br />{row.latency_ms ?? '—'} ms</td>
             <td>{Object.entries(row.answers).map(([key, answer]) => <div key={key}>{key.replaceAll('_', ' ')}: {answer.type === 'boolean' ? pct(answer.probability) : answer.type === 'score' ? `${(answer.score + 1).toFixed(1)}/5` : answer.choice}</div>)}</td>
             <td>{row.action_taken}<br />{row.baseline?.baseline_action ? `Baseline: ${row.baseline.baseline_action}` : ''}</td>

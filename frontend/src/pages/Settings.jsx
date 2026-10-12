@@ -3784,7 +3784,7 @@ export default function Settings({ isLightMode }) {
             {/* Portfolio Sentiment Analysis */}
             <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
               <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Portfolio Sentiment Analysis</h5>
-              <AIPromptEditor groups={['sentiment']} title="Jev portfolio sentiment analysis instructions" />
+              <AIPromptEditor groups={['sentiment']} title="Decision Engine portfolio sentiment instructions" />
               <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
                 Automated sentiment analysis for held assets (cryptocurrency &amp; traditional securities) across Binance.US and Webull. Classifies into: <strong>Hold, Buy Immediately, Consider Buying, Sell Immediately, Consider Selling</strong>.
               </p>
@@ -3893,7 +3893,7 @@ export default function Settings({ isLightMode }) {
             {/* Watchlist Sentiment Analysis */}
             <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
               <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Watchlist Sentiment Analysis</h5>
-              <AIPromptEditor groups={['watchlist_sentiment']} title="Jev watchlist sentiment analysis instructions" />
+              <AIPromptEditor groups={['watchlist_sentiment']} title="Decision Engine watchlist sentiment instructions" />
               <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
                 Automated and on-the-spot sentiment analysis for watchlist assets (cryptocurrency &amp; securities) monitored across Binance.US and Webull. Classifies prospective entry into: <strong>Avoid, Watch, Consider Buying, Definitely Buy</strong>.
               </p>
@@ -4388,7 +4388,7 @@ export default function Settings({ isLightMode }) {
                     </div>
                   </div>
 
-                  <p>Contract probabilities use your saved Jev connection with no generative fallback. Uncertain or unavailable evaluations prevent new Event entries. Written audits use the selected providers below.</p>
+                  <p>Contract probabilities use the selected Decision Engine provider and model, with no generative fallback. Uncertain or unavailable evaluations prevent new Event entries. Written audits use the separate AI providers configured below.</p>
                   <AIPromptEditor groups={['contract_probability']} title="Contract probability evaluation instructions"
                     onChange={prompts => setEventStrategyAIConfig(previous => ({ ...previous, prompt_overrides: { ...previous.prompt_overrides, ...prompts } }))} />
                   <AIPromptEditor groups={['quant_audit', 'quant_evaluations']} title="Quantitative audit and evaluation instructions"

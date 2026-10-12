@@ -172,10 +172,16 @@ class JevSettingsTests(JevTestCase):
         with self.app.test_request_context('/api/jev/test-connection', method='POST', json=payload), \
              patch.object(ai, 'current_user', SimpleNamespace(id=1)), \
              patch('services.jev_service.JevClient') as client:
-            client.return_value.evaluate.side_effect = JevError('auth')
-            reply, status = ai.test_jev_connection.__wrapped__()
-        self.assertEqual(status, 400)
-        self.assertNotIn('synthetic-subq-secret', str(reply.json))
+            client.return_value.evaluate.return_value = SimpleNamespace(
+                model=SUBQ_MODEL, provider='SubQ', latency_ms=12,
+            )
+            reply = ai.test_jev_connection.__wrapped__()
+        self.assertEqual(reply.status_code, 200)
+        response_data = reply.get_json()
+        self.assertEqual(response_data['provider'], 'SubQ')
+        self.assertEqual(response_data['model'], SUBQ_MODEL)
+        self.assertEqual(response_data['message'], 'Decision Engine connection succeeded.')
+        self.assertNotIn('synthetic-subq-secret', str(response_data))
         client.assert_called_once_with(
             'synthetic-subq-secret', SUBQ_ENDPOINT, SUBQ_MODEL, 3.0, transport='subq',
         )

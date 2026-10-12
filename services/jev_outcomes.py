@@ -102,7 +102,7 @@ def calibration(rows):
 
 def serialize(row):
     answers = json.loads(row.answers_json or '{}')
-    return {**{key: getattr(row, key) for key in ('id', 'symbol', 'market_source', 'use_case', 'status', 'model', 'latency_ms',
+    return {**{key: getattr(row, key) for key in ('id', 'symbol', 'market_source', 'use_case', 'status', 'provider', 'model', 'latency_ms',
             'error_message_safe', 'action_taken', 'result_state', 'fallback_used', 'outcome_return_pct', 'question_schema_version')},
         'created_at': row.created_at.isoformat()+'Z', 'decision_time': row.decision_time.isoformat()+'Z',
         'answers': answers, 'confidence': json.loads(row.confidence_json or '{}'),
@@ -133,4 +133,4 @@ def telemetry(user_id, use_case=None):
             'last_success': next((r.completed_at.isoformat()+'Z' for r in rows if r.status == 'success' and r.completed_at), None),
             'last_safe_error': next((r.error_message_safe for r in rows if r.error_message_safe), None),
             'calibration': calibration(rows), 'recent': [serialize(r) for r in rows[:20]],
-            'limitations': 'Sentiment returns are fixed-horizon observations. MFE/MAE require full-window bars. Historical fallback values describe older evaluations; current Jev evaluations never use generative fallback.'}
+            'limitations': 'Sentiment returns are fixed-horizon observations. MFE/MAE require full-window bars. Fallback rates record sentiment fallback activity; Event probability evaluations do not use generative fallback.'}

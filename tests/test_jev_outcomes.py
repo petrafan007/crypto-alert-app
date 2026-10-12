@@ -35,12 +35,17 @@ class JevOutcomeTests(JevTestCase):
         self.assertEqual(evaluate_pending_outcomes(self.now), 0)
         self.assertIsNone(get_evaluation(evaluation_id).outcome_return_pct)
 
-    def test_telemetry_scoped_to_user_and_missing_cost_not_free(self):
-        self.evaluation()
+    def test_telemetry_scoped_to_user_and_reports_each_provider_model(self):
+        evaluation_id = self.evaluation()
+        from services.jev_evaluations import update_evaluation
+        update_evaluation(evaluation_id, provider='SubQ', model='subq-snap-preview')
         self.assertEqual(telemetry(2)['sample_count'], 0)
-        self.assertEqual(telemetry(1)['sample_count'], 1)
-        self.assertIsNone(telemetry(1)['reported_cost_usd'])
-        self.assertNotIn('synthetic-jev-secret', str(telemetry(1)))
+        result = telemetry(1)
+        self.assertEqual(result['sample_count'], 1)
+        self.assertEqual(result['recent'][0]['provider'], 'SubQ')
+        self.assertEqual(result['recent'][0]['model'], 'subq-snap-preview')
+        self.assertIsNone(result['reported_cost_usd'])
+        self.assertNotIn('synthetic-jev-secret', str(result))
 
 
     def test_missing_old_price_does_not_starve_newer_outcomes(self):

@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.9.0
+**Version:** 4.9.1
 
 ## Recent Updates
+
+### v4.9.1
+* **Provider-neutral Decision Engine settings:** Replaced Jev-specific labels and help text with provider/model-aware settings. Save and test actions now use generic labels, the selected provider/model is shown with credential readiness, and activity rows identify the provider and model used for each evaluation.
+* **Consistent invocation guidance:** Clarified which enabled sentiment, crypto quantitative-shadow, and Event-probability workflows use the selected decision provider/model, distinct from the app’s general AI provider settings.
 
 ### v4.9.0
 * **SubQ Decision Provider:** Added SubQ’s `subq-snap-preview` through its Decisions API for Jev sentiment, crypto-quant shadow, and Event probability evaluations. Existing typed questions are translated to SubQ’s `noul`, choice, and score contract, and validated answers are normalized for the app’s existing decision consumers.

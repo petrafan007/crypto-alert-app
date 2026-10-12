@@ -3498,13 +3498,13 @@ def test_jev_connection():
             state={'connection_test': True},
             questions=questions)
         return jsonify(success=True, model=result.model, latency_ms=result.latency_ms,
-                       message='Jev evaluation connection succeeded.')
+                       provider=result.provider, message='Decision Engine connection succeeded.')
     except ValueError as exc:
         return jsonify(success=False, message=str(exc)), 400
     except JevError as exc:
         return jsonify(success=False, message=str(exc), code=exc.code, latency_ms=exc.latency_ms), 400
     except Exception:
-        return jsonify(success=False, message='Jev connection test could not be completed.'), 503
+        return jsonify(success=False, message='Decision Engine connection test could not be completed.'), 503
 
 
 @ai_bp.route('/api/ai/prompt-catalog', methods=['GET', 'POST'])
@@ -3541,7 +3541,7 @@ def jev_telemetry():
     from services.jev_outcomes import telemetry
     use_case = request.args.get('use_case')
     if use_case not in (None, 'sentiment', 'quant_crypto'):
-        return jsonify(message='Unknown Jev use case.'), 400
+        return jsonify(message='Unknown Decision Engine evaluation type.'), 400
     response = jsonify(telemetry(current_user.id, use_case))
     response.headers['Cache-Control'] = 'no-store'
     return response
