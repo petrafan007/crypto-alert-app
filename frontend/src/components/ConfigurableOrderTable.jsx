@@ -27,7 +27,7 @@ function OrderTableDialog({ title, onClose, children }) {
 
 function storageKey(userId, tableId) {
   if (!tableId) return null;
-  return `order-table-state-v1:${encodeURIComponent(userId ?? 'local')}:${encodeURIComponent(tableId)}`;
+  return `order-table-state-v2:${encodeURIComponent(userId ?? 'local')}:${encodeURIComponent(tableId)}`;
 }
 
 function normalizedValue(value) {
@@ -118,7 +118,11 @@ export default function ConfigurableOrderTable({
     if (!sortColumn) return filtered;
     return [...filtered].sort((left, right) => {
       const comparison = compareValues(sortColumn.sortValue ? sortColumn.sortValue(left) : sortColumn.value(left), sortColumn.sortValue ? sortColumn.sortValue(right) : sortColumn.value(right));
-      return state.sort.direction === 'asc' ? comparison : -comparison;
+      if (comparison !== 0) return state.sort.direction === 'asc' ? comparison : -comparison;
+      // Tie-break: newest first, so date/time never looks out of order
+      // when sorting by another column (e.g. STATUS).
+      if (sortColumn.id === 'created_at') return 0;
+      return String(right.created_at || '').localeCompare(String(left.created_at || ''));
     });
   }, [rows, columns, columnMap, state.filters, state.sort]);
 

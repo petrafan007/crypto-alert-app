@@ -662,7 +662,10 @@ def update_coins_from_binance_balances(user_id, balances, client=None):
                         existing_coin.avg_entry = existing_coin.current
 
                     usd_value = total * (existing_coin.current or 0)
-                    if existing_coin.hidden and existing_coin.auto_hidden and usd_value >= 1.00:
+                    # Unhide whenever a synced balance brings the position back to
+                    # >= $1.00 -- even if the user hid the coin manually
+                    # (auto_hidden=False). A manual hide must not survive a real position.
+                    if existing_coin.hidden and usd_value >= 1.00:
                         existing_coin.hidden = False
                         existing_coin.auto_hidden = False
                     

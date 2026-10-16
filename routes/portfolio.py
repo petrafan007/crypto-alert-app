@@ -586,7 +586,12 @@ def api_place_order():
                             new_avg_entry = ((coin.amount * coin.avg_entry) + (executed_qty * avg_price)) / new_amount
                             coin.amount = new_amount
                             coin.avg_entry = new_avg_entry
-                            coin.auto_hidden = False  # Ensure coin is visible after buying
+                            coin.auto_hidden = False
+                            # A buy that brings the position to >= $1.00 unhides the coin,
+                            # even if it was hidden manually. A manual hide must not
+                            # survive a real position.
+                            if new_amount * (avg_price or 0) >= 1.00:
+                                coin.hidden = False
                         else:
                             # Create new coin entry
                             coin = Coin(
@@ -615,6 +620,11 @@ def api_place_order():
                                 db.session.delete(coin)
                             else:
                                 coin.amount = new_amount
+                                # A transaction leaving >= $1.00 unhides the coin,
+                                # even if it was hidden manually.
+                                if new_amount * (avg_price or 0) >= 1.00:
+                                    coin.hidden = False
+                                    coin.auto_hidden = False
 
                             # Update USDT balance (add proceeds)
                             total_proceeds = executed_qty * avg_price

@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.9.1
+**Version:** 4.9.2
 
 ## Recent Updates
+
+### v4.9.2
+* **Auto-unhide on real positions:** A transaction (in-app trade or exchange balance sync) that brings a coin's value to >= $1.00 now unhides it even if it was hidden manually. Previously the sync path only unhid when both `hidden` and `auto_hidden` were set, and the in-app buy path only cleared `auto_hidden`, so a manually-hidden coin stayed hidden forever after buying more.
+* **Order History chronological order:** Bumped the persisted order-table state version so a stale saved "sort by STATUS" no longer overrides the default newest-first date order; added a newest-first date tie-break when sorting by any other column.
 
 ### v4.9.1
 * **Provider-neutral Decision Engine settings:** Replaced Jev-specific labels and help text with provider/model-aware settings. Save and test actions now use generic labels, the selected provider/model is shown with credential readiness, and activity rows identify the provider and model used for each evaluation.
