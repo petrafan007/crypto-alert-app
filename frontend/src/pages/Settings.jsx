@@ -4541,6 +4541,7 @@ export default function Settings({ isLightMode }) {
                                     {provider === 'perplexity' && <option value="sonar">Sonar</option>}
                                     {provider === 'inception' && <option value="mercury-2">Mercury 2</option>}
                                     {provider === 'inception' && <option value="mercury-2.5">Mercury 2.5</option>}
+                                    {provider === 'inception' && <option value="mercury-3">Mercury 3</option>}
                                   </>
                                 )}
                               </select>

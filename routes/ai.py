@@ -1093,7 +1093,7 @@ def get_ai_models():
         'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash',
     }
     inception_models = {
-        'mercury-2', 'mercury', 'mercury-2.5',
+        'mercury-2', 'mercury', 'mercury-2.5', 'mercury-3',
     }
 
     # Create a dictionary of labels for the models
@@ -1123,6 +1123,7 @@ def get_ai_models():
         'mercury-2': 'Mercury 2',
         'mercury': 'Mercury (v1)',
         'mercury-2.5': 'Mercury 2.5',
+        'mercury-3': 'Mercury 3',
     }
 
     def get_model_options(models):

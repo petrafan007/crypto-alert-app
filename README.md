@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.9.2
+**Version:** 4.9.3
 
 ## Recent Updates
+
+### v4.9.3
+* **Model Catalog Update — Inception Labs Mercury 3:** Added `mercury-3` (Mercury 3) to the Inception Labs model list across all AI configuration dropdowns and server-side validation. Mercury 2.5 remains available until Inception’s Nov 15, 2026 cutoff.
 
 ### v4.9.2
 * **Auto-unhide on real positions:** A transaction (in-app trade or exchange balance sync) that brings a coin's value to >= $1.00 now unhides it even if it was hidden manually. Previously the sync path only unhid when both `hidden` and `auto_hidden` were set, and the in-app buy path only cleared `auto_hidden`, so a manually-hidden coin stayed hidden forever after buying more.
