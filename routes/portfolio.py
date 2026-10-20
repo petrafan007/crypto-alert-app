@@ -3404,25 +3404,37 @@ def place_real_order():
                         balances = {balance['asset']: _coerce_float(balance.get('free'), 0.0) or 0.0 for balance in account.get('balances', [])}
                         available_base = balances.get(base_asset, 0.0)
                         usable_base = max(0.0, available_base - synth_locked_base)
-                        if usable_base <= 0 or (formatted_quantity - usable_base) > 1e-8:
+                        if usable_base <= 1e-8:
                             return jsonify({
                                 'success': False,
                                 'error': 'Pending synthetic order ties up all available funds. Replace the existing order instead.'
+                            }), 400
+                        if (formatted_quantity - usable_base) > 1e-6:
+                            return jsonify({
+                                'success': False,
+                                'error': f'Order quantity ({formatted_quantity:.8f} {base_asset}) exceeds remaining usable balance ({usable_base:.8f} {base_asset}). Active synthetic orders reserve {synth_locked_base:.8f} {base_asset}.'
                             }), 400
                 elif side == 'BUY':
                     synth_locked_quote = get_synthetic_locked_funds(current_user.id, symbol, 'BUY', broker='binance', test_mode=False)
                     if synth_locked_quote > 0:
                         quote_asset = 'USDT' if symbol.endswith('USDT') else 'USD' if symbol.endswith('USD') else 'USDT'
-                        ref_price = formatted_price if formatted_price > 0 else current_price
+                        ref_price = formatted_price if formatted_price > 0 else (formatted_stop_price if formatted_stop_price > 0 else current_price)
                         requested_quote = quote_amount if (order_type == 'MARKET' and has_quote) else formatted_quantity * ref_price
                         account = client.get_account()
                         balances = {balance['asset']: _coerce_float(balance.get('free'), 0.0) or 0.0 for balance in account.get('balances', [])}
                         available_quote = balances.get(quote_asset, 0.0)
                         usable_quote = max(0.0, available_quote - synth_locked_quote)
-                        if usable_quote <= 0 or (requested_quote - usable_quote) > 1e-8:
+                        if usable_quote <= 0.01:
                             return jsonify({
                                 'success': False,
                                 'error': 'Pending synthetic order ties up all available funds. Replace the existing order instead.'
+                            }), 400
+                        # Allow tolerance for sub-cent base asset rounding conversions
+                        quote_epsilon = max(0.05, 1e-4 * usable_quote)
+                        if (requested_quote - usable_quote) > quote_epsilon:
+                            return jsonify({
+                                'success': False,
+                                'error': f'Order total (${requested_quote:.2f} {quote_asset}) exceeds remaining usable balance (${usable_quote:.2f} {quote_asset}). Active synthetic orders reserve ${synth_locked_quote:.2f} {quote_asset}.'
                             }), 400
             except Exception as synth_chk_err:
                 logger.warning(f"Error checking synthetic locked balances in place_real_order: {synth_chk_err}")
@@ -3438,7 +3450,7 @@ def place_real_order():
                 )
                 fee_reserve_rate = fee_rate + 0.001
                 quote_asset = 'USDT' if symbol.endswith('USDT') else 'USD' if symbol.endswith('USD') else None
-                reference_price = formatted_price if formatted_price > 0 else current_price
+                reference_price = formatted_price if formatted_price > 0 else (formatted_stop_price if formatted_stop_price > 0 else current_price)
 
                 if quote_asset and reference_price > 0:
                     account = client.get_account()
@@ -3477,7 +3489,7 @@ def place_real_order():
 
         # Get current price for order size validation
         try:
-            reference_price_for_value = formatted_price if formatted_price > 0 else current_price
+            reference_price_for_value = formatted_price if formatted_price > 0 else (formatted_stop_price if formatted_stop_price > 0 else current_price)
             if not reference_price_for_value or reference_price_for_value <= 0:
                 raise ValueError("Unable to determine current market price for valuation.")
             order_value_usd = formatted_quantity * reference_price_for_value

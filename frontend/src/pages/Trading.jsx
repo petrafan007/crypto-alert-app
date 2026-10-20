@@ -319,6 +319,12 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
       .replace(/\.$/, '');
   };
 
+  const floorToDecimals = (num, decimals = 8) => {
+    if (!Number.isFinite(num) || num <= 0) return 0;
+    const factor = Math.pow(10, decimals);
+    return Math.floor(num * factor) / factor;
+  };
+
   const handleBaseQuantityChange = (value) => {
     lastEditedRef.current = 'base';
     setOrderForm((prev) => ({ ...prev, quantity: value }));
@@ -369,7 +375,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
 
     const price = determinePriceForCalculations();
     if (price > 0) {
-      const baseAmount = numeric / price;
+      const baseAmount = floorToDecimals(numeric / price, 8);
       setOrderForm((prev) => ({
         ...prev,
         quantity: Number.isFinite(baseAmount)
@@ -1615,7 +1621,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
       if (price > 0 && availableQuote > 0) {
         const selectedBalance = (availableQuote * percentage) / 100;
         const spendableQuote = Math.floor(selectedBalance * 100) / 100;
-        const selectedQty = spendableQuote / price;
+        const selectedQty = floorToDecimals(spendableQuote / price, 8);
         const formattedBase = selectedQty > 0 ? selectedQty.toFixed(8) : '';
         setOrderForm((prev) => ({ ...prev, quantity: formattedBase }));
         setQuoteQuantity(formatNumberString(spendableQuote, 2));

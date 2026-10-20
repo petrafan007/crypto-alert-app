@@ -294,6 +294,31 @@ class OrderReplacementTests(unittest.TestCase):
         self.assertIn('synthetic_details', item)
         self.assertEqual(item['synthetic_details']['id'], 903)
 
+    def test_get_synthetic_locked_funds_buy_quote_calculation(self):
+        """Verify get_synthetic_locked_funds returns accurate quote amounts for BUY ladders."""
+        from services.synthetic_execution_service import get_synthetic_locked_funds
+        ladder = LadderOrder(
+            id=904,
+            user_id=1,
+            symbol='BTCUSDT',
+            side='BUY',
+            total_quantity=0.005,
+            total_budget_usd=427.48,
+            status='ACTIVE',
+            broker='binance',
+            test_mode=False
+        )
+        db.session.add(ladder)
+        db.session.commit()
+
+        locked = get_synthetic_locked_funds(1, 'HYPEUSDT', 'BUY', broker='binance', test_mode=False)
+        self.assertAlmostEqual(locked, 427.48, places=2)
+
+        # Confirm usable USDT out of 1052.14 total is 624.66
+        avail_total = 1052.14
+        usable = avail_total - locked
+        self.assertAlmostEqual(usable, 624.66, places=2)
+
 
 if __name__ == '__main__':
     unittest.main()

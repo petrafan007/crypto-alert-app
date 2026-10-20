@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.9.3
+**Version:** 4.9.4
 
 ## Recent Updates
+
+### v4.9.4
+* **Synthetic Capacity Rounding & Quote Tolerance Fix:** Fixed real and synthetic capacity check so allocating remaining funds after pending synthetic orders (e.g. smart bracket ladders or trailing stops) accounts for fiat sub-cent floating-point precision, preventing false capacity rejections when using 100% available balances.
+* **Stop Price Support for Price Reference:** Updated reference price evaluations across order capacity checks, fee reservation, and minimum notional checks to recognize `stopPrice` on Stop Loss and Take Profit orders when no limit price is specified.
+* **Floored Base Crypto Conversions:** Configured frontend balance slider and quote inputs to floor derived base crypto quantities to decimal precision, ensuring calculated order totals never round up and exceed spendable quote balances.
+* **Informative Remaining Balance Feedback:** Enhanced error messages to distinguish between completely exhausted funds versus exceeding remaining usable balance, clearly reporting active synthetic order reservations.
 
 ### v4.9.3
 * **Model Catalog Update — Inception Labs Mercury 3:** Added `mercury-3` (Mercury 3) to the Inception Labs model list across all AI configuration dropdowns and server-side validation. Mercury 2.5 remains available until Inception’s Nov 15, 2026 cutoff.
