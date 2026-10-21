@@ -841,6 +841,13 @@ def wipe_and_reset_portfolio(user_id, amount):
     cfg, acc, state = locked(user_id)
 
     # 1. Permanently delete all quant trading history, orders, lots, positions, snapshots, audits, logs
+    # Signal decisions reference their lot through a non-nullable, non-deferrable
+    # foreign key. They must be deleted first or the lot delete fails partway
+    # through and leaves the ledger in a partially deleted state.
+    from portfolio_algo_models import PortfolioAIReview as Review, PortfolioStrategyRevision as Revision
+    PortfolioSignalDecision.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Review.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Revision.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     Order.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     Lot.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     Position.query.filter_by(user_id=user_id).delete(synchronize_session=False)

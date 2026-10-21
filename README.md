@@ -1,8 +1,27 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.9.4
+**Version:** 4.10.0
 
 ## Recent Updates
+
+### v4.10.0
+* **Quantitative Strategy Engine Overhaul:** Corrected the arithmetic that made the paper engine lose money before any market view was expressed.
+  * **Options entry economics:** A credit spread is now rejected unless it can pay for itself. The engine computes the spread's break-even win rate at the configured profit target and risk limit, and refuses any spread whose break-even exceeds the configured ceiling, whose round-trip bid-ask cost exceeds the credit received, or that would open above its own stop. The historical sample required an 84–96% win rate to break even, so no signal could have saved it. New settings: `max_break_even_win_rate` (default 0.80), `max_friction_ratio` (default 0.50), `max_loss_ratio` (default 0.75).
+  * **Options stop basis:** The stop is derived from the spread's true maximum loss (`width − credit`) rather than a multiple of the credit received, and entry is refused when the executable mark is already beyond it. Thirteen of nineteen historical spreads were born in breach of their own stop and were liquidated on the very next scan, averaging 5.4 minutes of hold time.
+  * **Position sizing:** The per-trade loss cap is applied to the amount actually at risk rather than to reserved collateral.
+  * **Equity exit oscillator:** The overbought exit now uses a standard 14-period RSI instead of reusing the 2-period entry RSI. A 2-period RSI saturates above 70 in ordinary conditions; the old exit closed healthy trend positions about six minutes after entry, converting them into round-trip fee churn (16 of 22 closed equity positions, $116 of net loss against only $10 of gross loss).
+* **Trustworthy AI reporting:**
+  * Event handoff telemetry now separates 24-hour counters from lifetime counters. A lifetime counter read as a 24-hour window produced a published report of "2,480 rejections in the last 24 hours" when the actual 24-hour count was zero.
+  * A completed audit is now rejected when it declares a module blocked while the recorded risk policy, entry-pause state, and 24-hour decision counts show no blocking condition. The previous audit claimed the Events module was frozen by an exhausted loss allowance — a limit that had already been removed from the code twenty days earlier — while its own evidence payload showed no blocking reason, no pause, and zero evaluated decisions.
+  * The Events capacity readout now reports the open-dollar ceiling, the dollar gap to the allocation target, and whether the target is unreachable. The slot count alone concealed a module that could hold at most $30 against a $5,408 allocation target.
+  * The daily strategy review now counts AI calls per provider tier instead of per retry attempt, so a single tier's retry policy no longer consumes the entire daily allowance before the provider cascade can reach the next tier. The review ran 21 consecutive days and produced zero candidates because of this accounting bug.
+* **Reconciled targets and bounded risk:**
+  * The per-sleeve CAGR targets are now readable by the engine and reconciled with the portfolio target as an allocation-weighted blend. They were previously display-only strings, and their unweighted sum contradicted the portfolio figure by more than four times.
+  * The crypto dominance gate is now evaluated on the position-management path instead of being hardcoded to pass.
+  * An aggregate per-module risk limit bounds combined at-risk capital, so correlated positions can no longer each risk the full per-trade allowance.
+  * Capital deployment is now a first-class dashboard metric, with an explicit notice when most of the book sits idle.
+* **Research loop:** The historical replay harness can now evaluate a candidate rule beside the shipped baseline over the same archived data, same cash, and same costs, and reports a paired per-module comparison of entries, closed trades, net P&L, drawdown, and win rate. Candidate code is validated with the same rules the live strategy service applies, and an invalid candidate is rejected rather than replayed.
+* **Repair:** The destructive bankroll reset deleted lots while leaving signal decisions in place, which referenced those lots through a non-nullable foreign key and raised an integrity error partway through. Decisions, reviews, and revisions are now removed first. The non-destructive reset path continues to preserve all history under the prior generation.
 
 ### v4.9.4
 * **Synthetic Capacity Rounding & Quote Tolerance Fix:** Fixed real and synthetic capacity check so allocating remaining funds after pending synthetic orders (e.g. smart bracket ladders or trailing stops) accounts for fiat sub-cent floating-point precision, preventing false capacity rejections when using 100% available balances.

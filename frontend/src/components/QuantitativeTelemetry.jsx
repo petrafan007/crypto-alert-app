@@ -38,6 +38,14 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
   const curve = status?.equity_curve || [];
   const performance = status?.performance || {};
   const eventRisk = status?.modules?.events?.risk_policy;
+  const account = status?.account || {};
+  const reconciliation = status?.target_reconciliation || {};
+  const eventCapacity = status?.modules?.events?.capacity || {};
+  // Deployment rate is a first-class measure: a strategy holding most of
+  // the book in cash cannot be judged on its signal.
+  const deployedPct = account.total_equity > 0
+    ? (100 * (account.total_equity - (account.cash_balance || 0))) / account.total_equity
+    : null;
   return <section className="quant-master-ribbon quant-telemetry" aria-label="Paper execution and performance">
     <h3>Paper execution &amp; performance</h3>
     <p>Saved settings govern execution. Portfolio scans plus a separate fresh Event-decision handoff · Heartbeat: {date(status?.heartbeat_at)} · Paper run {status?.generation || '—'}</p>
@@ -50,8 +58,35 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
         ['Unrealized P&L', money(status?.account?.unrealized_pnl)], ['Annualized return', metric(performance.annualized_return_pct, '%')],
         ['Sharpe', metric(performance.sharpe)], ['Sortino', metric(performance.sortino)],
         ['Win rate', metric(performance.win_rate_pct, '%')], ['Maximum drawdown', metric(performance.max_drawdown_pct, '%')],
+        ['Capital deployed', metric(deployedPct, '%')],
       ].map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}
     </div>
+    {deployedPct !== null && deployedPct < 50 && (
+      <p className="quant-risk-notice" role="status">
+        Only {metric(deployedPct, '%')} of the book is deployed; the remainder earns nothing.
+        Idle capital is a drag on the portfolio return and is usually a structural
+        constraint rather than a lack of signals.
+      </p>
+    )}
+    {reconciliation.portfolio_target_pct !== undefined && (
+      <p>
+        Portfolio research target {metric(reconciliation.portfolio_target_pct, '%')}.
+        Sleeve targets are the return expected of the capital assigned to each sleeve;
+        the allocation-weighted blend is{' '}
+        {reconciliation.blended_sleeve_target_pct !== null && reconciliation.blended_sleeve_target_pct !== undefined
+          ? metric(reconciliation.blended_sleeve_target_pct, '%')
+          : 'not available'}.
+        These are research objectives, not promises.
+      </p>
+    )}
+    {eventCapacity.allocation_unreachable && (
+      <p className="quant-risk-notice" role="status">
+        Event open exposure is capped at {money(eventCapacity.max_open_dollars)}, which is
+        {money(eventCapacity.unreachable_target_dollars)} below its
+        {money(eventCapacity.allocation_target_dollars)} allocation target. The Events
+        module cannot deploy its allocation until that saved limit is raised.
+      </p>
+    )}
     <p>Returns include simulated fees and slippage. Annualization needs 30 elapsed days; ratios need 30 daily returns. These are calculation thresholds, not strategy validation or implemented stress tests. Return targets are research objectives.</p>
     <details><summary>Decision Engine crypto shadow research</summary><JevTelemetry useCase="quant_crypto" /></details>
     <PortfolioGoalTracking goal={status?.goal_tracking} />
