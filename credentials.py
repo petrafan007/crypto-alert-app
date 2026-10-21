@@ -105,12 +105,24 @@ class Credential(db.Model):
             return
         self._subq_api_key = normalize_secret_for_storage(value)
 
+    @property
+    def inception_decisions_key(self):
+        """The key used for the Inception Decisions API (mercury-decide)."""
+        return decrypt_secret(self._inception_decisions_key)
+
+    @inception_decisions_key.setter
+    def inception_decisions_key(self, value):
+        if isinstance(value, str) and value.strip() == '********':
+            return
+        self._inception_decisions_key = normalize_secret_for_storage(value)
+
     # AI Integration (Primary)
     _openai_key = db.Column("openai_key", db.String)  # Encrypted OpenAI API Key
     _zai_key = db.Column("zai_key", db.String)  # Encrypted Z.AI API Key
     _perplexity_key = db.Column("perplexity_key", db.String) # Encrypted Perplexity API Key
     _gemini_key = db.Column("gemini_key", db.String) # Encrypted Gemini API Key
     _inception_key = db.Column("inception_key", db.String) # Encrypted Inception Labs API Key
+    _inception_decisions_key = db.Column("inception_decisions_key", db.String)  # Encrypted Inception Decisions (mercury-decide) API Key
     _ollama_key = db.Column("ollama_key", db.String) # Encrypted Ollama API Key
     ai_provider = db.Column(db.String, default='')  # AI provider: 'openai', 'zai', 'perplexity', 'gemini', 'inception', or 'ollama'
 
@@ -531,7 +543,21 @@ class UserSetting(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), primary_key=True)
     ai_enabled = db.Column(db.Boolean, default=False)
     
-    # Jev is an independent evaluation subsystem. All research influence is opt-in.
+    # The Decision Engine is an independent, provider-neutral evaluation
+    # subsystem. It uses SubQ or Inception Mercury Decide and is an ACTIVE
+    # input to trading decisions, not an observation.
+    decision_enabled = db.Column(db.Boolean, default=False)
+    decision_transport = db.Column(db.String(20), default='subq')
+    decision_model = db.Column(db.String(100), default='subq-snap-preview')
+    decision_endpoint = db.Column(db.String(300), default='https://api.subq.ai/v1/systemone')
+    decision_timeout_seconds = db.Column(db.Float, default=3.0)
+    decision_confidence_threshold = db.Column(db.Float, default=0.8)
+    decision_conflict_threshold = db.Column(db.Float, default=0.5)
+    decision_sentiment_mode = db.Column(db.String(20), default='first')
+    decision_quant_enabled = db.Column(db.Boolean, default=False)
+
+    # Legacy Jev columns are retained so a saved configuration survives the
+    # rename. They are no longer read once the decision_* columns are set.
     jev_enabled = db.Column(db.Boolean, default=False)
     jev_transport = db.Column(db.String(20), default='vercel')
     jev_model = db.Column(db.String(100), default='typesafe-ai/jev')

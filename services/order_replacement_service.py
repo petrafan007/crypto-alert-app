@@ -24,6 +24,20 @@ def cancel_any_order(replacing_order_id, user_id, symbol=None, test_mode=None, b
 
     str_id = str(replacing_order_id).strip()
 
+    def _symbol_mismatch(existing_symbol):
+        """A replacement must target the same instrument as the order it replaces.
+
+        Cancelling an order for a different symbol would leave the intended
+        order live and stop an unrelated one, so the mismatch is refused
+        before anything is cancelled.
+        """
+        if not existing_symbol or not symbol:
+            return None
+        if str(existing_symbol).upper() != str(symbol).upper():
+            return ('The replacement must use the same symbol as the order it replaces '
+                    f'({existing_symbol} vs {symbol}).')
+        return None
+
     # 1. Synthetic Ladder Order (explicit prefix ladder_<id> or ladder-<id>)
     if re.fullmatch(r'ladder[_-](\d+)', str_id):
         match = re.fullmatch(r'ladder[_-](\d+)', str_id)
@@ -32,9 +46,25 @@ def cancel_any_order(replacing_order_id, user_id, symbol=None, test_mode=None, b
         if not ladder:
             logger.warning(f"Ladder order {ladder_id} not found for user {user_id} during replacement")
             return {'success': True, 'order_id': str_id, 'order_type': 'ladder', 'message': 'Ladder order not found or already inactive'}
+        mismatch = _symbol_mismatch(ladder.symbol)
+        if mismatch:
+            return {'success': False, 'error': mismatch, 'order_id': str_id, 'order_type': 'ladder'}
         if ladder.status in WORKING_PARENTS and not ladder.cancel_requested:
             from services.ladder_order_service import cancel_ladder_order
             cancel_ladder_order(ladder_id, user_id)
+        # A replacement may only proceed once the old order is confirmed
+        # cancelled. A cancellation that is still awaiting broker confirmation,
+        # or that recorded a fill, leaves the old order live or partly filled,
+        # so placing the replacement would double the exposure.
+        ladder = LadderOrder.query.filter_by(id=ladder_id, user_id=user_id).populate_existing().first()
+        if ladder is not None:
+            filled = sum(float(getattr(rung, 'filled_quantity', 0) or 0) for rung in (ladder.rungs or []))
+            if filled > 0:
+                return {'success': False, 'order_id': str_id, 'order_type': 'ladder',
+                        'error': 'The replaced order recorded a fill. No replacement was placed.'}
+            if ladder.status == 'CANCEL_PENDING':
+                return {'success': False, 'order_id': str_id, 'order_type': 'ladder',
+                        'error': 'Cancellation of the old strategy is awaiting broker confirmation. No replacement was placed.'}
         return {'success': True, 'order_id': str_id, 'order_type': 'ladder', 'message': f'Ladder order {ladder_id} cancelled'}
 
     # 2. Synthetic Trailing Order (explicit prefix trail_<id> or trail-<id>)
@@ -45,9 +75,22 @@ def cancel_any_order(replacing_order_id, user_id, symbol=None, test_mode=None, b
         if not trail:
             logger.warning(f"Trailing order {trail_id} not found for user {user_id} during replacement")
             return {'success': True, 'order_id': str_id, 'order_type': 'trailing', 'message': 'Trailing order not found or already inactive'}
+        mismatch = _symbol_mismatch(trail.symbol)
+        if mismatch:
+            return {'success': False, 'error': mismatch, 'order_id': str_id, 'order_type': 'trailing'}
         if trail.status in WORKING_PARENTS and not trail.cancel_requested:
             from services.trailing_order_service import cancel_trailing_order
             cancel_trailing_order(trail_id, user_id)
+        # The replacement may only proceed once the cancellation is confirmed.
+        trail = TrailingOrder.query.filter_by(id=trail_id, user_id=user_id).populate_existing().first()
+        if trail is not None:
+            filled = float(getattr(trail, 'filled_quantity', 0) or 0)
+            if filled > 0:
+                return {'success': False, 'order_id': str_id, 'order_type': 'trailing',
+                        'error': 'The replaced order recorded a fill. No replacement was placed.'}
+            if trail.status == 'CANCEL_PENDING':
+                return {'success': False, 'order_id': str_id, 'order_type': 'trailing',
+                        'error': 'Cancellation of the old strategy is awaiting broker confirmation. No replacement was placed.'}
         return {'success': True, 'order_id': str_id, 'order_type': 'trailing', 'message': f'Trailing order {trail_id} cancelled'}
 
     # 3. Webull Order (prefix webull- or broker is webull)

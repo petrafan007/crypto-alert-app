@@ -998,18 +998,47 @@ def data_status(message):
     return 'DATA_LIMITED'
 
 
+def decision_verdict(user_id, module, symbol, price, signal, now, config, evaluate_entry):
+    """Ask the Decision Engine whether a qualified crypto entry should be opened.
+
+    The engine is advisory for every module other than crypto, so it is only
+    consulted there. A BLOCK rejects the entry and is recorded with its
+    reason; an ABSTAIN leaves the deterministic signal in charge, because the
+    engine must never be able to silence a module by abstaining. Any failure
+    is logged and treated as an abstention so a provider outage can never
+    suppress a deterministic entry.
+    """
+    if module != 'crypto':
+        return None
+    if not (config.get('decision_enabled') and config.get('decision_quant_enabled')):
+        return None
+    try:
+        result = evaluate_entry(user_id, symbol, price, signal, now, config)
+    except Exception as exc:
+        # Fail open: an unavailable decision engine must not disable the module.
+        logger.warning('Decision Engine could not evaluate the %s entry: %s', symbol, str(exc)[:150])
+        return {'verdict': 'ABSTAIN', 'probability': None,
+                'reason': 'The decision engine was unavailable.', 'evaluation_id': None}
+    verdict = str((result or {}).get('verdict') or 'ABSTAIN').upper()
+    if verdict not in ('CONFIRM', 'BLOCK', 'ABSTAIN'):
+        verdict = 'ABSTAIN'
+    return {'verdict': verdict, 'probability': (result or {}).get('probability'),
+            'reason': (result or {}).get('reason') or 'The decision engine abstained.',
+            'evaluation_id': (result or {}).get('evaluation_id')}
+
+
 def run_scan(user_id, force=False, provider=None):
     token = claim(user_id, force)
     if not token:
         return {'success': False, 'message': 'Engine stopped, paused, busy, or not due.'}
     from credentials import UserSetting
-    from services.jev_settings import settings_for as jev_settings_for
-    from services.jev_quant_overlay import build_quant_state, queue_shadow
+    from services.decision_settings import settings_for as decision_settings_for
+    from services.decision_quant import evaluate_entry
     try:
-        jev_config = jev_settings_for(db.session.get(UserSetting, user_id))
+        decision_config = decision_settings_for(db.session.get(UserSetting, user_id))
     except Exception:
         db.session.rollback()
-        jev_config = jev_settings_for(None)
+        decision_config = decision_settings_for(None)
     report = {m: {'status': 'IDLE', 'messages': [], 'evaluated': 0, 'entries': 0,
                   'qualified_signals': 0, 'rejected_entries': [], 'observations': []} for m in MODULES}
     try:
@@ -1233,15 +1262,7 @@ def run_scan(user_id, force=False, provider=None):
                         db.session.rollback()
                         return {'success': False, 'message': 'Engine stopped or ownership changed.'}
                     balances(acc, state, user_id)
-                    jev_state = None
-                    if module == 'crypto' and jev_config['jev_enabled'] and jev_config['jev_quant_shadow_enabled']:
-                        try:
-                            jev_state = build_quant_state(symbol, price, signal, datetime.utcnow(),
-                                {'total_equity': acc.total_equity, 'kill_switch': bool(state.kill_switch)})
-                        except Exception:
-                            pass  # Observability must not change a paper decision.
                     is_held = check_circuit(cfg, acc, state) or not cfg.enabled or state.kill_switch
-                    entries_before_jev = report[module]['entries']
                     for entry_symbol, price, signal, details, key in entries:
                         opened = None
                         disposition = 'NO_TRADE'
@@ -1265,11 +1286,29 @@ def run_scan(user_id, force=False, provider=None):
                                 report[module]['messages'].append(f"{entry_symbol}: Viable entry signal detected ({signal.get('reason', 'Qualified')}); execution held.")
                                 disposition, disposition_reason = 'RISK_HELD', state.pause_reason or 'Paper entries paused.'
                             else:
+                                # The Decision Engine is an ACTIVE input for the crypto
+                                # module: it runs before the entry is opened. Only a
+                                # BLOCK rejects the entry; an ABSTAIN never disables
+                                # a module, and a failure never stops a deterministic
+                                # entry.
+                                decision = decision_verdict(
+                                    user_id, module, entry_symbol, price, signal, now,
+                                    decision_config, evaluate_entry)
                                 rejections = []
-                                opened = enter_lot(cfg, acc, state, module, entry_symbol, signal, price, now, multiplier=multiplier, margin=margin, details=details, key=key, rejections=rejections)
+                                if decision and decision['verdict'] == 'BLOCK':
+                                    rejections.append(decision['reason'])
                                 if rejections:
+                                    # The decision vetoed the entry, so no lot is
+                                    # opened and the reason is recorded against
+                                    # the rejected entry.
                                     report[module]['rejected_entries'].append({'symbol': entry_symbol, 'reason': rejections[0]})
                                     _record_portfolio_log(user_id, 'ENTRY_SKIPPED', f'{entry_symbol}: {rejections[0]}', module=module, symbol=entry_symbol)
+                                    opened = None
+                                else:
+                                    opened = enter_lot(cfg, acc, state, module, entry_symbol, signal, price, now, multiplier=multiplier, margin=margin, details=details, key=key, rejections=rejections)
+                                    if rejections:
+                                        report[module]['rejected_entries'].append({'symbol': entry_symbol, 'reason': rejections[0]})
+                                        _record_portfolio_log(user_id, 'ENTRY_SKIPPED', f'{entry_symbol}: {rejections[0]}', module=module, symbol=entry_symbol)
                                 disposition = 'FILLED' if opened is not None else 'REJECTED'
                                 disposition_reason = 'Paper lot opened.' if opened is not None else (rejections[0] if rejections else 'Entry did not fill.')
                                 report[module]['entries'] += int(opened is not None)
@@ -1280,13 +1319,6 @@ def run_scan(user_id, force=False, provider=None):
                     report[module]['evaluated'] += 1
                     report[module]['status'] = 'READY'
                     db.session.commit()
-                    if jev_state is not None:
-                        queue_shadow(user_id, jev_state, jev_config, {
-                            'baseline_qualified': bool(signal and signal.get('enter')),
-                            'baseline_action': 'ENTER' if report[module]['entries'] > entries_before_jev else 'NO_ENTRY',
-                            'execution_held': bool(is_held), 'jev_action': 'SHADOW',
-                            'decision_changed': False,
-                        })
                 except Exception as exc:
                     db.session.rollback()
                     failure = str(exc)[:200]

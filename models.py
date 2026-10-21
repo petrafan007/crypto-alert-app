@@ -773,7 +773,12 @@ class StakingPurchase(db.Model):
 
 
 class JevEvaluation(db.Model):
-    """Durable shadow queue and immutable decision-time evaluation evidence."""
+    """Durable decision queue and immutable decision-time evaluation evidence.
+
+    The table keeps its original name so the existing evaluation history and
+    its foreign keys stay intact. The model is now provider neutral: the
+    Decision Engine writes to it using SubQ or Inception Mercury Decide.
+    """
     __tablename__ = 'jev_evaluations'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, nullable=False)

@@ -73,7 +73,7 @@ def validate_overrides(values):
                         descriptions = criteria if valid else []
                     if not valid or any(not isinstance(v, str) or not v.strip() or len(v) > 2000 for v in descriptions):
                         raise ValueError('Evaluation criteria must preserve labels and contain valid descriptions.')
-        if key == 'jev.contract_probability':
+        if key == 'decision.contract_probability':
             if any('{index}' not in q['instructions'] or '{symbol}' not in q['instructions'] for q in value.values()):
                 raise ValueError('Contract questions must include {index} and {symbol} to bind each contract.')
         if key == 'audit.completion' and '{marker}' not in value:

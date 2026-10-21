@@ -1,8 +1,28 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.10.0
+**Version:** 4.11.0
 
 ## Recent Updates
+
+### v4.11.0
+* **Decision Engine replaces the Jev subsystem:** The Jev evaluation layer is retired. A provider-neutral Decision Engine now uses **SubQ (`subq-snap-preview`)** as the primary decision provider and **Inception Mercury Decide (`mercury-decide`)** as the fallback. Both providers express a positive answer as a `noul` probability, so both share one normalisation path and one typed question contract (`boolean` / `choice` / `score`).
+  * New modules: `services/decision_engine.py`, `decision_settings.py`, `decision_contracts.py`, `decision_evaluations.py`, `decision_sentiment.py`, `decision_event.py`, `decision_outcomes.py`, `decision_quant.py`.
+  * Settings moved from `jev_*` to `decision_*` columns. The legacy columns are retained so an existing configuration survives the rename, and a saved transport migrates to SubQ.
+  * The editable prompt catalog keys moved from `jev.*` to `decision.*`.
+  * The `jev_evaluations` table and its indexes keep their name so the existing evaluation history and its foreign keys stay intact.
+* **The Decision Engine is now ACTIVE, not shadow:**
+  * The crypto module asks the Decision Engine before opening a qualified entry. A `CONFIRM` allows it, a `BLOCK` rejects it with the reason recorded on the decision, and an `ABSTAIN` leaves the deterministic signal in charge. The engine can only ever *add* a rejection: a provider outage, timeout, or unreadable answer is logged and treated as an abstention, so a decision engine can never silently disable a module.
+  * The generative fallback is always available when the Decision Engine abstains.
+  * The former "paper gating is unavailable" restriction is removed.
+* **Inception Mercury Decide wired as a Decisions model:** `mercury-decide` is selectable in the Decision Engine settings, with its own endpoint allowlist entry and credential status. The general Inception key is used for Mercury Decide when no dedicated Decisions key is saved, because Inception uses one key for both chat completions and Decisions.
+* **Provider fallback:** a decision request that fails on the primary provider is retried on the fallback, and the provider that produced the answer is recorded so every decision is attributable.
+* **Test suite is fully green:** all four remaining failures were resolved.
+  * **Webull tax report (production bug):** `_build_webull_tax_report` referenced `manual_webull_activities` without ever defining it, so every manual Webull activity raised `NameError` and the report failed. The activities are now read from the activity ledger and merged into the same report.
+  * **Order replacement (production bug):** the v4.7.1 universal-replacement refactor dropped two guards. A replacement now refuses an order for a *different symbol* (which would have cancelled the wrong order and left the intended one live), and refuses a replacement whose cancellation is still `CANCEL_PENDING` or that recorded a fill (which would have doubled the exposure).
+  * **Stale Event forecast:** an expired forecast was reported as `AI_EVALUATION_DEFERRED`, implying a batch had not run yet. It now reports `MODEL_UNAVAILABLE`, which is what it actually is.
+  * **Event handoff tests:** the mocks were missing the `user_id` the strategy service needs, and the strategy service call was not patched.
+  * **Ollama credential test:** a route function named `test_provider_api` was imported under its own name, so pytest collected it as a test. It is now imported under an alias.
+* **New tests:** `tests/test_decision_engine_contract.py` pins the Mercury Decide request and response shapes, the normalisation of both providers' `noul` answers, the rejection of malformed answers, and the active quant gate's CONFIRM / BLOCK / ABSTAIN and failure behaviour.
 
 ### v4.10.0
 * **Quantitative Strategy Engine Overhaul:** Corrected the arithmetic that made the paper engine lose money before any market view was expressed.

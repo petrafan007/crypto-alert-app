@@ -832,15 +832,15 @@ def api_ai_settings():
                 del ai_settings['ai_custom_prompts']
 
             logger.error("=== DEBUG: Final AI settings response generated ===")
-            from services.credential_views import jev_credential_status
+            from services.credential_views import decision_credential_status
             credential = Credential.query.filter_by(user_id=current_user.id).first()
-            ai_settings.update(jev_credential_status(credential))
+            ai_settings.update(decision_credential_status(credential))
             return jsonify(ai_settings)
 
         elif request.method == "POST":
             # Save AI settings
             from services.credential_views import credential_changes
-            from services.jev_settings import validate_settings, save_settings as save_jev_settings
+            from services.decision_settings import validate_settings, save_settings as save_decision_settings
             data = credential_changes(request.get_json() or {})
             try:
                 validate_settings(data)
@@ -888,6 +888,8 @@ def api_ai_settings():
                     cred.openrouter_api_key = val
             if 'subq_api_key' in data:
                 cred.subq_api_key = data.pop('subq_api_key')
+            if 'inception_decisions_key' in data:
+                cred.inception_decisions_key = data.pop('inception_decisions_key')
             if 'openai_key' in data:
                 cred.openai_key = data.pop('openai_key')
             if 'zai_key' in data:
@@ -999,7 +1001,7 @@ def api_ai_settings():
                     }), 400
                 data['automated_trigger_confirmation_minutes'] = confirmation_minutes
 
-            save_jev_settings(user_setting, data)
+            save_decision_settings(user_setting, data)
             # Map of allowed fields to update
             allowed_fields = [
                 'ai_enabled', 'ai_provider', 'ai_model', 'ai_reasoning_level',
@@ -1067,8 +1069,8 @@ def api_ai_settings():
                     else:
                         setattr(user_setting, key, str(value))
             db.session.commit()
-            from services.credential_views import jev_credential_status
-            return jsonify({"success": True, "message": "AI settings updated", **jev_credential_status(cred)})
+            from services.credential_views import decision_credential_status
+            return jsonify({"success": True, "message": "AI settings updated", **decision_credential_status(cred)})
 
     except Exception as e:
         logger.error(f"Error in AI settings endpoint: {e}")
@@ -3462,47 +3464,33 @@ def api_ai_copilot_results():
         }), 500
 
 
-@ai_bp.route('/api/jev/test-connection', methods=['POST'])
+@ai_bp.route('/api/decision/test-connection', methods=['POST'])
 @login_required
-def test_jev_connection():
+def test_decision_connection():
     from services.credential_views import saved_or_supplied
-    from services.jev_settings import settings_for, validate_settings, normalize_transport
-    from services.jev_service import JevClient, JevError
+    from services.decision_settings import settings_for, validate_settings, normalize_transport
+    from services.decision_engine import DecisionClient, DecisionError
     payload = request.get_json(silent=True) or {}
     try:
         config = settings_for(db.session.get(UserSetting, current_user.id))
         config.update(validate_settings(payload))
         config = normalize_transport(config)
         credential = Credential.query.filter_by(user_id=current_user.id).first()
-        transport = config.get('jev_transport', 'vercel')
-        key_field = {'vercel': 'ai_gateway_key', 'openrouter': 'openrouter_api_key',
-                     'subq': 'subq_api_key'}[transport]
+        transport = config.get('decision_transport', 'subq')
+        key_field = {'subq': 'subq_api_key', 'inception': 'inception_decisions_key'}[transport]
         key = saved_or_supplied(payload.get(key_field, '********'), credential, key_field)
-        if (not key or key == '********') and credential:
-            from services.jev_settings import DEFAULT_ENDPOINT, OPENROUTER_ENDPOINT, OPENROUTER_MODEL
-            if transport == 'openrouter' and credential.ai_gateway_key:
-                transport = 'vercel'
-                key = credential.ai_gateway_key
-                config['jev_transport'] = 'vercel'
-                config['jev_endpoint'] = DEFAULT_ENDPOINT
-                config['jev_model'] = 'typesafe-ai/jev'
-            elif transport == 'vercel' and credential.openrouter_api_key:
-                transport = 'openrouter'
-                key = credential.openrouter_api_key
-                config['jev_transport'] = 'openrouter'
-                config['jev_endpoint'] = OPENROUTER_ENDPOINT
-                config['jev_model'] = OPENROUTER_MODEL
         from services.prompt_catalog import prompt_for
-        questions = prompt_for(current_user.id, 'jev.connection_test')
+        questions = prompt_for(current_user.id, 'decision.connection_test')
         db.session.commit()
-        result = JevClient(key, config['jev_endpoint'], config['jev_model'], config['jev_timeout_seconds'], transport=transport).evaluate(
+        result = DecisionClient(key, config['decision_endpoint'], config['decision_model'],
+                                config['decision_timeout_seconds'], transport=transport).evaluate(
             state={'connection_test': True},
             questions=questions)
         return jsonify(success=True, model=result.model, latency_ms=result.latency_ms,
                        provider=result.provider, message='Decision Engine connection succeeded.')
     except ValueError as exc:
         return jsonify(success=False, message=str(exc)), 400
-    except JevError as exc:
+    except DecisionError as exc:
         return jsonify(success=False, message=str(exc), code=exc.code, latency_ms=exc.latency_ms), 400
     except Exception:
         return jsonify(success=False, message='Decision Engine connection test could not be completed.'), 503
@@ -3536,10 +3524,10 @@ def ai_prompt_catalog():
     return response
 
 
-@ai_bp.route('/api/jev/telemetry', methods=['GET'])
+@ai_bp.route('/api/decision/telemetry', methods=['GET'])
 @login_required
-def jev_telemetry():
-    from services.jev_outcomes import telemetry
+def decision_telemetry():
+    from services.decision_outcomes import telemetry
     use_case = request.args.get('use_case')
     if use_case not in (None, 'sentiment', 'quant_crypto'):
         return jsonify(message='Unknown Decision Engine evaluation type.'), 400

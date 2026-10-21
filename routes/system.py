@@ -1489,7 +1489,7 @@ def api_settings():
         
         if request.method == "POST":
             data = credential_changes(request.get_json() or {})
-            from services.jev_settings import validate_settings, save_settings as save_jev_settings
+            from services.decision_settings import validate_settings, save_settings as save_decision_settings
             try:
                 validate_settings(data)
             except ValueError as exc:
@@ -1568,7 +1568,7 @@ def api_settings():
                 user_setting = UserSetting(user_id=current_user.id)
                 db.session.add(user_setting)
             
-            save_jev_settings(user_setting, data)
+            save_decision_settings(user_setting, data)
             allowed_fields = [
                 'ai_enabled', 'ai_provider', 'ai_model', 'ai_risk_tolerance',
                 'ai_confidence_threshold', 'ai_notifications_enabled', 'ai_analysis_frequency',
@@ -1696,6 +1696,8 @@ def api_settings():
                         cred.openrouter_api_key = val
                 if 'subq_api_key' in data:
                     cred.subq_api_key = data['subq_api_key']
+                if 'inception_decisions_key' in data:
+                    cred.inception_decisions_key = data['inception_decisions_key']
                 if 'openai_key' in data:
                     cred.openai_key = data['openai_key']
                 if 'zai_key' in data:
@@ -1860,6 +1862,7 @@ def api_settings():
             "ai_gateway_key": "********" if getattr(cred, '_ai_gateway_key', None) else "",
             "openrouter_api_key": "********" if getattr(cred, '_openrouter_api_key', None) else "",
             "subq_api_key": "********" if getattr(cred, '_subq_api_key', None) else "",
+            "inception_decisions_key": "********" if getattr(cred, '_inception_decisions_key', None) else "",
             "openai_key": cred.openai_key,
             "zai_key": getattr(cred, 'zai_key', None),
             "perplexity_key": getattr(cred, 'perplexity_key', None),
@@ -1911,8 +1914,8 @@ def api_settings():
             "credentials_encryption_key_persisted": bool(encryption_persisted),
         })
         
-        from services.credential_views import jev_credential_status
-        response.update(jev_credential_status(cred))
+        from services.credential_views import decision_credential_status
+        response.update(decision_credential_status(cred))
         result = jsonify(masked_settings(response))
         result.headers["Cache-Control"] = "no-store"
         return result

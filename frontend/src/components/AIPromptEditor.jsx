@@ -42,7 +42,7 @@ export default function AIPromptEditor({ groups, title, onChange }) {
     {usesDecisionEngine && <p>Sentiment and contract-probability instructions configure Decision Engine requests. The selected provider/model returns typed answers; workflow enablement and fallback settings still apply.</p>}
     {usesWorkflowAI && <p>These instructions accompany requests through the AI provider/model cascade configured for their workflow.</p>}
     {!loaded && !message && <p>Loading saved instructions…</p>}
-    {Object.entries(entries).filter(([, entry]) => groups.includes(entry.group)).map(([key, entry]) => <details key={key} open={key.startsWith('jev.')}>
+    {Object.entries(entries).filter(([, entry]) => groups.includes(entry.group)).map(([key, entry]) => <details key={key} open={key.startsWith('decision.')}>
       <summary>{entry.label}</summary>
       {typeof entry.value === 'string' ? text(key, 'Instructions / query template', entry.value, value => change(key, value)) :
         Object.entries(entry.value).map(([name, question]) => <div key={name}>

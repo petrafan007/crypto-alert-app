@@ -474,8 +474,8 @@ def portfolio_algo_ai_config():
             new_ai = payload["ai_config"]
             if 'audit_guidance' in new_ai and (not isinstance(new_ai['audit_guidance'], str) or len(new_ai['audit_guidance']) > 12000):
                 raise ValueError('Shared audit guidance must be text of at most 12000 characters.')
-            if new_ai.get('event_evaluator', 'jev') != 'jev':
-                raise ValueError('Contract probabilities use Jev with no generative fallback.')
+            if new_ai.get('event_evaluator', 'decision') != 'decision':
+                raise ValueError('Contract probabilities use the Decision Engine with no generative fallback.')
             validate_master_ai_config(new_ai)
             from credential_security import encrypt_secret
             merged_ai = existing_ai.copy()
@@ -512,7 +512,7 @@ def portfolio_algo_ai_config():
     
     from routes.event_algo import sanitize_event_ai_config
     sanitized_ai = sanitize_event_ai_config(cfg.master_ai_config or "{}")
-    sanitized_ai['event_evaluator'] = 'jev'
+    sanitized_ai['event_evaluator'] = 'decision'
     sanitized_ai['audit_guidance'] = engine.loads(cfg.master_ai_config, {}).get('audit_guidance', DEFAULT_AUDIT_GUIDANCE)
     return jsonify({
         "success": True,

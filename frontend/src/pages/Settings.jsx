@@ -1,5 +1,5 @@
 import AIPromptEditor from '../components/AIPromptEditor';
-import JevSettings, { JEV_DEFAULTS } from '../components/JevSettings';
+import DecisionSettings, { DECISION_DEFAULTS } from '../components/DecisionSettings';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
@@ -117,7 +117,7 @@ export default function Settings({ isLightMode }) {
     ollama: [],
   });
   const [settings, setSettings] = useState({
-    ...JEV_DEFAULTS,
+    ...DECISION_DEFAULTS,
     api_key: '',
     api_secret: '',
     binance_testnet: true,
@@ -578,7 +578,7 @@ export default function Settings({ isLightMode }) {
             secondary: response.data.ai_config?.secondary || { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
             tertiary: response.data.ai_config?.tertiary || { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
             quaternary: response.data.ai_config?.quaternary || { provider: '', model: '', reasoning_level: 'medium', api_key: '', has_key: false },
-            event_evaluator: 'jev',
+            event_evaluator: 'decision',
             ...(response.data.ai_config?.audit_guidance !== undefined ? { audit_guidance: response.data.ai_config.audit_guidance } : {}),
           },
         };
@@ -3187,7 +3187,7 @@ export default function Settings({ isLightMode }) {
             )}
           </div>
         </div>
-        <JevSettings settings={settings} onChange={handleInputChange} />
+        <DecisionSettings settings={settings} onChange={handleInputChange} />
         </div>
       )}
 

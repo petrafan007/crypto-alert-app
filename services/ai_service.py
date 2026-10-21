@@ -713,19 +713,19 @@ def _is_equity_asset(sym, user_id=None):
         return False
     return True
 
-def call_ai_with_web_search(*args, jev_context=None, **kwargs):
+def call_ai_with_web_search(*args, decision_context=None, **kwargs):
     sentiment_types = {'sentiment_analysis', 'watchlist_sentiment_analysis', 'webull_crypto_analysis', 'webull_equity_analysis'}
-    if jev_context is not None or kwargs.get('prompt_type') in sentiment_types:
-        if jev_context is None:
-            raise ValueError('Jev sentiment requires point-in-time asset evidence; no generative fallback.')
-        from services.jev_sentiment import run_sentiment
+    if decision_context is not None or kwargs.get('prompt_type') in sentiment_types:
+        if decision_context is None:
+            raise ValueError('Decision Engine sentiment requires point-in-time asset evidence; no generative fallback.')
+        from services.decision_sentiment import run_sentiment
         try:
-            return run_sentiment(_call_generative_with_web_search, kwargs, jev_context)
+            return run_sentiment(_call_generative_with_web_search, kwargs, decision_context)
         except Exception as exc:
-            logger.warning(f"Jev sentiment call failed: {exc}; invoking generative AI.")
+            logger.warning(f"Decision Engine sentiment call failed: {exc}; invoking generative AI.")
             return _call_generative_with_web_search(*args, **kwargs)
     if kwargs.get('prompt_type') in {'webull_event_contract_analysis', 'webull_event_contract_batch_analysis'}:
-        raise ValueError('Contract probabilities must use the Jev Event evaluator.')
+        raise ValueError('Contract probabilities must use the Decision Engine event evaluator.')
     return _call_generative_with_web_search(*args, **kwargs)
 
 
@@ -1848,7 +1848,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             search_lookback_hours=lookback_hours,
             forecast_horizon_hours=forecast_horizon_hours,
             attempt_observer=observe_ai_attempt,
-            jev_context={'symbol': symbol, 'instrument_type': 'CRYPTO', 'market_source': 'binance',
+            decision_context={'symbol': symbol, 'instrument_type': 'CRYPTO', 'market_source': 'binance',
                          'recommendation_boundaries': grading_config,
                          'current_price': current_price, 'forecast_horizon_hours': forecast_horizon_hours,
                          'is_watchlist': is_watchlist, 'market_context': price_vol_history_text,
@@ -1930,9 +1930,9 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             failover_history=failover_history_json,
         )
 
-        if sentiment_history and getattr(response, 'jev_evaluation_id', None):
-            from services.jev_evaluations import try_update_evaluation
-            try_update_evaluation(response.jev_evaluation_id, user_id=user_id, sentiment_history_id=sentiment_history.id)
+        if sentiment_history and getattr(response, 'decision_evaluation_id', None):
+            from services.decision_evaluations import try_update_evaluation
+            try_update_evaluation(response.decision_evaluation_id, user_id=user_id, sentiment_history_id=sentiment_history.id)
 
         log_ai_conversation(user_id, prompt_type, "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id, provider=resp_provider, model=resp_model, tier=resp_tier)
         time.sleep(0.1)

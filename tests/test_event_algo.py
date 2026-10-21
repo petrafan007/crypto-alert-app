@@ -23,11 +23,11 @@ from routes.event_algo import _paper_mode_enabled
 
 class EventAlgoTests(unittest.TestCase):
     def setUp(self):
-        patcher = patch('services.jev_event.evaluator_for', return_value='generative')
+        patcher = patch('services.decision_event.evaluator_for', return_value='generative')
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_single_contract_prediction_uses_saved_or_explicit_config_with_jev(self):
+    def test_single_contract_prediction_uses_saved_or_explicit_config_with_the_decision_engine(self):
         from event_algo import _predict_event_market
         market = {'symbol': 'TEST', 'yes_ask': .4, 'no_ask': .6}
         saved = SimpleNamespace(id=1, enabled=True)
@@ -37,12 +37,12 @@ class EventAlgoTests(unittest.TestCase):
                  patch('services.analysis_service.is_ai_enabled', return_value=True), \
                  patch('event_algo.get_or_create_config', return_value=saved) as load, \
                  patch('services.event_runtime.event_request_guard', return_value=lambda: None), \
-                 patch('services.jev_event.predict', return_value={'TEST': {'metadata': {'status':'success', 'tier':'jev'}}}) as jev, \
+                 patch('services.decision_event.predict', return_value={'TEST': {'metadata': {'status':'success', 'tier':'decision'}}}) as decision, \
                  patch('services.ai_service.call_ai_with_web_search') as generative:
                 users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
                 result = _predict_event_market(7, market, **({'config': supplied} if explicit else {}))
-                self.assertEqual(result['metadata']['tier'], 'jev')
-                self.assertIs(jev.call_args.args[2], supplied if explicit else saved)
+                self.assertEqual(result['metadata']['tier'], 'decision')
+                self.assertIs(decision.call_args.args[2], supplied if explicit else saved)
                 self.assertEqual(load.call_count, 0 if explicit else 1)
                 generative.assert_not_called()
 
@@ -71,7 +71,7 @@ class EventAlgoTests(unittest.TestCase):
         with patch('event_algo.User') as users, \
                 patch('services.analysis_service.is_ai_enabled', return_value=True), \
                 patch('services.event_runtime.event_request_guard', return_value=lambda: None), \
-                patch('services.jev_event.predict', side_effect=AIRequestDeferred('Audit in progress')):
+                patch('services.decision_event.predict', side_effect=AIRequestDeferred('Audit in progress')):
             users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
             result = _predict_event_market(7, {'symbol': 'TEST', 'yes_ask': 0.4}, config=SimpleNamespace(id=1, enabled=True))
         self.assertEqual(result['metadata']['status'], 'skipped')
@@ -89,7 +89,7 @@ class EventAlgoTests(unittest.TestCase):
                 patch('event_algo.get_event_strategy_ai_tiers_and_keys', return_value=([], {})), \
                 patch('services.event_runtime.event_request_guard', return_value=lambda: None), \
                 patch('event_algo.db'), \
-                patch('services.jev_event.predict', side_effect=AIRequestDeferred('Audit in progress')):
+                patch('services.decision_event.predict', side_effect=AIRequestDeferred('Audit in progress')):
             users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
             result = _predict_event_markets_batch(1, [market], config=SimpleNamespace(id=1, enabled=True,
                 risk_config='{}', signal_config='{}', kill_switch=False))['TEST']

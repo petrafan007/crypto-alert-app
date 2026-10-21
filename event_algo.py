@@ -524,7 +524,7 @@ def _event_model_context(market):
 
 
 def _predict_event_market(user_id, market, *, config=None):
-    """Evaluate a contract with Jev; never request a generative forecast."""
+    """Evaluate a contract with the Decision Engine; never request a generative forecast."""
     metadata = {
         "status": "unavailable",
         "tier": None,
@@ -565,11 +565,11 @@ def _predict_event_market(user_id, market, *, config=None):
 
         if config is None:
             config = get_or_create_config(user_id)
-        from services.jev_event import predict as predict_jev
+        from services.decision_event import predict as predict_decision
         from services.event_runtime import event_request_guard
         guard = event_request_guard(user_id, config.id, seconds=30, require_enabled=bool(config.enabled))
         guard()
-        return predict_jev(user_id, [market], config, guard)[market['symbol']]
+        return predict_decision(user_id, [market], config, guard)[market['symbol']]
     except AIRequestDeferred as exc:
         metadata.update({"status": "skipped", "deferral_reason": "AI_BUDGET_EXHAUSTED" if 'budget' in str(exc).lower() else "AUDIT_IN_PROGRESS", "error": str(exc)[:500]})
         return {"metadata": metadata}
@@ -641,7 +641,7 @@ def _response_text(response):
 
 
 def _predict_event_markets_batch(user_id, markets, *, context_refresh_hours=1, config=None):
-    """Evaluate bounded Jev batches with existing eligibility and budget gates."""
+    """Evaluate bounded Decision Engine batches with existing eligibility and budget gates."""
     markets = [market for market in (markets or []) if isinstance(market, dict)]
     if not markets:
         return {}
@@ -677,17 +677,17 @@ def _predict_event_markets_batch(user_id, markets, *, context_refresh_hours=1, c
         if not eligible:
             return results
 
-        from services.jev_event import predict as predict_jev
+        from services.decision_event import predict as predict_decision
         from services.event_runtime import event_request_guard
         request_guard = event_request_guard(user_id, config.id, seconds=30, require_enabled=bool(config.enabled))
         for offset in range(0, len(eligible), MAX_BATCH_CONTRACTS):
             chunk = eligible[offset:offset + MAX_BATCH_CONTRACTS]
-            def jev_guard():
+            def decision_guard():
                 request_guard()
                 if any(scope_excluded(market, config, datetime.utcnow()) for market in chunk):
-                    raise AIRequestDeferred('Event entry window changed while waiting; Jev batch deferred.')
-            jev_guard()
-            results.update(predict_jev(user_id, chunk, config, jev_guard))
+                    raise AIRequestDeferred('Event entry window changed while waiting; decision batch deferred.')
+            decision_guard()
+            results.update(predict_decision(user_id, chunk, config, decision_guard))
         return results
     except AIRequestDeferred as exc:
         for market in markets:
@@ -1750,7 +1750,12 @@ def evaluate_market(market, config, *, now=None):
             reasons.append("AI_PROVIDER_ERROR")
         elif model_status == "invalid":
             reasons.append("AI_RESPONSE_INVALID")
-        elif model_status in ("skipped", "deferred", "stale") or any(k in model_err for k in ("budget", "cadence", "deferred", "scheduled")):
+        elif model_status == "stale":
+            # A forecast from an earlier batch has expired. The model output
+            # is genuinely unavailable for this quote, which is different from
+            # a batch that has not run yet.
+            reasons.append("MODEL_UNAVAILABLE")
+        elif model_status in ("skipped", "deferred") or any(k in model_err for k in ("budget", "cadence", "deferred", "scheduled")):
             if "budget" in model_err:
                 reasons.append("AI_BUDGET_EXHAUSTED")
             else:
@@ -2256,7 +2261,7 @@ def _run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="ma
         now = datetime.utcnow()
         decisions = []
         diagnostics_by_context = {(item.get("symbol"), item.get("duration")): item for item in scan_diagnostics}
-        from services.jev_event import forecast_identity_for
+        from services.decision_event import forecast_identity_for
         forecast_identity = forecast_identity_for(user_id)
         for market in markets.values():
             market['_event_forecast_identity'] = forecast_identity

@@ -153,7 +153,7 @@ def create_webull_signal(user, holding, *, origin='manual'):
         amount=holding.quantity,
         search_lookback_hours=24,
         forecast_horizon_hours=horizon,
-        jev_context=({'symbol': holding.symbol, 'instrument_type': instrument_type, 'market_source': 'webull',
+        decision_context=({'symbol': holding.symbol, 'instrument_type': instrument_type, 'market_source': 'webull',
                       'recommendation_boundaries': rules,
                       'current_price': float(entry_price), 'forecast_horizon_hours': horizon,
                       'market_context': market['context'], 'market_available_at': datetime.now(timezone.utc).isoformat()}
@@ -174,9 +174,9 @@ def create_webull_signal(user, holding, *, origin='manual'):
         search_status=getattr(response, 'search_status', None),
         failover_history=failover_history_json,
     )
-    if getattr(response, 'jev_evaluation_id', None):
-        from services.jev_evaluations import try_update_evaluation
-        try_update_evaluation(response.jev_evaluation_id, user_id=user.id, external_sentiment_signal_id=signal.id)
+    if getattr(response, 'decision_evaluation_id', None):
+        from services.decision_evaluations import try_update_evaluation
+        try_update_evaluation(response.decision_evaluation_id, user_id=user.id, external_sentiment_signal_id=signal.id)
     return signal, market
 
 

@@ -11,7 +11,7 @@ from services.event_inference import inference_preflight, strict_batch_predictio
 
 class EventInferenceTests(unittest.TestCase):
     def setUp(self):
-        patcher = patch('services.jev_event.evaluator_for', return_value='generative')
+        patcher = patch('services.decision_event.evaluator_for', return_value='generative')
         patcher.start()
         self.addCleanup(patcher.stop)
         self.now = datetime.utcnow()
@@ -77,7 +77,7 @@ class EventInferenceTests(unittest.TestCase):
         self.assertEqual(strict_batch_predictions(duplicate, ['A', 'B']), {})
 
     def test_contract_questions_use_typed_outcomes_and_explicit_evidence(self):
-        from services.jev_event import build_questions
+        from services.decision_event import build_questions
         questions = build_questions([self.market])
         self.assertEqual(questions['c0_outcome']['type'], 'choice')
         self.assertEqual(set(questions['c0_outcome']['criteria']), {'YES', 'NO'})
@@ -91,18 +91,18 @@ class EventInferenceTests(unittest.TestCase):
         self.assertFalse(result['eligible'])
         self.assertIn('CONFIDENCE_TOO_LOW', result['reason_codes'])
 
-    def test_prediction_batches_are_small_and_use_jev_only(self):
+    def test_prediction_batches_are_small_and_use_the_decision_engine_only(self):
         batches = []
         def respond(user_id, markets, config, guard):
             guard()
             batches.append([m['symbol'] for m in markets])
             return {m['symbol']: {'model_probability_yes': .5, 'model_confidence': 0,
-                'metadata': {'status': 'success', 'tier': 'jev'}} for m in markets}
+                'metadata': {'status': 'success', 'tier': 'decision'}} for m in markets}
         markets = [{**self.market, 'symbol': symbol} for symbol in ('A', 'B', 'C')]
         with patch('event_algo.User') as users, \
              patch('services.analysis_service.is_ai_enabled', return_value=True), \
              patch('services.event_runtime.event_request_guard', return_value=lambda: None), \
-             patch('services.jev_event.predict', side_effect=respond), \
+             patch('services.decision_event.predict', side_effect=respond), \
              patch('services.ai_service.call_ai_with_web_search') as generative:
             users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
             result = _predict_event_markets_batch(1, markets, config=self.config)
@@ -119,7 +119,7 @@ class EventInferenceTests(unittest.TestCase):
         with patch('event_algo.User') as users, \
              patch('services.analysis_service.is_ai_enabled', return_value=True), \
              patch('services.event_runtime.event_request_guard', return_value=lambda: None), \
-             patch('services.jev_event.predict', side_effect=queue_wait):
+             patch('services.decision_event.predict', side_effect=queue_wait):
             users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
             result = _predict_event_markets_batch(1, [market], config=self.config)['TEST']
         self.assertEqual(result['metadata']['deferral_reason'], 'ENTRY_WINDOW_CHANGED')

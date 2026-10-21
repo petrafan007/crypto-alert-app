@@ -113,17 +113,21 @@ class EventMarketTimingTests(unittest.TestCase):
         self.assertEqual(result['underlying_price_as_of'], now.isoformat())
 
     def test_handoff_uses_quote_basis_and_drops_prior_quote_timing(self):
-        decision = SimpleNamespace(created_at=self.now.replace(tzinfo=None), contract_symbol='TEST', confidence=.9, probability_yes=.8, outcome='YES')
+        decision = SimpleNamespace(id=1, user_id=1, created_at=self.now.replace(tzinfo=None),
+                                    contract_symbol='TEST', confidence=.9, probability_yes=.8, outcome='YES')
         config = SimpleNamespace(risk_config='{}', signal_config='{}', kill_switch=False)
         settings = {'min_confidence': .5, 'min_net_edge': .015}
         market = self.normalise(last_trade_time=(self.now-timedelta(days=1)).timestamp())
         market['cutoff_at'] = (self.now+timedelta(minutes=10)).isoformat()
         market['series_symbol'] = 'TEST'
-        status, _, assessment = handoff.validate_entry(decision, market, config, settings, ['TEST'], self.now.replace(tzinfo=None))
-        self.assertIsNone(status)
-        self.assertEqual(assessment['features']['quote_freshness']['basis'], 'RETRIEVAL_ONLY')
-        for fields in ({'timestamp': (self.now-timedelta(seconds=31)).isoformat()}, {'timestamp': 'bad'}):
-            self.assertEqual(handoff.validate_entry(decision, self.normalise(**fields), config, settings, ['TEST'], self.now.replace(tzinfo=None))[0], 'MISSED')
+        with patch('services.strategy_client.evaluate', return_value={
+                'enter': True, 'setup': 'EVENT_EDGE_V1', 'strategy_version': '4.5.0-baseline',
+                'code_sha256': 'a' * 64, 'reason': 'Qualified.'}):
+            status, _, assessment = handoff.validate_entry(decision, market, config, settings, ['TEST'], self.now.replace(tzinfo=None))
+            self.assertIsNone(status)
+            self.assertEqual(assessment['features']['quote_freshness']['basis'], 'RETRIEVAL_ONLY')
+            for fields in ({'timestamp': (self.now-timedelta(seconds=31)).isoformat()}, {'timestamp': 'bad'}):
+                self.assertEqual(handoff.validate_entry(decision, self.normalise(**fields), config, settings, ['TEST'], self.now.replace(tzinfo=None))[0], 'MISSED')
         credential = SimpleNamespace(webull_app_key='test', webull_app_secret='test', webull_access_token='test')
         with patch.object(handoff, 'db') as database, \
                 patch('event_algo._webull_connection_for_user', return_value=(credential, 'test')), \

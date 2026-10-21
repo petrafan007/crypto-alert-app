@@ -5434,6 +5434,13 @@ def _build_webull_tax_report(user_id, accounting_method='FIFO'):
 
     from trading_models import AllActivity
     from trading_models import TaxCorrection
+    # Manually recorded Webull activities are not in the order table, so they
+    # are read from the activity ledger and merged into the same report.
+    manual_webull_activities = AllActivity.query.filter(
+        AllActivity.user_id == user_id,
+        AllActivity.exchange == 'webull',
+        AllActivity.type.in_(['BUY', 'SELL']),
+    ).order_by(AllActivity.date.asc()).all()
     for activity in manual_webull_activities:
         if str(activity.exchange or '').lower() != 'webull':
             continue

@@ -9,7 +9,9 @@ from services.ai_service import get_ollama_models, call_ollama_chat
 import os
 from cryptography.fernet import Fernet
 import credential_security
-from routes.portfolio_algo import test_provider_api
+# The route function is named test_provider_api, which pytest would collect as
+# a test if it were imported under that name. Import it under an alias.
+from routes.portfolio_algo import test_provider_api as provider_api_probe
 
 
 class OllamaCredentialTests(unittest.TestCase):
@@ -130,7 +132,7 @@ class OllamaCredentialTests(unittest.TestCase):
     def test_test_provider_api_passes_key_and_verifies_model(self, mock_get_models):
         mock_get_models.return_value = ['gpt-oss:120b-cloud', 'qwen2.5:14b']
         with self.app.test_request_context():
-            response = test_provider_api('ollama', 'cloud-key-xyz', 'gpt-oss:120b-cloud')
+            response = provider_api_probe('ollama', 'cloud-key-xyz', 'gpt-oss:120b-cloud')
             self.assertTrue(response.json['success'])
             mock_get_models.assert_called_once_with(timeout=10, api_key='cloud-key-xyz')
 
