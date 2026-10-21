@@ -64,8 +64,10 @@ DEFAULT_MODULE_SETTINGS = {
         "target_dte": 45,
         "profit_target_pct": 50,
         # Maximum round-trip bid-ask cost as a fraction of the credit received.
-        # Above this the spread cannot pay for its own execution.
-        "max_friction_ratio": 0.50,
+        # Above this the spread cannot pay for its own execution. The ceiling is
+        # kept below 1.0 because a ratio of 1.0 means the execution cost
+        # consumes the entire credit, leaving no edge at all.
+        "max_friction_ratio": 0.75,
         # Maximum break-even win rate. A credit spread whose break-even exceeds
         # this cannot pay for itself at any achievable accuracy. At the default
         # 50% profit target and 0.75 risk ratio this requires a credit of at

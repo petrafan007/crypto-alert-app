@@ -113,5 +113,54 @@ class SpreadWidthSelectionTests(unittest.TestCase):
             self._select(ladder(rows))
 
 
+class FrictionCeilingTests(unittest.TestCase):
+    """The friction ceiling must admit a tradeable TSLA spread, not a doomed one."""
+
+    def test_the_shipped_ceiling_leaves_a_margin_below_the_credit(self):
+        """A ratio of 1.0 would consume the entire credit, leaving no edge."""
+        from portfolio_algo_models import DEFAULT_MODULE_SETTINGS
+        ceiling = DEFAULT_MODULE_SETTINGS['options']['max_friction_ratio']
+        self.assertLess(ceiling, 1.0)
+        self.assertEqual(ceiling, 0.75)
+
+    def test_a_spread_whose_friction_is_inside_the_ceiling_is_admitted(self):
+        """The live TSLA spread the looser ceiling exists to admit."""
+        from portfolio_algo_models import DEFAULT_MODULE_SETTINGS
+        ceiling = DEFAULT_MODULE_SETTINGS['options']['max_friction_ratio']
+        settings = {**SETTINGS, 'max_friction_ratio': ceiling}
+        # TSLA 2026-11-27 CALL, 395/400: credit 1.60 against 1.10 of friction.
+        rows = [(395.0, 16.85, 17.40, 0.4840), (400.0, 14.70, 15.25, 0.4727)]
+        spread = select_credit_spread(ladder(rows, 'CALL'), 386.55, 50, settings, NOW,
+                                      allow_warmup=True, preferred_kind='CALL')
+        self.assertLessEqual(spread['friction'] / spread['credit'], ceiling)
+        self.assertEqual(spread['width'], 5.0)
+        self.assertLessEqual(spread['break_even_win_rate'], SETTINGS['max_break_even_win_rate'])
+
+    def test_that_spread_is_rejected_under_the_previous_ceiling(self):
+        """Guards the change: the same spread was refused at 0.50."""
+        settings = {**SETTINGS, 'max_friction_ratio': 0.50}
+        rows = [(395.0, 16.85, 17.40, 0.4840), (400.0, 14.70, 15.25, 0.4727)]
+        with self.assertRaises(ValueError):
+            select_credit_spread(ladder(rows, 'CALL'), 386.55, 50, settings, NOW,
+                                  allow_warmup=True, preferred_kind='CALL')
+
+    def test_a_spread_whose_friction_exceeds_the_ceiling_is_still_rejected(self):
+        """The ceiling is a ceiling, not a suggestion."""
+        from portfolio_algo_models import DEFAULT_MODULE_SETTINGS
+        settings = {**SETTINGS, 'max_friction_ratio': DEFAULT_MODULE_SETTINGS['options']['max_friction_ratio']}
+        # A spread whose round-trip cost is more than three quarters of its credit.
+        rows = [(395.0, 16.85, 17.40, 0.4840), (400.0, 12.00, 15.25, 0.4727)]
+        with self.assertRaises(ValueError):
+            select_credit_spread(ladder(rows, 'CALL'), 386.55, 50, settings, NOW,
+                                  allow_warmup=True, preferred_kind='CALL')
+
+    def test_the_ceiling_is_inside_the_configurable_range(self):
+        """The settings screen must accept the shipped value."""
+        from services.portfolio_engine import LIMITS
+        low, high, _ = LIMITS['options']['max_friction_ratio']
+        from portfolio_algo_models import DEFAULT_MODULE_SETTINGS
+        self.assertTrue(low <= DEFAULT_MODULE_SETTINGS['options']['max_friction_ratio'] <= high)
+
+
 if __name__ == '__main__':
     unittest.main()
