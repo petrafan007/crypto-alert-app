@@ -24,7 +24,8 @@ def fill_price(module, price, side, closing=False, slippage_multiplier=1.0):
 
 
 def entry_quantity(module, price, budget, equity, stop=None, *, multiplier=1,
-                   unit=None, max_loss=None, cost_multiplier=1.0, max_contracts=50, risk_per_unit=None):
+                   unit=None, max_loss=None, cost_multiplier=1.0, max_contracts=50, risk_per_unit=None,
+                   risk_cap_pct=None):
     """Quantity after caller's cash/module/position budget and optional loss cap.
 
     ``price`` is the already-slipped execution price. ``max_loss`` is the
@@ -32,6 +33,8 @@ def entry_quantity(module, price, budget, equity, stop=None, *, multiplier=1,
     the maximum loss of a single unit when the instrument's own stop price
     does not describe that risk; it must be supplied for credit spreads,
     whose collateral is a margin requirement rather than an at-risk amount.
+    ``risk_cap_pct`` overrides the per-trade loss cap as a fraction of
+    portfolio equity.
     Callers retain ownership, capacity, duplicate-signal, and kill-switch
     enforcement.
     """
@@ -50,7 +53,8 @@ def entry_quantity(module, price, budget, equity, stop=None, *, multiplier=1,
     else:
         risk = unit
     if risk > 0:
-        quantity = min(quantity, max(0, equity) * 0.005 / (risk + 2 * fee))
+        cap_pct = 0.005 if risk_cap_pct is None else risk_cap_pct
+        quantity = min(quantity, max(0, equity) * cap_pct / (risk + 2 * fee))
     if max_loss is not None:
         quantity = min(quantity, max(0, max_loss) / (risk + 2 * fee))
     if module == 'events':

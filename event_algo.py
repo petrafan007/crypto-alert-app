@@ -51,12 +51,70 @@ _EVENT_SYMBOL_MONTHS = {
 # The strategy engine is an administrator-only research surface.
 EVENT_STRATEGY_ADMIN_USERNAME = os.getenv("EVENT_STRATEGY_ADMIN_USERNAME", os.getenv("ADMIN_USERNAME", "")).strip()
 
+# The underlying asset each Event series settles against. The series name is
+# not a tradable symbol, so the spot price must be fetched for the asset.
+_EVENT_SERIES_UNDERLYING = {
+    "KXBTC": "BTC", "KXETH": "ETH", "KXSOL": "SOL", "KXXRP": "XRP",
+    "KXDOGE": "DOGE", "KXBNB": "BNB", "KXADA": "ADA", "KXINJ": "INJ",
+    "KXAVAX": "AVAX", "KXLTC": "LTC", "KXBCH": "BCH", "KXLINK": "LINK",
+}
 
-def _get_crypto_spot_quote(symbol):
-    """Preserve the observation time of cached prices; reading them does not refresh it."""
+# Index Event series settle against an index level, not a crypto asset. The
+# Webull index series does not publish an underlying symbol, so the level is
+# derived from the ETF that tracks it. The scale factor converts the ETF
+# price to the index level the contract strikes are quoted in.
+_EVENT_SERIES_INDEX = {
+    "KXINXU": ("SPY", 10.0),
+}
+
+
+def _event_series_underlying(series):
+    """Return the underlying asset symbol for an Event series, if known.
+
+    ``KXBTCD`` is the daily Bitcoin series; its underlying is ``BTC``. The
+    series name is not itself tradable, so a spot price request built from
+    it returns nothing.
+    """
+    name = str(series or "").strip().upper()
+    if not name:
+        return None
+    if name in _EVENT_SERIES_UNDERLYING:
+        return _EVENT_SERIES_UNDERLYING[name]
+    for prefix, asset in _EVENT_SERIES_UNDERLYING.items():
+        if name.startswith(prefix):
+            return asset
+    return None
+
+
+def _event_series_index(series):
+    """Return the tracking ETF and scale for an index Event series."""
+    name = str(series or "").strip().upper()
+    if not name:
+        return None
+    if name in _EVENT_SERIES_INDEX:
+        return _EVENT_SERIES_INDEX[name]
+    for prefix, value in _EVENT_SERIES_INDEX.items():
+        if name.startswith(prefix):
+            return value
+    return None
+
+
+def _get_crypto_spot_quote(symbol, *, user_id=None, connection=None):
+    """Preserve the observation time of cached prices; reading them does not refresh it.
+
+    The source order is chosen by freshness. The Decision Engine classifies any
+    underlying observation older than thirty seconds as missing evidence, so a
+    source that cannot satisfy that bound is useless no matter how accurate its
+    price is. The Webull crypto snapshot is a live provider quote and satisfies
+    the bound; the streaming cache and the recorded price history are fallbacks
+    that are frequently older than it.
+    """
     clean = str(symbol or "").upper().strip()
     if not clean:
         return None
+    quote = _get_webull_crypto_spot_quote(clean, user_id=user_id, connection=connection)
+    if quote is not None:
+        return quote
     try:
         from services.webull_streaming_service import get_latest_streaming_quote
         entry = get_latest_streaming_quote(clean) or {}
@@ -77,6 +135,72 @@ def _get_crypto_spot_quote(symbol):
     except Exception:
         pass
     return None
+
+
+def _get_webull_crypto_spot_quote(symbol, *, user_id=None, connection=None):
+    """Return a live Webull crypto quote with its provider timestamp.
+
+    The recorded price history is written on a per-portfolio cadence and is
+    routinely minutes old, which the Decision Engine rejects as missing
+    evidence. The provider snapshot carries its own quote timestamp and is
+    current, so it is the source that can satisfy the freshness bound.
+    """
+    clean = str(symbol or "").upper().strip()
+    if not clean:
+        return None
+    try:
+        if connection is None:
+            if user_id is None:
+                return None
+            credential, environment = _webull_connection_for_user(user_id)
+            connection = (credential.webull_app_key, credential.webull_app_secret,
+                          environment, credential.webull_access_token)
+        from services.webull_service import get_webull_market_snapshot
+        raw = get_webull_market_snapshot(*connection, symbol=clean, instrument_type='CRYPTO')
+        price = _number(raw.get('price'))
+        as_of = raw.get('as_of')
+        if price is None or price <= 0 or as_of is None:
+            return None
+        quote = {'underlying_price': float(price), 'underlying_price_as_of': as_of,
+                 'underlying_price_source': 'WEBULL_CRYPTO_SNAPSHOT',
+                 'underlying_timestamp_basis': 'PROVIDER',
+                 'underlying_price_retrieved_at': datetime.now(timezone.utc).isoformat()}
+        return quote if underlying_observation(quote)['price'] is not None else None
+    except Exception:
+        return None
+
+
+def _get_index_level_quote(series, *, user_id=None, connection=None):
+    """Return the index level an index Event series settles against.
+
+    The Webull index series publishes no underlying symbol and no reference
+    price, so the level is derived from the ETF that tracks the index and
+    scaled to the index level the strikes are quoted in.
+    """
+    mapping = _event_series_index(series)
+    if not mapping:
+        return None
+    etf, scale = mapping
+    try:
+        if connection is None:
+            if user_id is None:
+                return None
+            credential, environment = _webull_connection_for_user(user_id)
+            connection = (credential.webull_app_key, credential.webull_app_secret,
+                          environment, credential.webull_access_token)
+        from services.webull_service import get_webull_market_snapshot
+        raw = get_webull_market_snapshot(*connection, symbol=etf, instrument_type='EQUITY')
+        price = _number(raw.get('price'))
+        as_of = raw.get('as_of')
+        if price is None or price <= 0 or as_of is None:
+            return None
+        quote = {'underlying_price': float(price) * float(scale), 'underlying_price_as_of': as_of,
+                 'underlying_price_source': f'WEBULL_INDEX_PROXY:{etf}',
+                 'underlying_timestamp_basis': 'PROVIDER',
+                 'underlying_price_retrieved_at': datetime.now(timezone.utc).isoformat()}
+        return quote if underlying_observation(quote)['price'] is not None else None
+    except Exception:
+        return None
 
 
 def _get_crypto_spot_price(symbol):
@@ -841,9 +965,29 @@ def _utc_naive(value):
 
 def _cutoff_from_symbol(symbol):
     """Extract explicit Eastern cutoff from Webull event contract symbol and convert to UTC naive."""
+    text = str(symbol or "").strip().upper()
+    # The hourly series encodes the settlement as ``-26OCT21H1400``. Without
+    # this form the cutoff fell back to the end of the trading day, which
+    # overstates the remaining time by about ten hours and lets the engine
+    # hold a contract well past its real settlement.
+    hourly = re.search(
+        r"-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})H(\d{2})(\d{2})(?:-|$)",
+        text,
+    )
+    if hourly:
+        try:
+            year = 2000 + int(hourly.group(1))
+            month = _EVENT_SYMBOL_MONTHS.get(hourly.group(2))
+            day = int(hourly.group(3))
+            hour = int(hourly.group(4))
+            minute = int(hourly.group(5))
+            dt = datetime(year, month, day, hour, minute, tzinfo=ZoneInfo("America/New_York"))
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        except Exception:
+            return None
     match = re.search(
         r"-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:-|$)",
-        str(symbol or "").strip().upper(),
+        text,
     )
     if not match:
         return None
@@ -2190,14 +2334,35 @@ def _run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="ma
         from services.webull_service import get_webull_event_markets
 
         from services.event_universe import collection_targets, matches_series
-        targets, missing_series = collection_targets(user_id, config,
-            (credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token))
+        connection = (credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token)
+        targets, missing_series = collection_targets(user_id, config, connection)
         markets, market_context, scan_diagnostics = {}, {}, []
+        # One underlying price per asset per scan. The provider quote is fetched
+        # once and reused for every contract that settles against it.
+        spot_cache = {}
         warnings = [f'Configured Event series unavailable from provider: {series}' for series in missing_series]
         for symbol, duration, category, exact_series in targets:
             scan_guard()
             diagnostic = {"symbol": symbol, "duration": duration, "status": "STARTING", "catalog_matches": 0, "verified_matches": 0, "scanned": 0, "warnings": []}
             try:
+                # The underlying price is needed before the contracts are
+                # chosen. A strike ladder is quoted far from the money as well
+                # as near it, and only the near-money contracts carry a
+                # two-sided book, so the price decides which contracts are
+                # worth a quote request.
+                crypto_asset = _event_series_underlying(exact_series)
+                underlying_asset = crypto_asset or symbol.upper()
+                if underlying_asset not in spot_cache:
+                    spot_quote = None
+                    if crypto_asset:
+                        spot_quote = _get_crypto_spot_quote(
+                            crypto_asset, user_id=user_id, connection=connection)
+                    if spot_quote is None:
+                        spot_quote = _get_index_level_quote(
+                            exact_series, user_id=user_id, connection=connection)
+                    spot_cache[underlying_asset] = spot_quote
+                spot_quote = spot_cache[underlying_asset]
+                reference_price = (spot_quote or {}).get('underlying_price')
                 result = get_webull_event_markets(
                     credential.webull_app_key,
                     credential.webull_app_secret,
@@ -2209,6 +2374,7 @@ def _run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="ma
                     limit=10,
                     force=force,
                     progressive=True,
+                    reference_price=reference_price,
                 )
                 warnings.extend(result.get("warnings") or [])
                 if result.get("warnings"):
@@ -2232,10 +2398,12 @@ def _run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="ma
                         ctx_sym = symbol.upper()
                         if not exact_series and not market.get("underlying_symbol"):
                             market["underlying_symbol"] = ctx_sym
-                        if not exact_series and not market.get("underlying_price"):
-                            spot_quote = _get_crypto_spot_quote(ctx_sym)
-                            if spot_quote:
-                                market.update(spot_quote)
+                        # The underlying spot price must be supplied even in
+                        # exact-series mode. Without it the Decision Engine
+                        # reports the evidence as missing, which forces a
+                        # zero confidence and blocks every Event entry.
+                        if not market.get("underlying_price") and spot_quote:
+                            market.update(spot_quote)
                         markets[contract_symbol] = market
                         market_context[contract_symbol] = (symbol, duration)
             except Exception as exc:

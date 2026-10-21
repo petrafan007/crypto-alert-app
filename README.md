@@ -1,8 +1,19 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.11.0
+**Version:** 4.12.0
 
 ## Recent Updates
+
+### v4.12.0
+* **Quantitative Strategy Engine: Event and options modules made tradeable again.** The engine was rejecting effectively every candidate it discovered. Five distinct root causes were found and fixed, each with a regression test.
+  * **Options capacity (live evidence: `NVDA: Risk or margin budget cannot fund the minimum trade quantity.` on 56 scans in 8 hours).** A credit spread's maximum loss is fixed by its *width*, not its price, so the flat 0.5%-of-equity loss cap sized a $1 strike ladder to one contract and a $5 ladder — which is exactly how NVDA and TSLA are quoted — to *zero* contracts. The options per-trade cap is now 1.5% of equity, the module's aggregate risk limit is 10%, and a module may hold up to 6 concurrent positions instead of one. Sizing now uses the distance from the credit to the stop, which is the loss actually taken, rather than the theoretical maximum.
+  * **No options symbols needed replacing.** All five watchlist underlyings (SPY, QQQ, IWM, NVDA, TSLA) are quoted with two-sided books; the risk cap alone made them unfundable. The watchlist is unchanged.
+  * **Event Contract candidate selection.** The candidate ranking fell back to the symbol string, which selected the *lowest* strikes of an expiry — the contracts furthest from the money, which the provider quotes one-sided and which therefore cannot be entered or closed at a known cost. Candidates are now ranked by distance from the underlying price, so the near-money contracts that carry a two-sided book are the ones quoted and considered. Verified against the live provider: `KXBTCD` now returns 10 of 10 two-sided contracts instead of 0 of 10.
+  * **Event Contract settlement times.** The hourly series encodes its settlement as `-26OCT21H1400`; that form was unparsed, so the cutoff fell back to the end of the trading day and overstated the remaining time by about ten hours. The hourly form is now parsed in both the provider service and the engine.
+  * **Event underlying evidence.** The underlying spot price was never supplied in exact-series mode, and when it was, it came from the recorded price history, which is written on a per-portfolio cadence and is routinely minutes old — older than the freshness bound the Decision Engine requires, so every contract was graded `missing` and returned zero confidence. The underlying now comes from a live provider quote carrying its own timestamp, and the index series (`KXINXU`, S&P 500) resolves its level from the tracking ETF scaled to the struck level. Verified live: BTC, ETH and SOL underlying observations are now `FRESH` at well under a second old.
+  * **Event risk limits.** The Event module's dollar caps were raised from $30 open / $10 per trade to $1,500 / $500, and the maximum time remaining from 24 hours to 4 days, so a daily series is not excluded by construction.
+* **Futures redistribution is unchanged and correct.** With futures disabled, the remaining modules absorb its 10% proportionally (equities 38.98%, options 27.74%, crypto 22.19%, events 11.09%) and the result is stable across saves. No bug.
+* **Test suite:** 837 passed, 0 failed, 133 skipped. New regression coverage for the options capacity limits and for the Event quote selection, settlement parsing, and underlying evidence.
 
 ### v4.11.0
 * **Decision Engine replaces the Jev subsystem:** The Jev evaluation layer is retired. A provider-neutral Decision Engine now uses **SubQ (`subq-snap-preview`)** as the primary decision provider and **Inception Mercury Decide (`mercury-decide`)** as the fallback. Both providers express a positive answer as a `noul` probability, so both share one normalisation path and one typed question contract (`boolean` / `choice` / `score`).

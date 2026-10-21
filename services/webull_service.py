@@ -1425,6 +1425,26 @@ def _event_symbol_interval(value):
     """Parse a Webull Event symbol into an explicit Eastern interval."""
     symbol = str(value or '').strip().upper()
     is_15m = bool(re.search(r'(?:^|-)[A-Z0-9]*15M-', symbol))
+    # The hourly series encodes its settlement as ``-26OCT21H1400``. Without
+    # this form the interval fell back to the end of the trading day.
+    hourly = re.search(
+        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})H(\d{2})(\d{2})(?:-|$)',
+        symbol,
+    )
+    if hourly:
+        try:
+            end = datetime(
+                2000 + int(hourly.group(1)),
+                _EVENT_SYMBOL_MONTHS[hourly.group(2)],
+                int(hourly.group(3)),
+                int(hourly.group(4)),
+                int(hourly.group(5)),
+                tzinfo=ZoneInfo('America/New_York'),
+            )
+            start = end - timedelta(minutes=60)
+            return {'start': start, 'end': end, 'minutes': 60}
+        except (KeyError, ValueError):
+            return None
     match = re.search(
         r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:-|$)',
         symbol,
@@ -1632,12 +1652,84 @@ def _event_snapshot_has_actionable_quote(snapshot):
     )
 
 
-def _event_market_static_sort_key(market):
-    """Prefer contracts with the nearest future cutoff before live enrichment."""
+def _event_snapshot_has_executable_book(snapshot):
+    """Return whether a snapshot offers a two-sided executable book.
+
+    A contract quoted only on one side cannot be entered and closed at a
+    known cost, so it is not a usable candidate. Selecting such contracts
+    is what made the engine report MISSING_QUOTE for nearly every contract
+    it discovered.
+    """
+    if not isinstance(snapshot, dict):
+        return False
+    def side(*names):
+        return all(
+            snapshot.get(name) is not None
+            and 0 < float(snapshot.get(name)) <= WEBULL_EVENT_SETTLEMENT_PAYOUT
+            for name in names
+        )
+    return side('yes_bid', 'yes_ask') and side('no_bid', 'no_ask')
+
+
+def _event_symbol_strike(market):
+    """Return the strike encoded in a Webull Event symbol, if any.
+
+    A daily Event symbol encodes the strike as a trailing ``T<price>`` field,
+    for example ``KXBTCD-26OCT2317-T75499.99``. Without this, every strike
+    of one expiry tied on the sort key and the ordering fell back to the
+    symbol string, which selected the lowest strikes - the ones furthest
+    from the money and the least likely to have a two-sided book.
+    """
+    match = re.search(r'-T(\d+(?:\.\d+)?)$', str(market.get('symbol') or '').upper())
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _event_market_static_sort_key(market, reference_price=None):
+    """Prefer contracts with the nearest future cutoff before live enrichment.
+
+    Within one expiry, the contracts that carry a two-sided executable book
+    are the ones struck near the money. A daily series quotes a wide ladder of
+    strikes, and the ones far from the money are settled or nearly settled,
+    so their book is one-sided. Ranking by distance from the reference price
+    therefore puts the tradeable contracts in the first snapshot batch, which
+    is the only batch a bounded scan examines.
+    """
     cutoff = _event_market_cutoff_value(market)
     now = time.time()
     future_cutoff = cutoff if cutoff >= now else float('inf')
-    return (future_cutoff, str(market.get('name') or ''), str(market.get('symbol') or ''))
+    return (future_cutoff, *_event_market_strike_proximity_key(market, reference_price),
+            str(market.get('name') or ''), str(market.get('symbol') or ''))
+
+
+def _event_market_strike_proximity_key(market, reference_price=None):
+    """Rank a contract by how close its strike is to the reference price.
+
+    The reference price is the provider's own mark for the underlying. A
+    contract whose strike is far from it has already resolved and is quoted
+    one-sided. When no reference price is available the contract sorts last
+    so it never displaces a contract that can actually be traded.
+    """
+    reference = reference_price
+    if reference is None:
+        reference = market.get('reference_price')
+    if reference is None:
+        reference = market.get('target_value')
+    try:
+        reference = float(reference)
+    except (TypeError, ValueError):
+        return (1, 0.0)
+    strike = _event_symbol_strike(market)
+    if strike is None:
+        try:
+            strike = float(market.get('target_value'))
+        except (TypeError, ValueError):
+            return (1, 0.0)
+    return (0, abs(strike - reference))
 
 
 def _event_discovery_request(*args, **kwargs):
@@ -2423,8 +2515,14 @@ def _targeted_webull_event_catalog(
 def get_webull_event_markets(
     app_key, app_secret, environment='production', access_token=None, *,
     category_id=None, symbol=None, query=None, duration=None, limit=10, force=False, progressive=False,
+    reference_price=None,
 ):
-    """Search open, actionable markets and enrich only a bounded candidate set."""
+    """Search open, actionable markets and enrich only a bounded candidate set.
+
+    ``reference_price`` is the provider's current mark for the underlying. It
+    lets the candidate ranking prefer strikes near the money, which are the
+    ones that carry a two-sided executable book.
+    """
     clean_category = str(category_id or '').strip().upper()
     clean_symbol = str(symbol or '').strip().upper()
     clean_query = str(query or '').strip().casefold()
@@ -2529,10 +2627,10 @@ def get_webull_event_markets(
             name_value = str(item.get('name') or '').casefold()
             exact = 0 if clean_query in {symbol_value, name_value} else 1
             prefix = 0 if symbol_value.startswith(clean_query) or name_value.startswith(clean_query) else 1
-            return (exact, prefix, *_event_market_static_sort_key(item))
+            return (exact, prefix, *_event_market_static_sort_key(item, reference_price))
         markets.sort(key=static_relevance)
     else:
-        markets.sort(key=_event_market_static_sort_key)
+        markets.sort(key=lambda item: _event_market_static_sort_key(item, reference_price))
 
     # Webull accepts at most 100 Event Contract symbols per snapshot request.
     # Continue through a safe number of batches when early candidates lack live
@@ -2578,6 +2676,10 @@ def get_webull_event_markets(
             value.update(snapshot or {})
             value['rules'] = _event_market_rules(value)
             enriched.append(value)
+        # A progressive scan returns as soon as a batch yields usable quotes.
+        # The candidate ranking puts the contracts near the money first, and
+        # only those carry a two-sided book, so the first batch is the one
+        # worth returning.
         if clean_symbol or len(enriched) >= result_limit or (progressive and enriched):
             break
 
@@ -2614,16 +2716,26 @@ def get_webull_event_markets(
             name_value = str(item.get('name') or '').casefold()
             exact = 0 if clean_query in {symbol_value, name_value} else 1
             prefix = 0 if symbol_value.startswith(clean_query) or name_value.startswith(clean_query) else 1
-            return (exact, prefix, -(item.get('volume') or 0), -(item.get('open_interest') or 0), name_value)
+            # A two-sided executable book is what makes a contract tradeable,
+            # so it outranks liquidity. The flag sorts ascending and liquidity
+            # descending, so liquidity is negated rather than reversed.
+            return (exact, prefix,
+                    0 if _event_snapshot_has_executable_book(item) else 1,
+                    -(item.get('volume') or 0), -(item.get('open_interest') or 0), name_value)
         enriched.sort(key=relevance)
     else:
+        # A contract with a two-sided executable book can be entered and
+        # closed at a known cost. Prefer those over a one-sided contract,
+        # which is not tradeable, and only then rank by liquidity. The
+        # tradeable flag sorts ascending while liquidity sorts descending,
+        # so the two are negated rather than reversed as a whole.
         enriched.sort(
             key=lambda item: (
-                item.get('volume') or 0,
-                item.get('open_interest') or 0,
-                _event_time_sort_value(item.get('last_trade_time')),
+                0 if _event_snapshot_has_executable_book(item) else 1,
+                -(item.get('volume') or 0),
+                -(item.get('open_interest') or 0),
+                -_event_time_sort_value(item.get('last_trade_time')),
             ),
-            reverse=True,
         )
     result = {
         'markets': enriched[:result_limit],

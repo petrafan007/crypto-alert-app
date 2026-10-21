@@ -217,8 +217,16 @@ class ResearchPureTests(unittest.TestCase):
         with patch.object(ResearchMarketData,'options',ready), patch.object(ResearchMarketData,'bars',return_value=underlying):
             result=scenario_run(data,cfg,times,'baseline',[])
         self.assertEqual(result['entries'],1)
-        self.assertEqual(result['trades'][0]['collateral'],360)
-        self.assertAlmostEqual(result['trades'][0]['entry_fee'],1.3)
+        # The fixture's SPY 90/85 put credit spread is 1.4 wide on a 5.00
+        # strike width, so its maximum loss is 3.60 per contract, which is
+        # $360.00 of collateral. The stop sits at 0.75 of that maximum loss,
+        # so the distance the engine actually risks is 2.70 ($270.00). At a
+        # 1.5% per-trade cap on $100,000 of equity ($1,500) that funds five
+        # contracts, and the fixture's reported two-leg depth of 2 is the
+        # binding constraint, so the fill is two contracts: $720.00 of
+        # collateral and $2.60 of entry fees.
+        self.assertEqual(result['trades'][0]['collateral'],720)
+        self.assertAlmostEqual(result['trades'][0]['entry_fee'],2.6)
         self.assertLess(result['ending_equity'],100000)
         for r in data['records']:
             if r['kind']=='option_quote':r['bid_size']=None

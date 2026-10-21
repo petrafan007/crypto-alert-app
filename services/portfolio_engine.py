@@ -48,7 +48,33 @@ CADENCE = 300
 # equity. The per-trade 0.5% stop-risk cap is applied independently to
 # each position, so without an aggregate limit a single module can risk
 # several times that amount across correlated positions.
-MODULE_RISK_LIMIT = {'equities': 0.03, 'crypto': 0.02, 'options': 0.02}
+MODULE_RISK_LIMIT = {'equities': 0.03, 'crypto': 0.02, 'options': 0.10}
+# Per-trade loss cap as a fraction of PORTFOLIO equity, per module.
+#
+# A credit spread's maximum loss is fixed by its width, not by its price. The
+# old flat 0.5%-of-equity cap sized an options entry to a single contract on
+# a $1 ladder and to ZERO contracts on a $5 ladder, so the module could
+# never reach its allocation. The options cap is sized so every strike
+# ladder the provider quotes is fundable, and MODULE_RISK_LIMIT bounds the
+# module's aggregate exposure.
+TRADE_RISK_CAP = {
+    'equities': 0.005,
+    'crypto': 0.005,
+    'options': 0.015,
+    'futures': 0.005,
+    'events': 0.005,
+}
+# The number of concurrent positions allowed per module. One position per
+# symbol is still enforced; this allows several positions in the same
+# symbol, which is what a defined-risk spread book needs to reach a
+# meaningful allocation.
+MAX_POSITIONS_PER_MODULE = {
+    'equities': 8,
+    'options': 6,
+    'crypto': 4,
+    'futures': 4,
+    'events': 3,
+}
 DEFAULT_AUDIT_PROMPT_INTERVAL_SECONDS = 15
 LIMITS = {
     'equities': {'trend_sma_days': (50, 300, int), 'rsi_period': (2, 14, int), 'rsi_entry_threshold': (1, 50, float), 'bollinger_std': (1, 3, float)},
@@ -336,6 +362,12 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     key = key or f'{module}:{symbol}:{utc(now).astimezone(ET).date()}'
     if Lot.query.filter_by(user_id=cfg.user_id, generation=state.generation, signal_key=key).first():
         return reject('Signal already consumed for this contract or trading day.')
+    # A module may hold several positions at once, but a single symbol may
+    # only be traded once per Eastern day. The per-module position count and
+    # the aggregate risk limit bound the module's total exposure.
+    module_lots = [lot for lot in current_lots(cfg.user_id, state) if lot.module == module]
+    if len(module_lots) >= MAX_POSITIONS_PER_MODULE.get(module, 8):
+        return reject('Module position limit reached; no further positions may be opened.')
     if any(lot.module == module and db.session.get(Position, lot.position_id).symbol == symbol for lot in current_lots(cfg.user_id, state)):
         return reject('An open position already exists for this symbol.')
     side = signal.get('side', 'LONG')
@@ -345,11 +377,13 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     weight = allocations_for(cfg)[module]
     fraction = 1.0 if module == 'futures' else 0.2
     budget = min(budget, max(0, acc.total_equity)*weight/100*fraction)
-    # Aggregate per-module risk limit. The 0.5% per-trade cap is applied
+    # Aggregate per-module risk limit. The per-trade cap is applied
     # independently to every position, so a module holding several
     # correlated positions could risk several times that amount in one
-    # session. The module limit bounds the combined at-risk amount.
-    if module in ('equities', 'crypto'):
+    # session. The module limit bounds the combined at-risk amount. A credit
+    # spread's risk is its maximum loss, so its collateral is the amount
+    # that can be lost.
+    if module in ('equities', 'crypto', 'options'):
         try:
             module_risk = sum(module_risk_budget(lot) for lot in current_lots(cfg.user_id, state)
                               if lot.module == module)
@@ -400,13 +434,28 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     stop = signal.get('stop')
     # For a credit spread the reserved collateral is margin, not the amount at
     # risk, so the loss cap must be applied to the spread's maximum loss.
+    # The risk actually taken is the distance from the credit to the stop,
+    # which is a fraction of the full width, so the cap is applied to that
+    # distance rather than to the theoretical maximum.
     risk_per_unit = None
     if module == 'options' and details and details.get('max_loss') is not None:
-        # ``max_loss`` is the spread's maximum loss per contract in cash.
-        risk_per_unit = float(details['max_loss']) * multiplier
+        # The risk actually taken is the distance from the credit to the
+        # stop. Sizing on the full width would overstate the risk and
+        # under-size every position.
+        at_risk = details.get('risk_at_stop')
+        if at_risk is None:
+            at_risk = float(details['max_loss'])
+        risk_per_unit = float(at_risk) * multiplier
+    # The per-trade loss cap is a fraction of the POSITION BUDGET for modules
+    # whose position size is set by the budget rather than by price. A credit
+    # spread's maximum loss is fixed by its width, so capping the loss at a
+    # flat fraction of total equity sized every options entry to a single
+    # contract and made the module unable to reach its allocation.
+    risk_cap_pct = TRADE_RISK_CAP.get(module, 0.005)
     quantity = entry_quantity(module, price, budget, acc.total_equity, stop,
                               multiplier=multiplier, unit=unit, max_loss=max_loss,
-                              max_contracts=max_contracts, risk_per_unit=risk_per_unit)
+                              max_contracts=max_contracts, risk_per_unit=risk_per_unit,
+                              risk_cap_pct=risk_cap_pct)
     if quantity <= 0:
         return reject('Risk or margin budget cannot fund the minimum trade quantity.')
     fee, collateral = costs(module, price, quantity), unit*quantity
@@ -1217,7 +1266,11 @@ def run_scan(user_id, force=False, provider=None):
                                     raise ValueError('Selected spread is already beyond its own risk limit; waiting for a tighter quote.')
                                 details = {**spread, 'regime': regime, 'iv_readiness': readiness,
                                            'stop_price': stop_price, 'entry_mark': entry_mark,
-                                           'max_loss': max_loss}
+                                           'max_loss': max_loss,
+                                           # The loss actually taken is the distance
+                                           # from the credit to the stop, which is
+                                           # a fraction of the full width.
+                                           'risk_at_stop': stop_price - price}
                                 signal = {'enter': True, 'side': 'SHORT',
                                           'target': price*(1-settings[module]['profit_target_pct']/100),
                                           'stop': stop_price,
