@@ -75,6 +75,92 @@ def check_drawdown_claim(text, evidence):
             raise IncompleteAuditError('Audit incorrectly claims the implemented portfolio risk circuit is absent.', text)
 
 
+def _module_evidence(evidence, module):
+    modules = evidence.get('modules') or {}
+    value = modules.get(module)
+    return value if isinstance(value, dict) else {}
+
+
+def check_evidence_consistency(text, evidence):
+    """Reject an audit whose conclusions contradict the evidence it was given.
+
+    The engine measures every module's blocking reason, its risk-policy
+    state, and its 24-hour decision counts. An audit that declares a module
+    "frozen", "blocked" or "risk-limited" must not do so when the recorded
+    evidence shows the opposite. This check exists because a lifetime
+    counter read as a 24-hour window once produced a confident, entirely
+    false diagnosis of a module that had already been unblocked.
+    """
+    summary = evidence.get('decision_summary_24h') or {}
+    modules = evidence.get('modules') or {}
+    if not isinstance(modules, dict):
+        return
+    for module, module_evidence in modules.items():
+        if not isinstance(module_evidence, dict):
+            continue
+        policy = module_evidence.get('risk_policy') or {}
+        reason = policy.get('reason')
+        paused = bool(module_evidence.get('entries_paused'))
+        enforced = policy.get('aggregate_loss_limits_enforced')
+        allowed = policy.get('remaining_loss_allowance')
+        counts = summary.get(module) if isinstance(summary.get(module), dict) else {}
+        evaluated = (counts or {}).get('evaluated')
+        blocked = (counts or {}).get('blocked')
+        if not _module_claimed_blocked(text, module):
+            continue
+        # The claim is only supportable when the evidence actually shows a
+        # blocking condition.
+        supportable = (bool(reason) or paused or
+                       (enforced is True and allowed is not None and allowed <= 0) or
+                       (bool(blocked)))
+        if supportable:
+            continue
+        if evaluated == 0 and (blocked is None or blocked == 0):
+            raise IncompleteAuditError(
+                f'Audit claims the {module} module is blocked, but the 24-hour evidence '
+                f'records no evaluated or blocked decisions and no blocking risk-policy '
+                f'reason. Lifetime counters must not be reported as current.', text)
+        raise IncompleteAuditError(
+            f'Audit claims the {module} module is blocked, but the recorded risk policy '
+            f'reports no blocking reason and entries are not paused.', text)
+
+
+def _module_claimed_blocked(text, module):
+    """True when the audit asserts that this specific module is blocked.
+
+    The claim must be scoped to the module. An audit may describe one
+    module as frozen while describing another as a drag; a bare
+    "blocked" keyword anywhere in the report is not evidence about this
+    particular module.
+    """
+    blocked_phrase = (r'(frozen|effectively\s+blocked|risk[- ]blocked|blocked\s+by\s+(?:the\s+)?risk|'
+                      r'loss\s+allowance\s+is\s+exhausted|exhausted\s+after\s+reserving\s+open\s+risk|'
+                      r'cannot\s+(?:enter|deploy|trade)|unable\s+to\s+deploy)')
+    for line in text.splitlines():
+        if not re.search(blocked_phrase, line, re.I):
+            continue
+        if re.search(r'\b' + re.escape(module) + r'\b', line, re.I):
+            return True
+        # A section heading names the module on its own line.
+        heading = line.strip()
+        if re.match(r'^#+\s', heading) and re.search(r'\b' + re.escape(module) + r'\b', heading, re.I):
+            # The heading alone is not a claim; the body must carry it.
+            continue
+    # A module named in a heading whose section body carries the claim.
+    for block in re.split(r'(?=^#+\s)', text, flags=re.M):
+        if not re.search(r'\b' + re.escape(module) + r'\b', block, re.I):
+            continue
+        if re.search(blocked_phrase, block, re.I):
+            return True
+    return False
+
+
+def check_audit_evidence(text, evidence):
+    """Run every evidence-consistency check against a completed audit."""
+    check_drawdown_claim(text, evidence)
+    check_evidence_consistency(text, evidence)
+
+
 def audit_system_prompt(custom, module=None, guidance=None, user_id=None):
     policy = audit_prompt_policy(user_id)
     return '\n\n'.join((custom or '', policy['engine_purpose'],

@@ -322,17 +322,27 @@ def _consume(user_id, *, decision_ids, quote_loader):
             status, message = 'DATA_LIMITED', 'Event risk policy unavailable: ' + str(exc)[:150]
     telemetry = engine.loads(state.telemetry_json, {})
     previous = telemetry.get('events', {})
-    history = (previous.get('handoff_dispositions', []) + processed)[-50:]
-    counts = previous.get('handoff_counts', {})
+    # The rolling disposition window is the RECENT history. Entries older than
+    # the window are retained only in the lifetime counters, so a reader can
+    # never mistake a three-week-old rejection for a current one.
+    window_start = now - timedelta(hours=24)
+    history = [row for row in (previous.get('handoff_dispositions', []) + processed)
+               if row.get('recorded_at') and row['recorded_at'] >= window_start.isoformat() + 'Z']
+    counts = previous.get('handoff_counts_24h', {})
+    lifetime = previous.get('handoff_counts_lifetime', {})
     for item in processed:
-        counts[item['status']] = counts.get(item['status'], 0) + 1
+        status = item['status']
+        counts[status] = counts.get(status, 0) + 1
+        lifetime[status] = lifetime.get(status, 0) + 1
     telemetry['events'] = {**previous, 'status': status, 'messages': [message] + messages,
         'consumer_heartbeat_at': now.isoformat() + 'Z', 'execution_path': 'INDEPENDENT_EVENT_HANDOFF',
         'last_handoff_at': now.isoformat() + 'Z' if processed else previous.get('last_handoff_at'),
         'evaluated': len(processed) if processed else previous.get('evaluated', 0),
         'entries': sum(row['status'] == 'FILLED' for row in processed) if processed else previous.get('entries', 0),
-        'handoff_dispositions': history, 'handoff_counts': counts,
-        'entries_paused': bool(state.kill_switch or not cfg.enabled or not engine.settings_for(cfg)['events']['enabled']),
+        'handoff_dispositions': history[-50:],
+        'handoff_counts_24h': counts,
+        'handoff_counts_lifetime': lifetime,
+        'entries_paused': bool(state.kill_switch or not cfg.enabled or not engine.settings_for(cfg)['events'].enabled),
         'qualified_signals': len(processed) if processed else previous.get('qualified_signals', 0),
         'rejected_entries': [row for row in history if row['status'] != 'FILLED']}
     state.telemetry_json = json.dumps(telemetry)

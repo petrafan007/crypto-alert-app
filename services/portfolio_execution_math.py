@@ -24,19 +24,31 @@ def fill_price(module, price, side, closing=False, slippage_multiplier=1.0):
 
 
 def entry_quantity(module, price, budget, equity, stop=None, *, multiplier=1,
-                   unit=None, max_loss=None, cost_multiplier=1.0, max_contracts=50):
+                   unit=None, max_loss=None, cost_multiplier=1.0, max_contracts=50, risk_per_unit=None):
     """Quantity after caller's cash/module/position budget and optional loss cap.
 
     ``price`` is the already-slipped execution price. ``max_loss`` is the
-    individual-entry risk allowance, when applicable. Callers retain
-    ownership, capacity, duplicate-signal, and kill-switch enforcement.
+    individual-entry risk allowance, when applicable. ``risk_per_unit`` is
+    the maximum loss of a single unit when the instrument's own stop price
+    does not describe that risk; it must be supplied for credit spreads,
+    whose collateral is a margin requirement rather than an at-risk amount.
+    Callers retain ownership, capacity, duplicate-signal, and kill-switch
+    enforcement.
     """
     unit = price * multiplier if unit is None else unit
     if unit <= 0 or budget <= 0:
         return 0
     fee = costs(module, price, 1, cost_multiplier)
     quantity = budget / (unit + fee)
-    risk = abs(price - stop) * multiplier if stop is not None else unit
+    if risk_per_unit is not None:
+        # The loss cap is applied to the amount actually at risk, not to the
+        # collateral reserved to hold the position. ``risk_per_unit`` is
+        # already expressed in cash per contract.
+        risk = risk_per_unit
+    elif stop is not None:
+        risk = abs(price - stop) * multiplier
+    else:
+        risk = unit
     if risk > 0:
         quantity = min(quantity, max(0, equity) * 0.005 / (risk + 2 * fee))
     if max_loss is not None:

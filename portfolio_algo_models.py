@@ -63,6 +63,16 @@ DEFAULT_MODULE_SETTINGS = {
         "target_delta": 18,
         "target_dte": 45,
         "profit_target_pct": 50,
+        # Maximum round-trip bid-ask cost as a fraction of the credit received.
+        # Above this the spread cannot pay for its own execution.
+        "max_friction_ratio": 0.50,
+        # Maximum break-even win rate. A credit spread whose break-even exceeds
+        # this cannot pay for itself at any achievable accuracy. At the default
+        # 50% profit target and 0.75 risk ratio this requires a credit of at
+        # least 27% of the spread width.
+        "max_break_even_win_rate": 0.80,
+        # Stop level as a fraction of the spread's maximum loss (width - credit).
+        "max_loss_ratio": 0.75,
         "target_cagr_range": "18%–24%",
         "auditor_prompt": (
             default_prompt('seed.module.options')

@@ -7,6 +7,9 @@ from zoneinfo import ZoneInfo
 ET = ZoneInfo('America/New_York')
 MODULES = ('equities', 'options', 'crypto', 'futures', 'events')
 TYPES = dict(zip(MODULES, ('EQUITY', 'OPTION', 'CRYPTO', 'FUTURES', 'EVENT')))
+# The overbought exit uses a standard 14-period oscillator. It is deliberately
+# decoupled from the configured entry RSI period.
+EXIT_RSI_PERIOD = 14
 
 
 def finite(value, name='value', minimum=0, maximum=1e12):
@@ -141,6 +144,11 @@ def equity_signal(bars, price, settings, benchmark, rotation_rank=None):
     relative = momentum - (benchmark[-1]['close'] / benchmark[-64]['close'] - 1)
     average = sum(closes[-n:]) / n
     pullback = rsi(closes, settings['rsi_period'])
+    # The exit oscillator must not reuse the entry oscillator. A 2-period RSI
+    # is a useful pullback trigger but a meaningless overbought threshold: it
+    # reads above 70 in normal conditions and closed healthy trend positions
+    # minutes after they were opened, turning the exit into pure fee churn.
+    exit_rsi = rsi(closes, EXIT_RSI_PERIOD) if len(closes) > EXIT_RSI_PERIOD else pullback
     middle = sum(closes[-20:]) / 20
     deviation = math.sqrt(sum((x-middle)**2 for x in closes[-20:]) / 20)
     lower = middle - settings['bollinger_std'] * deviation
@@ -155,9 +163,10 @@ def equity_signal(bars, price, settings, benchmark, rotation_rank=None):
                        'momentum_63_sessions': momentum, 'relative_momentum_vs_spy': relative,
                        'rotation_rank': rotation_rank, 'rotation_top_two': bool(rotation),
                        'rsi': pullback, 'rsi_below_entry_threshold': pullback < settings['rsi_entry_threshold'],
+                       'exit_rsi': exit_rsi,
                        'lower_bollinger_band': lower, 'close_below_lower_band': closes[-1] <= lower,
                        'pullback_qualified': bool(reversal)},
-            'exit': price < average or pullback > 70,
+            'exit': price < average or exit_rsi > 70,
             'stop': price - 2 * atr(bars),
             'reason': (setup or f'No trend rotation or pullback setup; RSI {pullback:.1f}, relative momentum {relative:.4f}'),
             'side': 'LONG', 'completed_bar_time': bars[-1].get('time')}
@@ -241,6 +250,7 @@ def select_credit_spread(contracts, price, iv_rank, settings, now, *, allow_warm
     today = utc(now).astimezone(ET).date()
     candidates = []
     missing_depth = False
+    loss_ratio = settings['max_loss_ratio']
     for short in contracts:
         try:
             strike = finite(short['strike'], 'strike', 0.000001)
@@ -258,19 +268,56 @@ def select_credit_spread(contracts, price, iv_rank, settings, now, *, allow_warm
                 credit = float(short['bid'])-float(long['ask'])
                 if width <= 0 or not 0 < credit < width or credit * 100 <= 2.60:
                     continue
+                # The credit must pay for the spread the engine will pay to trade it.
+                # A credit that is a small fraction of the width demands an
+                # impossible win rate, and a credit smaller than the round-trip
+                # bid-ask cost is a guaranteed loss before any market movement.
+                friction = (float(short['ask'])-float(short['bid'])) + \
+                           (float(long['ask'])-float(long['bid']))
+                if friction > settings['max_friction_ratio'] * credit:
+                    continue
+                # Break-even win rate at the configured profit target and the
+                # configured risk limit. A trade whose break-even exceeds the
+                # ceiling cannot pay for itself at any achievable accuracy, so
+                # it is never taken. The risk used is the distance to the stop,
+                # which is the loss the engine actually takes.
+                target = settings['profit_target_pct'] / 100
+                win = target * credit
+                loss = loss_ratio * (width - credit)
+                if win + loss <= 0:
+                    continue
+                break_even = loss / (win + loss)
+                if break_even > settings['max_break_even_win_rate']:
+                    continue
+                # The position is measured against the executable close cost,
+                # which at entry is the credit plus the round-trip bid-ask cost.
+                # A spread whose risk budget cannot absorb that cost opens
+                # above its own stop and is liquidated on the next scan.
+                entry_mark = credit + friction
+                stop = credit + loss
+                if entry_mark >= stop:
+                    continue
                 depth = (short.get('bid_size'), long.get('ask_size'))
                 if any(value is None or float(value) < 1 for value in depth):
                     missing_depth = True
                     continue
-                candidates.append((abs(dte-settings['target_dte']), abs(delta-settings['target_delta']/100), width,
-                                   {'short': short, 'long': long, 'credit': credit, 'width': width, 'expiration': short['expiration']}))
+                candidates.append((abs(dte-settings['target_dte']), abs(delta-settings['target_delta']/100),
+                                   friction/credit if credit > 0 else 9.99, break_even,
+                                   {'short': short, 'long': long, 'credit': credit, 'width': width,
+                                    'friction': friction, 'break_even_win_rate': break_even,
+                                    'expiration': short['expiration'],
+                                    # The mark space is the executable close cost.
+                                    # At entry that is the credit plus the
+                                    # round-trip bid-ask cost, which is exactly
+                                    # what a stop is compared against.
+                                    'entry_mark': credit + friction}))
         except (KeyError, ValueError, TypeError):
             continue
     if not candidates:
         if missing_depth:
             raise ValueError('No reported two-leg option depth.')
         raise ValueError('No quoted, defined-risk OTM spread with provider Greeks.')
-    return min(candidates, key=lambda item: item[:3])[3]
+    return min(candidates, key=lambda item: item[:3])[4]
 
 
 def performance(snapshots, initial, closed_pnls):

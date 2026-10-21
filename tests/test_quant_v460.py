@@ -8,7 +8,7 @@ from unittest.mock import patch
 from flask import Flask
 
 from core.extensions import db
-from credentials import User
+from credentials import User, UserSetting
 from portfolio_algo_models import (
     PortfolioAIReview as Review, PortfolioAudit as Audit, PortfolioEngineState as State,
     PortfolioStrategyAccount as Account,
@@ -28,7 +28,7 @@ class Quant460Tests(unittest.TestCase):
         self.context = self.app.app_context()
         self.context.push()
         db.metadata.create_all(db.engine, tables=[model.__table__ for model in (
-            User, Config, Account, State, Position, Lot, Decision, Revision, Review, Audit)])
+            User, UserSetting, Config, Account, State, Position, Lot, Decision, Revision, Review, Audit)])
         db.session.add(User(id=1, username='quant-test', pwd_hash='test'))
         db.session.add(Config(user_id=1, enabled=True, mode='PAPER',
                               master_ai_config=json.dumps({'daily_strategy_requests': 3})))
@@ -99,7 +99,7 @@ class Quant460Tests(unittest.TestCase):
     def test_failed_daily_ai_review_retries_same_day_with_saved_ceiling(self):
         payload = {'modules': {}, 'active_sources': {}, 'daily_request_limit': 3}
         def failed(**kwargs):
-            kwargs['attempt_observer'](event='started')
+            kwargs['attempt_observer'](event='started', tier='primary')
             raise RuntimeError('temporary provider failure')
         successful = SimpleNamespace(text='{"module":null,"source":null,"reason":"No revision justified"}',
                                      provider='test', model='test')
@@ -115,13 +115,46 @@ class Quant460Tests(unittest.TestCase):
             first.completed_at = datetime.utcnow() - timedelta(minutes=16)
             db.session.commit()
             def succeed(**kwargs):
-                kwargs['attempt_observer'](event='started')
+                kwargs['attempt_observer'](event='started', tier='primary')
                 return successful, None
             provider.side_effect = succeed
             second = strategy_review.review_user(1)
         self.assertEqual(second.status, 'NO_CHANGE')
         self.assertEqual(second.request_count, 2)
         self.assertEqual(Review.query.filter_by(user_id=1).count(), 1)
+
+    def test_retry_attempts_within_one_tier_do_not_exhaust_the_daily_ceiling(self):
+        """One tier may retry several times without consuming the whole budget.
+
+        Counting provider retry attempts against the daily AI-call ceiling
+        meant a single tier exhausted the allowance before the provider
+        cascade could reach the next tier, and the review failed every day.
+        """
+        payload = {'modules': {}, 'active_sources': {}, 'daily_request_limit': 3}
+        seen = []
+
+        def retried_then_success(**kwargs):
+            observer = kwargs['attempt_observer']
+            for _ in range(3):
+                observer(event='started', tier='primary')
+                seen.append('primary')
+            observer(event='started', tier='secondary')
+            seen.append('secondary')
+            return SimpleNamespace(text='{"module":null,"source":null,"reason":"No revision justified"}',
+                                   provider='test', model='test'), None
+
+        with patch.object(strategy_review, 'assess_active_experiments'), \
+             patch.object(strategy_review, 'promote_mature_shadows'), \
+             patch.object(strategy_review, 'evidence', return_value=payload), \
+             patch('services.ai_service.is_ai_enabled', return_value=True), \
+             patch('services.portfolio_engine.audit_ai_kwargs', return_value={}), \
+             patch('services.ai_service.call_ai_with_web_search', side_effect=retried_then_success):
+            row = strategy_review.review_user(1)
+        self.assertEqual(row.status, 'NO_CHANGE')
+        # Two TIERS were used, not four provider attempts.
+        self.assertEqual(row.request_count, 2)
+        self.assertEqual(seen.count('primary'), 3)
+        self.assertEqual(seen.count('secondary'), 1)
 
     def test_bad_paper_experiment_restores_prior_rule_without_halting_engine(self):
         activated = datetime.utcnow() - timedelta(days=1)

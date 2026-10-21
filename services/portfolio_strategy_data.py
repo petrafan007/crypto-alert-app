@@ -172,4 +172,25 @@ class PortfolioMarketData:
         by_symbol = {leg['symbol']: leg for leg in legs}
         if len(by_symbol) != 2:
             raise ValueError('Both spread legs require fresh executable quotes; position frozen pending quotes.')
+        # The mark is the executable cost of closing the spread: buy the short
+        # leg at its ask and sell the long leg at its bid. The entry credit is
+        # correspondingly the executable receipt (short.bid - long.ask), so
+        # both sides of a round trip are priced on the same real basis and the
+        # bid-ask cost is charged exactly once on each leg.
         return max(0, by_symbol[details['short']['symbol']]['ask']-by_symbol[details['long']['symbol']]['bid'])
+
+    def spread_friction(self, details, now):
+        """Round-trip bid-ask cost of the spread, per contract.
+
+        This is the cost the engine pays to enter and then close the spread.
+        It is compared against the credit received at entry: a spread whose
+        trading cost exceeds its premium is a guaranteed loss.
+        """
+        legs = self.option_quotes([details['short'], details['long']], now)
+        by_symbol = {leg['symbol']: leg for leg in legs}
+        if len(by_symbol) != 2:
+            return 0.0
+        short = by_symbol[details['short']['symbol']]
+        long = by_symbol[details['long']['symbol']]
+        return max(0.0, (float(short['ask'])-float(short['bid'])) +
+                       (float(long['ask'])-float(long['bid'])))

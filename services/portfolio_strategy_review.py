@@ -277,11 +277,23 @@ def review_user(user_id, day=None):
         instruction = prompt_for(user_id, 'audit.strategy_review')
         attempts = {'count': row.request_count or 0}
         limit = payload['daily_request_limit']
+        # The daily ceiling counts AI CALLS, not provider retry attempts.
+        # A single tier may issue several retry attempts against the same
+        # provider; charging each attempt against the ceiling meant one
+        # tier exhausted the whole day's allowance before the provider
+        # cascade could reach the next tier. The review then failed with
+        # AI_BUDGET_EXHAUSTED every day without ever asking a second
+        # provider.
         def observe_attempt(**event):
-            if event.get('event') == 'started':
-                attempts['count'] += 1
-                row.request_count = min(attempts['count'], limit)
-                db.session.commit()
+            kind = event.get('event')
+            if kind == 'started':
+                tier = event.get('tier')
+                current = attempts.get('tier')
+                if tier is not None and tier != current:
+                    attempts['tier'] = tier
+                    attempts['count'] += 1
+                    row.request_count = min(attempts['count'], limit)
+                    db.session.commit()
         def request_guard():
             if attempts['count'] > limit:
                 raise AuditCancelled('Daily strategy AI request ceiling reached.')

@@ -39,15 +39,21 @@ from services.portfolio_audit_progress import audit_progress
 from services.portfolio_audit_lifecycle import require_pending_audit, recover_stale_audits, check_pending_audit
 from services.provider_resilience import AuditCancelled
 from services.portfolio_audit_context import (
-    ENGINE_PURPOSE, EVIDENCE_RULES, STRATEGY_RULES, audit_system_prompt, check_drawdown_claim,
+    ENGINE_PURPOSE, EVIDENCE_RULES, STRATEGY_RULES, audit_system_prompt, check_audit_evidence,
 )
 
 logger = logging.getLogger(__name__)
 CADENCE = 300
+# Combined at-risk amount allowed per module, as a fraction of portfolio
+# equity. The per-trade 0.5% stop-risk cap is applied independently to
+# each position, so without an aggregate limit a single module can risk
+# several times that amount across correlated positions.
+MODULE_RISK_LIMIT = {'equities': 0.03, 'crypto': 0.02, 'options': 0.02}
 DEFAULT_AUDIT_PROMPT_INTERVAL_SECONDS = 15
 LIMITS = {
     'equities': {'trend_sma_days': (50, 300, int), 'rsi_period': (2, 14, int), 'rsi_entry_threshold': (1, 50, float), 'bollinger_std': (1, 3, float)},
-    'options': {'min_ivr': (0, 100, float), 'target_delta': (10, 35, float), 'target_dte': (20, 60, int), 'profit_target_pct': (25, 75, float)},
+    'options': {'min_ivr': (0, 100, float), 'target_delta': (10, 35, float), 'target_dte': (20, 60, int), 'profit_target_pct': (25, 75, float),
+                'max_friction_ratio': (0.10, 1.00, float), 'max_break_even_win_rate': (0.50, 0.95, float), 'max_loss_ratio': (0.25, 1.00, float)},
     'crypto': {'entry_channel_periods': (10, 100, int), 'exit_channel_periods': (5, 50, int), 'atr_stop_multiplier': (1.5, 5, float)},
     'futures': {'opening_range_minutes': (5, 60, int), 'max_intraday_loss': (1, 250, float)},
     'events': {'min_confidence': (0.5, 1, float), 'min_net_edge': (0.015, 1, float)},
@@ -297,6 +303,22 @@ def close_lot(acc, lot, price, reason, now):
     pos.unrealized_pnl = 0
 
 
+def module_risk_budget(lot):
+    """The amount a single open lot can still lose, in cash.
+
+    For a spot position this is the distance from the mark to the stop
+    price, times the held quantity. A position with no stop has no bounded
+    remaining risk and contributes its full collateral.
+    """
+    position = db.session.get(Position, lot.position_id)
+    if position is None:
+        return 0.0
+    if lot.stop_price is None:
+        return float(lot.collateral)
+    distance = abs(float(position.market_price) - float(lot.stop_price))
+    return distance * float(position.quantity) * float(lot.multiplier or 1)
+
+
 def module_budget(cfg, acc, state, module):
     if not settings_for(cfg)[module]['enabled']:
         return 0
@@ -323,6 +345,21 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     weight = allocations_for(cfg)[module]
     fraction = 1.0 if module == 'futures' else 0.2
     budget = min(budget, max(0, acc.total_equity)*weight/100*fraction)
+    # Aggregate per-module risk limit. The 0.5% per-trade cap is applied
+    # independently to every position, so a module holding several
+    # correlated positions could risk several times that amount in one
+    # session. The module limit bounds the combined at-risk amount.
+    if module in ('equities', 'crypto'):
+        try:
+            module_risk = sum(module_risk_budget(lot) for lot in current_lots(cfg.user_id, state)
+                              if lot.module == module)
+        except (TypeError, ValueError):
+            module_risk = 0.0
+        module_limit = max(0, acc.total_equity) * MODULE_RISK_LIMIT.get(module, 0.0)
+        remaining = max(0.0, module_limit - module_risk)
+        if remaining <= 0:
+            return reject('Module aggregate risk limit reached; no further risk may be added.')
+        budget = min(budget, remaining)
     max_loss = None
     max_contracts = 50
     if module == 'events':
@@ -361,8 +398,15 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     if unit <= 0 or budget <= 0:
         return reject('Insufficient module budget or available cash.')
     stop = signal.get('stop')
+    # For a credit spread the reserved collateral is margin, not the amount at
+    # risk, so the loss cap must be applied to the spread's maximum loss.
+    risk_per_unit = None
+    if module == 'options' and details and details.get('max_loss') is not None:
+        # ``max_loss`` is the spread's maximum loss per contract in cash.
+        risk_per_unit = float(details['max_loss']) * multiplier
     quantity = entry_quantity(module, price, budget, acc.total_equity, stop,
-                              multiplier=multiplier, unit=unit, max_loss=max_loss, max_contracts=max_contracts)
+                              multiplier=multiplier, unit=unit, max_loss=max_loss,
+                              max_contracts=max_contracts, risk_per_unit=risk_per_unit)
     if quantity <= 0:
         return reject('Risk or margin budget cannot fund the minimum trade quantity.')
     fee, collateral = costs(module, price, quantity), unit*quantity
@@ -617,9 +661,37 @@ def portfolio_status(user_id):
     event_open = [p for p in positions if p['module'] == 'events']
     risk_status = event_risk_status(user_id, state, datetime.utcnow())
     maximum = risk_status['limits'].get('max_open_positions')
+    max_open_dollars = risk_status['limits'].get('max_open_dollars')
+    allocation_target_dollars = (max(0, acc.total_equity) * allocations_for(cfg).get('events', 0) / 100)
+    # A module whose saved open-exposure ceiling is far below its allocation
+    # target can never deploy that allocation. Report the gap explicitly
+    # rather than leaving the module looking merely idle.
+    dollar_gap = None
+    if max_open_dollars is not None and allocation_target_dollars > 0:
+        dollar_gap = round(allocation_target_dollars - max_open_dollars, 2)
     telemetry['events']['risk_policy'] = risk_status
-    telemetry['events']['capacity'] = {'open_positions': len(event_open), 'maximum': maximum,
-                                      'available_slots': max(0, maximum-len(event_open)) if maximum is not None else None}
+    # Report the dollar ceiling as well as the slot count. A module can show
+    # free slots and still be unable to deploy its allocation, because the
+    # binding limit is often the open-dollar cap rather than the position
+    # count.
+    telemetry['events']['capacity'] = {
+        'open_positions': len(event_open),
+        'maximum': maximum,
+        'available_slots': max(0, maximum-len(event_open)) if maximum is not None else None,
+        'open_dollars': risk_status.get('open_dollars'),
+        'max_open_dollars': max_open_dollars,
+        'available_dollars': (max(0.0, max_open_dollars-risk_status.get('open_dollars', 0.0))
+                              if max_open_dollars is not None else None),
+        'dollar_limited': bool(max_open_dollars is not None and
+                               risk_status.get('open_dollars', 0.0) >= max_open_dollars),
+        'allocation_target_dollars': round(allocation_target_dollars, 2),
+        'unreachable_target_dollars': dollar_gap,
+        'allocation_unreachable': bool(dollar_gap is not None and dollar_gap > 1),
+        'allocation_note': (
+            'Saved Event open-dollar exposure cannot reach the Events allocation target. '
+            'Raise max_open_dollars or lower the Events allocation.'
+            if dollar_gap is not None and dollar_gap > 1 else None),
+    }
     status = cfg.worker_status
     if cfg.enabled:
         # Starting is not a worker heartbeat: allow the supervisor time to claim work.
@@ -654,6 +726,25 @@ def portfolio_status(user_id):
             'capital_basis_usd': round(capital, 2),
             'outcome_basis': 'Closed paper lots after recorded entry/exit costs; open marks excluded.',
         }
+    from services.portfolio_allocations import (
+        blended_sleeve_target, normalize_allocations as _normalize_for_target,
+        parse_cagr_range, sleeve_cagr_midpoints,
+    )
+    sleeve_targets = {}
+    for module in MODULES:
+        bounds = parse_cagr_range(settings_for(cfg).get(module, {}).get('target_cagr_range'))
+        if bounds:
+            sleeve_targets[module] = {'low_pct': bounds[0], 'high_pct': bounds[1],
+                                      'mid_pct': (bounds[0] + bounds[1]) / 2}
+    blended = blended_sleeve_target(settings_for(cfg))
+    target_reconciliation = {
+        'portfolio_target_pct': cfg.target_annual_return,
+        'sleeve_targets': sleeve_targets,
+        'blended_sleeve_target_pct': round(blended, 2) if blended is not None else None,
+        'basis': ('A sleeve target is the return expected of the capital assigned to that '
+                  'sleeve. The portfolio target is the allocation-weighted blend of the '
+                  'sleeve midpoints. Both are research objectives, not promises.'),
+    }
     from portfolio_algo_models import PortfolioAIReview, PortfolioStrategyRevision
     from services.strategy_client import request as strategy_request, StrategyUnavailable
     latest_audit = Audit.query.filter_by(user_id=user_id).order_by(Audit.id.desc()).first()
@@ -700,6 +791,7 @@ def portfolio_status(user_id):
             'module_enabled': {m: module_settings[m]['enabled'] for m in MODULES},
             'cash_allocation_pct': 0 if any(module_settings[m]['enabled'] for m in MODULES) else 100,
             'performance': metrics, 'goal_tracking': goal, 'passive_benchmark': benchmark, 'event_calibration': calibration,
+            'target_reconciliation': target_reconciliation,
             'master_report_health': report_health, 'strategy_service': strategy_health,
             'decision_summary_24h': decision_summary, 'module_outcomes': module_outcomes,
             'daily_ai_review': ({'day': review.review_day.isoformat(), 'status': review.status,
@@ -951,7 +1043,7 @@ def run_scan(user_id, force=False, provider=None):
                         reason = 'PROFIT_TARGET'
                     elif (utc(details['expiration']).date()-utc(now).astimezone(ET).date()).days <= 7:
                         reason = 'EXPIRY_RISK_EXIT'
-                    elif price >= min(details['width'], pos.average_cost*2):
+                    elif price >= details['stop_price']:
                         reason = 'SPREAD_STOP'
                 else:
                     price = data.quote(symbol, TYPES[module], now)
@@ -966,7 +1058,11 @@ def run_scan(user_id, force=False, provider=None):
                                 signal = equity_signal(bars, price, settings[module], data.bars('SPY', 'EQUITY', now))
                             else:
                                 bars = data.bars(symbol, 'CRYPTO', now, interval='H1', limit=150)
-                                signal = crypto_signal(bars, price, settings[module], True)
+                                # The dominance gate must be evaluated the same
+                                # way on the management path as on the entry
+                                # path. Passing a hardcoded True disabled the
+                                # gate for every open position.
+                                signal = crypto_signal(bars, price, settings[module], data.dominance_ok(symbol, now))
                             reason = 'STRATEGY_EXIT' if signal['exit'] else None
                         except Exception as exc:
                             # A history outage must not suppress marking or an existing stop.
@@ -1068,9 +1164,27 @@ def run_scan(user_id, force=False, provider=None):
                                     allow_warmup=rank is None, preferred_kind=regime['option_type'])
                                 price, multiplier = spread['credit'], 100
                                 margin = (spread['width']-price)*100
-                                details = {**spread, 'regime': regime, 'iv_readiness': readiness}
+                                # The stop is a risk limit expressed in the same
+                                # mark space the position is measured in: the
+                                # executable close cost of the spread. It is
+                                # derived from the spread's true maximum loss
+                                # (width - credit), never from a multiple of the
+                                # credit received. The entry mark must also sit
+                                # below the stop, otherwise the spread is born
+                                # already in breach of its own stop and is
+                                # liquidated on the next scan before any market
+                                # thesis can play out.
+                                max_loss = spread['width']-price
+                                stop_price = price + max_loss * settings[module]['max_loss_ratio']
+                                entry_mark = spread.get('entry_mark', price)
+                                if entry_mark >= stop_price:
+                                    raise ValueError('Selected spread is already beyond its own risk limit; waiting for a tighter quote.')
+                                details = {**spread, 'regime': regime, 'iv_readiness': readiness,
+                                           'stop_price': stop_price, 'entry_mark': entry_mark,
+                                           'max_loss': max_loss}
                                 signal = {'enter': True, 'side': 'SHORT',
                                           'target': price*(1-settings[module]['profit_target_pct']/100),
+                                          'stop': stop_price,
                                           'reason': choice['reason'] + ' Defined-risk credit spread.',
                                           'checks': regime['checks'], 'setup': choice['setup'],
                                           'strategy_version': choice['strategy_version'],
@@ -1502,6 +1616,22 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                 if evidence['account']['total_equity'] > 0 else None),
         }
         evidence['target_annual_return'] = cfg.target_annual_return
+        from services.portfolio_allocations import blended_sleeve_target, parse_cagr_range
+        _sleeves = {}
+        for _m in MODULES:
+            _b = parse_cagr_range(settings_for(cfg).get(_m, {}).get('target_cagr_range'))
+            if _b:
+                _sleeves[_m] = {'low_pct': _b[0], 'high_pct': _b[1], 'mid_pct': (_b[0]+_b[1])/2}
+        _blended = blended_sleeve_target(settings_for(cfg))
+        target_reconciliation = {
+            'portfolio_target_pct': cfg.target_annual_return,
+            'sleeve_targets': _sleeves,
+            'blended_sleeve_target_pct': round(_blended, 2) if _blended is not None else None,
+            'basis': ('A sleeve target is the return expected of the capital assigned to that '
+                      'sleeve. The portfolio target is the allocation-weighted blend of the '
+                      'sleeve midpoints. Both are research objectives, not promises.'),
+        }
+        evidence['target_reconciliation'] = target_reconciliation
         evidence['audit_schema_version'] = '4.6.11'
         evidence['audit_guidance'] = loads(cfg.master_ai_config, {}).get('audit_guidance')
         evidence['goal_tracking'].pop('curve', None)
@@ -1706,7 +1836,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             content = str(getattr(response, 'text', '') or '').strip()
             if not content:
                 raise ValueError('AI provider returned an empty portfolio report.')
-            check_drawdown_claim(content, evidence)
+            check_audit_evidence(content, evidence)
             provider, model = getattr(response, 'provider', None), getattr(response, 'model', None)
             status = 'PARTIAL' if module_errors else 'SUCCESS'
         if not content:

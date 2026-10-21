@@ -35,8 +35,24 @@ def saved_config(user_id):
             'event':{'risk':json.loads(event.risk_config) if event else {},'signal':json.loads(event.signal_config) if event else {},'config_id':event.id if event else None}}
 
 
+def candidate_request(candidate):
+    """Validate a candidate rule before it is queued for the replay child.
+
+    Only the live strategy service's own static rules are applied here, so a
+    candidate that could never trade live is never stored as a research job.
+    """
+    from services.research_replay import check_candidate_syntax
+    if not isinstance(candidate,dict):raise ValueError('A candidate rule is required for a comparison job.')
+    module=candidate.get('module')
+    if module not in ('equities','options','crypto','events'):raise ValueError('Unknown candidate strategy module.')
+    source=candidate.get('source')
+    check_candidate_syntax(source)
+    from strategy_service.server import digest
+    return {'module':module,'source':source,'sha256':digest(source)}
+
+
 def enqueue(user_id,kind,request):
-    if kind not in ('build','daily_iv','replay','iv_preview','iv_apply'):raise ValueError('Unknown research job.')
+    if kind not in ('build','daily_iv','replay','replay_compare','iv_preview','iv_apply'):raise ValueError('Unknown research job.')
     if not isinstance(request,dict):raise ValueError('Research request must be an object.')
     config=saved_config(user_id)
     if kind in ('build','daily_iv'):
@@ -47,10 +63,12 @@ def enqueue(user_id,kind,request):
         row=Dataset.query.with_entities(Dataset.id,Dataset.sha256).filter_by(user_id=user_id,id=request.get('dataset_id')).first()
         if row is None:raise ValueError('Dataset not found for this administrator.')
         clean={'dataset_id':row.id,'sha256':row.sha256}
-        if kind=='replay':
+        if kind in ('replay','replay_compare'):
             times=[stamp(request.get(k)) for k in ('start','split','end')]
             if not times[0]<times[1]<times[2]:raise ValueError('Require start < chronological split < end.')
             clean.update(zip(('start','split','end'),map(iso,times)))
+        if kind=='replay_compare':
+            clean['candidate']=candidate_request(request.get('candidate'))
         if kind=='iv_apply' and request.get('sha256')!=row.sha256:raise ValueError('Preview this dataset before applying daily IV.')
     from services.event_runtime import job_slot
     with job_slot(user_id,'research-enqueue'):
@@ -116,7 +134,10 @@ def process_one():
             else:
                 db.session.commit()
                 # No shell, no production app import, bounded input/time/output.
-                child=subprocess.run([sys.executable,'-m','services.research_replay'],input=encoded({'dataset':data,'config':config,'request':request}),
+                # A comparison job carries the validated candidate inside the
+                # request, so the child runs the paired replay instead.
+                payload={'dataset':data,'config':config,'request':request}
+                child=subprocess.run([sys.executable,'-m','services.research_replay'],input=encoded(payload),
                     stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=240,cwd=str(Path(__file__).resolve().parent.parent),
                     env={k:v for k,v in {**os.environ,'PYTHONWARNINGS':'ignore::DeprecationWarning','OPENBLAS_NUM_THREADS':'1'}.items() if k in ('PATH','LANG','LC_ALL','TZ','PYTHONWARNINGS','OPENBLAS_NUM_THREADS')})
                 if len(child.stdout)>64*1048576:raise ValueError('Replay output exceeds 64 MiB; narrow the window.')
@@ -128,9 +149,24 @@ def process_one():
         row=db.session.get(Job,job_id,populate_existing=True)
         if row.status!='RUNNING':return True
         summary={k:result[k] for k in ('scope','dataset_id','dataset_sha256','quality','status','sessions','inserted','already_present') if k in result}
-        if 'windows' in result:
+        windows=result.get('windows') or {}
+        if windows and 'scenarios' in next(iter(windows.values())):
             summary['windows']={name:{'start':window['start'],'end':window['end'],'steps':window['steps'],
-                'scenarios':[{k:s[k] for k in ('scenario','status','coverage','entries','open_positions','period_return_pct','max_drawdown_pct','circuit_paused')} for s in window['scenarios']]} for name,window in result['windows'].items()}
+                'scenarios':[{k:s[k] for k in ('scenario','status','coverage','entries','open_positions','period_return_pct','max_drawdown_pct','circuit_paused')} for s in window['scenarios']]} for name,window in windows.items()}
+            summary['saved_config_sha256']=hashlib.sha256(encoded(config)).hexdigest()
+        if 'candidate' in result:
+            # The comparison is readable without decompressing the whole result.
+            candidate=result['candidate']
+            summary['candidate']={k:candidate[k] for k in ('module','sha256','baseline_sha256') if k in candidate}
+            summary['rejection']=result.get('rejection')
+            summary['windows']={name:{'start':window['start'],'end':window['end'],'steps':window['steps'],
+                'comparison':{'total':window['comparison']['total'],
+                              'modules':{module:{'changed':entry['changed'],
+                                                 'baseline_sha256':entry['baseline_sha256'],
+                                                 'candidate_sha256':entry['candidate_sha256'],
+                                                 'delta':entry['delta']}
+                                          for module,entry in window['comparison']['modules'].items()}}}
+                for name,window in windows.items()}
             summary['saved_config_sha256']=hashlib.sha256(encoded(config)).hexdigest()
         row.summary_json=json.dumps(summary)
         blob=gzip.compress(encoded(result));reserve_storage(user_id,len(blob)+len(row.summary_json.encode()))

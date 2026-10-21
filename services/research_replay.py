@@ -10,12 +10,16 @@ import sys
 from collections import Counter
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from services.research_dataset import stamp,iso
 from services.research_history import ResearchMarketData,iv_preview
+from strategy_service.server import MODULES as STRATEGY_MODULES,digest,evaluate_local,validate_source
 
 SCENARIOS=('baseline','double_costs','one_observation_delay','half_reported_depth','one_cent_adverse_book','assignment_and_margin_stress')
+RULES=Path(__file__).resolve().parent.parent/'strategy_service'/'rules'
+COMPARISON_SCOPE='candidate_strategy_comparison'
 
 
 def blocked(*args,**kwargs):
@@ -36,7 +40,157 @@ def timeline(dataset,start,end):
     return sorted(points.items())
 
 
-def scenario_run(dataset,config,points,name,iv):
+def baseline_sources():
+    """Checksums of the shipped rules, so every result stays attributable."""
+    return {module:digest((RULES/(module+'.py')).read_text()) for module in STRATEGY_MODULES}
+
+
+def _probe_bars(count):
+    """Deterministic candles used only to exercise a candidate's decision shape."""
+    bars=[]
+    for index in range(count):
+        close=100.0+index*.1
+        bars.append({'time':index*3600.0,'open':close,'high':close+.5,'low':close-.5,'close':close,'volume':1000.0})
+    return bars
+
+
+def candidate_fixtures(module,settings=None):
+    """The exact feature payloads the live engine hands the strategy service.
+
+    The candidate is probed with the same keys the real decision path uses, so
+    a candidate that cannot read live features is rejected before any replay.
+    The signal functions build the payloads so the key contract cannot drift
+    away from the live engine.
+    """
+    from services.portfolio_strategy_signals import crypto_signal,equity_signal,option_regime
+    values=settings or {}
+    if module=='crypto':
+        rules={**{'entry_channel_periods':20,'exit_channel_periods':10,'atr_stop_multiplier':2.5},**(values.get('crypto') or {})}
+        bars=_probe_bars(max(40,rules['entry_channel_periods'],rules['exit_channel_periods'],15))
+        try:
+            signal=crypto_signal(bars,bars[-1]['close']+1.0,rules,True)
+            checks=signal['checks']
+        except (ValueError,KeyError,TypeError):
+            checks={'completed_hourly_bars':len(bars),'entry_channel_high':bars[-1]['high'],
+                    'price_above_entry_channel':True,'dominance_gate_passed':True,
+                    'atr_period':14,'atr':1.0}
+        return [{'checks':checks},{'checks':{**checks,'price_above_entry_channel':False}}]
+    if module=='equities':
+        rules={**{'trend_sma_days':200,'rsi_period':2,'rsi_entry_threshold':10,'bollinger_std':2.0},**(values.get('equities') or {})}
+        bars=_probe_bars(max(rules['trend_sma_days']+10,260))
+        try:
+            signal=equity_signal(bars,bars[-1]['close']+1.0,rules,_probe_bars(max(rules['trend_sma_days']+10,260)),1)
+            checks=signal['checks']
+        except (ValueError,KeyError,TypeError):
+            checks={'completed_daily_bars':len(bars),'trend_sma':100.0,'completed_close_above_sma':True,
+                    'current_price_above_sma':True,'momentum_63_sessions':.1,
+                    'relative_momentum_vs_spy':0.0,'rotation_rank':1,'rotation_top_two':True,
+                    'rsi':50.0,'rsi_below_entry_threshold':False,'exit_rsi':50.0,
+                    'lower_bollinger_band':90.0,'close_below_lower_band':False,'pullback_qualified':False}
+        return [{'checks':checks},{'checks':{**checks,'rotation_top_two':False,'pullback_qualified':False}}]
+    if module=='options':
+        rules={**{'min_ivr':40},**(values.get('options') or {})}
+        bars=_probe_bars(61)
+        try:
+            regime=option_regime(bars,bars[-1]['close']+1.0,.25,50,50,rules['min_ivr'])
+            checks=regime['checks'];basis=regime['basis']
+        except (ValueError,KeyError,TypeError):
+            checks={'underlying_bars':len(bars),'trend_20_sessions':.1,'underlying_sma_50':100.0,
+                    'rv_20':.2,'rv_60':.2,'current_atm_iv':.25,'short_iv_percentile_30':50,
+                    'annual_iv_rank_252':50,'direction':'PUT','current_iv_above_1_05x_rv20':True}
+            basis='ANNUAL_IV_RANK_252'
+        return [{'checks':checks,'basis':basis,'min_ivr':rules['min_ivr']},
+                {'checks':{**checks,'direction':None},'basis':basis,'min_ivr':rules['min_ivr']}]
+    if module=='events':
+        return [{'eligible':True,'fresh_quote':True,'risk_allowed':True},
+                {'eligible':False,'fresh_quote':True,'risk_allowed':True}]
+    raise ValueError('Unknown strategy module for a candidate.')
+
+
+def check_candidate_syntax(source):
+    """Static validation only; no candidate code runs in a web worker."""
+    if not isinstance(source,str) or not source.strip():raise ValueError('Candidate source is required.')
+    try:
+        validate_source(source)
+    except SyntaxError as exc:
+        raise ValueError('Candidate source has a syntax error: '+str(exc)[:160]) from None
+    except ValueError as exc:
+        raise ValueError('Candidate source failed strategy validation: '+str(exc)[:200]) from None
+
+
+def validate_candidate(module,source,settings=None):
+    """Reject a candidate the live strategy service would not accept.
+
+    The AST rules, the bounded builtins and the required decision shape are the
+    live service's own, so a candidate that could not trade live is never
+    replayed. The candidate code only runs in the isolated replay child.
+    """
+    if module not in STRATEGY_MODULES:raise ValueError('Unknown strategy module for a candidate.')
+    check_candidate_syntax(source)
+    for fixture in candidate_fixtures(module,settings):
+        try:
+            first=evaluate_local(source,fixture)
+            second=evaluate_local(source,fixture)
+        except Exception as exc:
+            raise ValueError('Candidate source was rejected: '+str(exc)[:200]) from None
+        if first!=second:raise ValueError('Candidate source is nondeterministic on a deterministic fixture.')
+    return {'module':module,'source':source,'sha256':digest(source)}
+
+
+def _module_metrics(result,module):
+    """Entries, closed trades, P&L, drawdown and win rate for one module.
+
+    The module drawdown is the deepest peak-to-trough decline of that module's
+    cumulative P&L, expressed against the portfolio's starting equity so it
+    is comparable with the portfolio drawdown.
+    """
+    trades=[t for t in result['trades'] if t['module']==module]
+    closed=[t for t in trades if t['closed_at']]
+    curve=result.get('equity_curve') or []
+    series=[point['module_pnl'].get(module,0.0) for point in curve]
+    if not series:series=[sum(t['net_pnl'] or 0.0 for t in closed)]
+    starting=result['starting_equity'] or 1.0
+    peak=series[0];drawdown=0.0
+    for value in series:
+        peak=max(peak,value)
+        drawdown=max(drawdown,(peak-value)/starting)
+    return {'entries':len(trades),'closed_trades':len(closed),'net_pnl':series[-1],
+            'realized_net_pnl':sum(t['net_pnl'] for t in closed),'max_drawdown_pct':drawdown*100,
+            'win_rate_pct':sum(t['net_pnl']>0 for t in closed)/len(closed)*100 if closed else None}
+
+
+def _total_metrics(result):
+    """The same measures for the whole shared-capital portfolio."""
+    closed=[t for t in result['trades'] if t['closed_at']]
+    return {'entries':len(result['trades']),'closed_trades':len(closed),
+            'net_pnl':result['ending_equity']-result['starting_equity'],
+            'realized_net_pnl':sum(t['net_pnl'] for t in closed),
+            'max_drawdown_pct':result['max_drawdown_pct'],'win_rate_pct':result['win_rate_pct']}
+
+
+def _metric_delta(baseline,candidate):
+    delta={}
+    for key,value in baseline.items():
+        other=candidate.get(key)
+        delta[key]=(other-value) if isinstance(value,(int,float)) and not isinstance(value,bool) and isinstance(other,(int,float)) and not isinstance(other,bool) else None
+    return delta
+
+
+def compare_results(baseline,candidate_result,candidate,sources):
+    """Paired baseline/candidate measures for the same window and settings."""
+    from services.portfolio_strategy_signals import MODULES
+    modules={}
+    for module in MODULES:
+        changed=module==candidate['module']
+        base=_module_metrics(baseline,module);other=_module_metrics(candidate_result,module)
+        modules[module]={'baseline_sha256':sources.get(module),
+                         'candidate_sha256':candidate['sha256'] if changed else sources.get(module),
+                         'changed':changed,'baseline':base,'candidate':other,'delta':_metric_delta(base,other)}
+    base_total=_total_metrics(baseline);other_total=_total_metrics(candidate_result)
+    return {'modules':modules,'total':{'baseline':base_total,'candidate':other_total,'delta':_metric_delta(base_total,other_total)}}
+
+
+def scenario_run(dataset,config,points,name,iv,candidate=None):
     from flask import Flask
     from core.extensions import db
     from services import portfolio_engine as e
@@ -49,6 +203,10 @@ def scenario_run(dataset,config,points,name,iv):
     from services.event_market_timing import quote_freshness
     app=Flask('historical-replay');app.config.update(SQLALCHEMY_DATABASE_URI='sqlite://',TESTING=True)
     db.init_app(app)
+    # A candidate that fails the live validation rules is rejected before the
+    # replay starts; it is never evaluated against the archived observations.
+    if candidate is not None:
+        candidate=validate_candidate(candidate['module'],candidate['source'],config.get('settings'))
     data=ResearchMarketData(dataset,config.get('currency','USD'),iv)
     fee_factor=2 if name=='double_costs' else 1
     slip_factor=2 if name=='double_costs' else 1
@@ -125,14 +283,17 @@ def scenario_run(dataset,config,points,name,iv):
         for attribute,value in (('datetime',Clock),('costs',costs),('fill_price',fill),('entry_quantity',quantity),('enter_lot',enter),('mark_event',mark_event),('_record_portfolio_log',lambda *a,**k:None)):
             stack.enter_context(patch.object(e,attribute,value))
         # This offline replay has no socket or credentials. Freeze the shipped
-        # baseline source so results remain labeled and reproducible.
-        from pathlib import Path
-        from strategy_service.server import evaluate_local, digest
-        def baseline_decider(user_id, module, symbol, features, now):
-            source=(Path(__file__).resolve().parent.parent/'strategy_service'/'rules'/(module+'.py')).read_text()
+        # baseline source so results remain labeled and reproducible. A supplied
+        # candidate replaces only its own module; every other module keeps the
+        # shipped baseline so the two runs differ by exactly one decision rule.
+        def replay_decider(user_id, module, symbol, features, now):
+            if candidate is not None and module==candidate['module']:
+                source,version=candidate['source'],'candidate-'+candidate['sha256'][:12]
+            else:
+                source=(RULES/(module+'.py')).read_text();version='4.5.0-baseline'
             return {**evaluate_local(source,features),'module':module,
-                    'code_sha256':digest(source),'strategy_version':'4.5.0-baseline'}
-        stack.enter_context(patch('services.strategy_client.evaluate',side_effect=baseline_decider))
+                    'code_sha256':digest(source),'strategy_version':version}
+        stack.enter_context(patch('services.strategy_client.evaluate',side_effect=replay_decider))
         curves=[];seen_forecasts=set();seen_outcomes=set()
         for moment,scan in points:
             Clock.current=moment.replace(tzinfo=None);now=Clock.current
@@ -235,6 +396,47 @@ def scenario_run(dataset,config,points,name,iv):
         return result
 
 
+def run_comparison(dataset,config,request,candidate):
+    """Replay the baseline and one candidate rule over the same window.
+
+    The two runs share the dataset, the saved configuration, the timeline and
+    the scenario, so every difference in the result is attributable to the
+    candidate rule alone.
+    """
+    start,split,end=(stamp(request[key]) for key in ('start','split','end'))
+    if not start<split<end:raise ValueError('Require start < chronological split < end.')
+    sources=baseline_sources()
+    try:
+        candidate=validate_candidate(candidate['module'],candidate['source'],config.get('settings'))
+    except ValueError as exc:
+        # A rejected candidate is reported as a result, not silently replayed.
+        return {'scope':COMPARISON_SCOPE,'schema_version':1,'status':'REJECTED',
+                'rejection':{'module':candidate.get('module'),'sha256':candidate.get('sha256'),
+                             'reason':str(exc)[:300]},
+                'candidate':{'module':candidate.get('module'),'sha256':candidate.get('sha256'),
+                             'baseline_sha256':sources.get(candidate.get('module')),
+                             'baseline_sources':sources,'source':candidate.get('source')},
+                'saved_config':config,'windows':{},
+                'assumptions':['The candidate was rejected by the live strategy validation rules; no replay was run and no comparison was produced.']}
+    iv=iv_preview(dataset,config['settings']['options']['target_dte'])['accepted']
+    windows={}
+    for name,left,right in (('development',start,split-timedelta(microseconds=1)),('held_out',split,end)):
+        points=timeline(dataset,left,right)
+        baseline=scenario_run(dataset,config,points,'baseline',iv)
+        proposed=scenario_run(dataset,config,points,'baseline',iv,candidate=candidate)
+        windows[name]={'start':iso(points[0][0]),'end':iso(points[-1][0]),'steps':len(points),
+                       'comparison':compare_results(baseline,proposed,candidate,sources)}
+    return {'scope':COMPARISON_SCOPE,'schema_version':1,'status':'COMPARED','windows':windows,'saved_config':config,
+            'candidate':{'module':candidate['module'],'sha256':candidate['sha256'],
+                         'baseline_sha256':sources.get(candidate['module']),
+                         'baseline_sources':sources,'source':candidate['source']},
+            'source_quality':dataset['quality'],'provenance':dataset['provenance'],
+            'assumptions':['The baseline and the candidate run the same paper ledger, configuration, dataset and observed timeline; only the candidate module decision rule differs.',
+                           'The candidate is validated with the live strategy service rules before the replay runs; an invalid candidate is rejected, not replayed.',
+                           'A comparison is a counterfactual in the archived data, not evidence of future performance. It cannot certify an untouched holdout.',
+                           'Missing module coverage, unobserved fills and unknown timestamps remain data limitations of the underlying archive.']}
+
+
 def run_replay(dataset,config,request):
     start,split,end=(stamp(request[key]) for key in ('start','split','end'))
     if not start<split<end:raise ValueError('Require start < chronological split < end.')
@@ -244,7 +446,7 @@ def run_replay(dataset,config,request):
         points=timeline(dataset,left,right)
         windows[name]={'start':iso(points[0][0]),'end':iso(points[-1][0]),'steps':len(points),
                        'scenarios':[scenario_run(dataset,config,points,s,iv) for s in SCENARIOS]}
-    return {'scope':'shared_capital_portfolio_replay','schema_version':2,'windows':windows,'saved_config':config,
+    result={'scope':'shared_capital_portfolio_replay','schema_version':2,'windows':windows,'saved_config':config,
             'source_quality':dataset['quality'],'provenance':dataset['provenance'],
             'assumptions':['Runs the actual paper ledger in a separate, network-disabled process and in-memory database.',
                            'All modules share cash, allocation, position sizing, fees, rebalancing, Event exposure and circuit controls; each window/scenario starts independently.',
@@ -255,6 +457,7 @@ def run_replay(dataset,config,request):
                            'USD and stablecoin denominations are not silently combined. Missing currency-compatible feeds remain data limitations.',
                            'Open positions remain marked rather than forcibly liquidated at a fabricated price. Missing/stale marks and pending outcomes limit reported performance.',
                            'Chronological separation cannot certify an untouched holdout; source provenance is preserved but not independently certified.']}
+    return result
 
 
 if __name__=='__main__':
@@ -267,7 +470,11 @@ if __name__=='__main__':
         resource.setrlimit(resource.RLIMIT_CPU,(230,235))
         value=json.load(sys.stdin)
         with patch('socket.socket.connect',blocked),patch('socket.create_connection',blocked),patch('requests.sessions.Session.request',blocked):
-            result=run_replay(value['dataset'],value['config'],value['request'])
+            candidate=value['request'].get('candidate')
+            if candidate is not None:
+                result=run_comparison(value['dataset'],value['config'],value['request'],candidate)
+            else:
+                result=run_replay(value['dataset'],value['config'],value['request'])
         print(json.dumps({'success':True,'result':result},allow_nan=False))
     except Exception as exc:
         print(json.dumps({'success':False,'message':str(exc)[:500],'error_type':type(exc).__name__}))

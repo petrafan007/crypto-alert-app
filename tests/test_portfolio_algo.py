@@ -207,14 +207,22 @@ class PortfolioSignalsTests(unittest.TestCase):
             futures_signal(bars[1:], 101, settings, start+timedelta(minutes=16))
 
     def test_options_requires_ivr_and_defines_loss(self):
-        legs = [dict(symbol='S', strike=95, delta=-.18, expiration='2026-10-19', option_type='PUT', bid=1.5, ask=1.6, bid_size=10, ask_size=10),
+        legs = [dict(symbol='S', strike=95, delta=-.18, expiration='2026-10-19', option_type='PUT', bid=1.9, ask=2.0, bid_size=10, ask_size=10),
                 dict(symbol='L', strike=90, delta=-.10, expiration='2026-10-19', option_type='PUT', bid=.4, ask=.5, bid_size=10, ask_size=10)]
         now = datetime(2026, 9, 4, 15)
         with self.assertRaises(ValueError):
             select_credit_spread(legs, 100, None, DEFAULT_MODULE_SETTINGS['options'], now)
         result = select_credit_spread(legs, 100, 50, DEFAULT_MODULE_SETTINGS['options'], now)
-        self.assertEqual(result['credit'], 1)
+        self.assertEqual(result['credit'], 1.4)
         self.assertEqual(result['width'], 5)
+
+    def test_options_rejects_a_spread_that_cannot_pay_for_itself(self):
+        """A credit of 1.00 on a $5 width needs an 85% win rate to break even."""
+        legs = [dict(symbol='S', strike=95, delta=-.18, expiration='2026-10-19', option_type='PUT', bid=1.5, ask=1.6, bid_size=10, ask_size=10),
+                dict(symbol='L', strike=90, delta=-.10, expiration='2026-10-19', option_type='PUT', bid=.4, ask=.5, bid_size=10, ask_size=10)]
+        now = datetime(2026, 9, 4, 15)
+        with self.assertRaises(ValueError):
+            select_credit_spread(legs, 100, 50, DEFAULT_MODULE_SETTINGS['options'], now)
 
     def test_performance_does_not_annualize_short_history_or_zero_variance(self):
         now = datetime(2026, 9, 4)
