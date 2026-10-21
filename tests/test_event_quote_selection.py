@@ -153,6 +153,19 @@ class UnderlyingEvidenceTests(unittest.TestCase):
             quote = _get_crypto_spot_quote('BTC', user_id=1, connection=('k', 's', 'production', 't'))
         self.assertIsNone(quote)
 
+    def test_a_cached_underlying_that_has_gone_stale_is_replaced(self):
+        """A scan outlives the freshness bound, so a cached price must not persist."""
+        retrieved = datetime.now(timezone.utc)
+        stale = {'underlying_price': 80000.0,
+                 'underlying_price_as_of': int((retrieved - timedelta(seconds=90)).timestamp() * 1000)}
+        self.assertIsNone(underlying_observation(stale, retrieved)['price'])
+        with patch('services.webull_service.get_webull_market_snapshot') as snapshot:
+            snapshot.return_value = {'symbol': 'BTCUSD', 'price': 84360.14,
+                                     'as_of': int(retrieved.timestamp() * 1000)}
+            quote = _get_crypto_spot_quote('BTC', user_id=1, connection=('k', 's', 'production', 't'))
+        self.assertIsNotNone(quote)
+        self.assertEqual(underlying_observation(quote, retrieved)['status'], 'FRESH')
+
     def test_the_index_level_is_scaled_to_the_struck_level(self):
         retrieved = datetime.now(timezone.utc)
         with patch('services.webull_service.get_webull_market_snapshot') as snapshot:

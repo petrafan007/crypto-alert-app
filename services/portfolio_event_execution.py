@@ -342,7 +342,7 @@ def _consume(user_id, *, decision_ids, quote_loader):
         'handoff_dispositions': history[-50:],
         'handoff_counts_24h': counts,
         'handoff_counts_lifetime': lifetime,
-        'entries_paused': bool(state.kill_switch or not cfg.enabled or not engine.settings_for(cfg)['events'].enabled),
+        'entries_paused': bool(state.kill_switch or not cfg.enabled or not engine.settings_for(cfg)['events']['enabled']),
         'qualified_signals': len(processed) if processed else previous.get('qualified_signals', 0),
         'rejected_entries': [row for row in history if row['status'] != 'FILLED']}
     state.telemetry_json = json.dumps(telemetry)

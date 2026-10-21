@@ -388,3 +388,24 @@ class EventHandoffLedgerTests(unittest.TestCase):
         db.session.commit()
         handoff.consume_event_decisions(self.user_id)
         self.assertEqual(self.cfg.worker_status, 'STOPPED')
+
+    def test_handoff_reports_whether_entries_are_paused(self):
+        """The pause flag is read from the module settings on every handoff.
+
+        The settings are plain dictionaries, so an attribute access here
+        raised an error and the whole handoff failed on every pass.
+        """
+        self.decision()
+        self.cfg.enabled = True
+        self.cfg.worker_status = 'RUNNING'
+        self.state.kill_switch = False
+        db.session.commit()
+        self.assertTrue(handoff.consume_event_decisions(self.user_id)['success'])
+        telemetry = json.loads(self.state.telemetry_json)
+        self.assertIn('entries_paused', telemetry['events'])
+        self.assertFalse(telemetry['events']['entries_paused'])
+        engine.trigger_pause(self.cfg, self.state, 'Pause new entries')
+        db.session.commit()
+        handoff.consume_event_decisions(self.user_id)
+        telemetry = json.loads(self.state.telemetry_json)
+        self.assertTrue(telemetry['events']['entries_paused'])

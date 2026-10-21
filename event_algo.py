@@ -2352,7 +2352,8 @@ def _run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="ma
                 # worth a quote request.
                 crypto_asset = _event_series_underlying(exact_series)
                 underlying_asset = crypto_asset or symbol.upper()
-                if underlying_asset not in spot_cache:
+                cached_quote = spot_cache.get(underlying_asset)
+                if cached_quote is None or underlying_observation(cached_quote)['price'] is None:
                     spot_quote = None
                     if crypto_asset:
                         spot_quote = _get_crypto_spot_quote(
@@ -2361,7 +2362,8 @@ def _run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="ma
                         spot_quote = _get_index_level_quote(
                             exact_series, user_id=user_id, connection=connection)
                     spot_cache[underlying_asset] = spot_quote
-                spot_quote = spot_cache[underlying_asset]
+                else:
+                    spot_quote = cached_quote
                 reference_price = (spot_quote or {}).get('underlying_price')
                 result = get_webull_event_markets(
                     credential.webull_app_key,
@@ -2495,6 +2497,30 @@ def _run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="ma
                         if label not in model_summary["providers"]:
                             model_summary["providers"].append(label)
                 now = datetime.utcnow()
+                # The underlying price is refreshed here, immediately before
+                # the snapshot is written. The Decision Engine requires an
+                # observation that is no more than thirty seconds old, and the
+                # inference and quote refresh above can take minutes, so a
+                # price captured at the start of the scan no longer qualifies
+                # by the time the contract is published.
+                # The underlying price is refreshed here, immediately before
+                # the snapshot is written. The Decision Engine requires an
+                # observation that is no more than thirty seconds old, and the
+                # inference and quote refresh above can take minutes, so a
+                # price captured at the start of the scan no longer qualifies
+                # by the time the contract is published.
+                if underlying_observation(market, now)['price'] is None:
+                    series_name = market.get('series_symbol')
+                    asset = _event_series_underlying(series_name)
+                    refreshed = None
+                    if asset:
+                        refreshed = _get_crypto_spot_quote(
+                            asset, user_id=user_id, connection=quote_connection)
+                    if refreshed is None:
+                        refreshed = _get_index_level_quote(
+                            series_name, user_id=user_id, connection=quote_connection)
+                    if refreshed:
+                        market.update(refreshed)
                 features = _market_features(market, now)
                 snapshot = _snapshot_model(user_id, config.id, run.id, market, features, now)
                 db.session.add(snapshot)
