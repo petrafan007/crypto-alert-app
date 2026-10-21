@@ -302,6 +302,13 @@ def select_credit_spread(contracts, price, iv_rank, settings, now, *, allow_warm
                     missing_depth = True
                     continue
                 candidates.append((abs(dte-settings['target_dte']), abs(delta-settings['target_delta']/100),
+                                   # A wider spread risks more per contract, and a
+                                   # spread whose risk at the stop exceeds the
+                                   # per-trade loss cap cannot be funded at all.
+                                   # The narrowest spread that meets the duration
+                                   # and delta targets is therefore preferred,
+                                   # ahead of the execution cost.
+                                   width,
                                    friction/credit if credit > 0 else 9.99, break_even,
                                    {'short': short, 'long': long, 'credit': credit, 'width': width,
                                     'friction': friction, 'break_even_win_rate': break_even,
@@ -317,7 +324,10 @@ def select_credit_spread(contracts, price, iv_rank, settings, now, *, allow_warm
         if missing_depth:
             raise ValueError('No reported two-leg option depth.')
         raise ValueError('No quoted, defined-risk OTM spread with provider Greeks.')
-    return min(candidates, key=lambda item: item[:3])[4]
+    # The narrowest spread that meets the duration and delta targets is
+    # preferred, and the break-even rate is the last resort because two
+    # spreads with the same duration, delta and width are equally priced.
+    return min(candidates, key=lambda item: item[:5])[5]
 
 
 def performance(snapshots, initial, closed_pnls):
