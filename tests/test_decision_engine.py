@@ -125,7 +125,7 @@ class DecisionEngineTests(TestCase):
     def test_subq_rejects_model_override_before_network_request(self):
         client = DecisionClient('subq-test-key', transport='subq')
         with patch('services.decision_engine.requests.post') as post:
-            with self.assertRaisesRegex(ValueError, 'SubQ supports only the subq-snap-preview decision model'):
+            with self.assertRaisesRegex(ValueError, 'SubQ supports only the subq-snap-1.1 decision model'):
                 client.evaluate(state={}, questions=self.questions, model='unsupported-model')
         post.assert_not_called()
 

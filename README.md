@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.12.1
+**Version:** 4.12.2
 
 ## Recent Updates
+
+### v4.12.2
+* **Decision Engine: SubQ Snap model upgraded from `subq-snap-preview` to `subq-snap-1.1`.** Snap 1.1 shipped Oct 22 and tied for #1 on Artificial Analysis' Decision Index, a 14-point jump over the preview. The model name is pinned by the `SUBQ_MODEL` constant in `services/decision_settings.py` - `normalize_transport()` overwrites the stored per-user `decision_model` setting with that constant on every load - so the swap is a code change, not a settings change. The constant, the Decision Settings UI labels and defaults, the credentials column default, the tests that pin the model name, and the primary account's stored setting were all updated together. No endpoints, thresholds, or gate policy changed.
 
 ### v4.12.1
 * **Cross-symbol price contamination in the Decision Engine: fixed, guarded, and the scoreboard repaired.** On Oct 21 the live quant gate recorded two ETH evaluations carrying Bitcoin's price ($84,783.08) on a 15-bar stub series, and the outcome evaluator then graded six healthy ETH evaluations from those rows, printing fake returns of +3,358% to +3,368%. The production scans themselves used correct per-symbol data throughout (verified against the scan decision log); the contaminated rows entered through the gate carrying evidence that was never validated. Three integrity guards now make that class of failure impossible to record silently:
@@ -30,7 +33,7 @@
 * **Test suite:** 850 passed, 0 failed, 134 skipped against the default configuration. Against an isolated PostgreSQL database the suite was also run, and it resolved four previously failing handoff tests; the remaining failures there are pre-existing and unrelated to this work. New regression coverage for the options capacity limits, the spread width selection, the friction ceiling, the Event quote selection, settlement parsing, and underlying evidence.
 
 ### v4.11.0
-* **Decision Engine replaces the Jev subsystem:** The Jev evaluation layer is retired. A provider-neutral Decision Engine now uses **SubQ (`subq-snap-preview`)** as the primary decision provider and **Inception Mercury Decide (`mercury-decide`)** as the fallback. Both providers express a positive answer as a `noul` probability, so both share one normalisation path and one typed question contract (`boolean` / `choice` / `score`).
+* **Decision Engine replaces the Jev subsystem:** The Jev evaluation layer is retired. A provider-neutral Decision Engine now uses **SubQ (`subq-snap-1.1`)** as the primary decision provider and **Inception Mercury Decide (`mercury-decide`)** as the fallback. Both providers express a positive answer as a `noul` probability, so both share one normalisation path and one typed question contract (`boolean` / `choice` / `score`).
   * New modules: `services/decision_engine.py`, `decision_settings.py`, `decision_contracts.py`, `decision_evaluations.py`, `decision_sentiment.py`, `decision_event.py`, `decision_outcomes.py`, `decision_quant.py`.
   * Settings moved from `jev_*` to `decision_*` columns. The legacy columns are retained so an existing configuration survives the rename, and a saved transport migrates to SubQ.
   * The editable prompt catalog keys moved from `jev.*` to `decision.*`.

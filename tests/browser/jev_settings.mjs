@@ -99,7 +99,7 @@ try {
   assert.equal(await page.getByText('Jev Decision Engine', { exact: true }).count(), 0);
 
   await provider.selectOption('subq');
-  assert.equal(await model.inputValue(), 'subq-snap-preview');
+  assert.equal(await model.inputValue(), 'subq-snap-1.1');
   assert.equal(await model.getAttribute('readonly'), '');
   const subqKey = page.getByLabel('SubQ API key', { exact: true });
   assert.equal(await subqKey.getAttribute('type'), 'password');
@@ -108,11 +108,11 @@ try {
   await page.getByText(/Decision Engine settings saved\. SubQ/).waitFor();
   assert.equal(await subqKey.inputValue(), '********');
   await page.getByRole('button', { name: 'Test Connection', exact: true }).click();
-  await page.getByText(/Decision Engine connection succeeded.*Provider: SubQ.*Model: subq-snap-preview.*Latency: 42 ms/).waitFor();
+  await page.getByText(/Decision Engine connection succeeded.*Provider: SubQ.*Model: subq-snap-1.1.*Latency: 42 ms/).waitFor();
   await page.reload();
   await page.getByRole('heading', { name: 'Decision Engine' }).waitFor();
   assert.equal(await provider.inputValue(), 'subq');
-  assert.equal(await model.inputValue(), 'subq-snap-preview');
+  assert.equal(await model.inputValue(), 'subq-snap-1.1');
   assert.equal(await subqKey.inputValue(), '********');
 
   await page.setViewportSize({ width: 390, height: 844 });

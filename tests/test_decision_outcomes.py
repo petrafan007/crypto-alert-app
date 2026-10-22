@@ -39,12 +39,12 @@ class DecisionOutcomeTests(DecisionTestCase):
     def test_telemetry_scoped_to_user_and_reports_each_provider_model(self):
         evaluation_id = self.evaluation()
         from services.decision_evaluations import update_evaluation
-        update_evaluation(evaluation_id, provider='SubQ', model='subq-snap-preview')
+        update_evaluation(evaluation_id, provider='SubQ', model='subq-snap-1.1')
         self.assertEqual(telemetry(2)['sample_count'], 0)
         result = telemetry(1)
         self.assertEqual(result['sample_count'], 1)
         self.assertEqual(result['recent'][0]['provider'], 'SubQ')
-        self.assertEqual(result['recent'][0]['model'], 'subq-snap-preview')
+        self.assertEqual(result['recent'][0]['model'], 'subq-snap-1.1')
         self.assertIsNone(result['reported_cost_usd'])
         self.assertNotIn('synthetic-decision-secret', str(result))
 

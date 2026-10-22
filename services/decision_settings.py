@@ -2,7 +2,7 @@
 
 The Decision Engine is provider neutral. Two providers are supported:
 
-  subq       https://api.subq.ai/v1/systemone          model subq-snap-preview
+  subq       https://api.subq.ai/v1/systemone          model subq-snap-1.1
   inception  https://api.inceptionlabs.ai/v1/decisions  model mercury-decide
 
 Settings live on ``user_settings`` under ``decision_*`` columns and the
@@ -13,7 +13,7 @@ import os
 from urllib.parse import urlsplit
 
 DEFAULT_ENDPOINT = SUBQ_ENDPOINT = 'https://api.subq.ai/v1/systemone'
-SUBQ_MODEL = 'subq-snap-preview'
+SUBQ_MODEL = 'subq-snap-1.1'
 INCEPTION_DECISIONS_ENDPOINT = 'https://api.inceptionlabs.ai/v1/decisions'
 INCEPTION_DECISIONS_MODEL = 'mercury-decide'
 

@@ -548,7 +548,7 @@ class UserSetting(db.Model):
     # input to trading decisions, not an observation.
     decision_enabled = db.Column(db.Boolean, default=False)
     decision_transport = db.Column(db.String(20), default='subq')
-    decision_model = db.Column(db.String(100), default='subq-snap-preview')
+    decision_model = db.Column(db.String(100), default='subq-snap-1.1')
     decision_endpoint = db.Column(db.String(300), default='https://api.subq.ai/v1/systemone')
     decision_timeout_seconds = db.Column(db.Float, default=3.0)
     decision_confidence_threshold = db.Column(db.Float, default=0.8)

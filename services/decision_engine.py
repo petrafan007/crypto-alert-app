@@ -2,7 +2,7 @@
 
 Supports two decision providers that share the same typed question contract:
 
-  subq       https://api.subq.ai/v1/systemone            model subq-snap-preview
+  subq       https://api.subq.ai/v1/systemone            model subq-snap-1.1
   inception  https://api.inceptionlabs.ai/v1/decisions    model mercury-decide
 
 Both providers express a positive answer as a ``noul`` probability between 0 and 1.

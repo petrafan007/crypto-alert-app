@@ -28,11 +28,11 @@ def response_for(questions, direction='bullish', probability=.9):
         else:
             answers[key] = {'type': kind, 'score': 3.0,
                            'probabilities': {str(i): float(i == 3) for i in range(len(question['criteria']))}}
-    return {'model': 'subq-snap-preview', 'answers': answers, 'usage': {'inputTokens': 20, 'outputTokens': 10},
+    return {'model': 'subq-snap-1.1', 'answers': answers, 'usage': {'inputTokens': 20, 'outputTokens': 10},
             'providerMetadata': {'gateway': {'cost': '0.000001'}, 'typesafe': {'confidence': {}}}}
 
 
-def noul_payload(questions, model='subq-snap-preview', direction='bullish', probability=.9):
+def noul_payload(questions, model='subq-snap-1.1', direction='bullish', probability=.9):
     """Convert the internal answer contract into the provider wire format."""
     answers = {}
     for key, answer in response_for(questions, direction, probability)['answers'].items():

@@ -46,7 +46,7 @@ class ProviderEndpointTests(unittest.TestCase):
 
     def test_subq_uses_its_documented_endpoint(self):
         self.assertEqual(SUBQ_ENDPOINT, 'https://api.subq.ai/v1/systemone')
-        self.assertEqual(SUBQ_MODEL, 'subq-snap-preview')
+        self.assertEqual(SUBQ_MODEL, 'subq-snap-1.1')
 
     def test_each_provider_only_accepts_its_own_model(self):
         inception = DecisionClient('k', INCEPTION_DECISIONS_ENDPOINT, INCEPTION_DECISIONS_MODEL, 3.0, 'inception')
