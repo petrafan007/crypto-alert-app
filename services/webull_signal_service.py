@@ -131,12 +131,15 @@ def create_webull_signal(user, holding, *, origin='manual'):
         except Exception:
             snapshot = None
 
-        market = build_webull_market_snapshot(bars, holding.currency or 'USD')
-        entry_price = (
-            (snapshot.get('price') or snapshot.get('regular_price')) if snapshot else None
-        ) or market.get('last_price') or holding.last_price or holding.cost_price
+        quoted = (snapshot.get('price') or snapshot.get('regular_price')) if snapshot else None
+        provisional = build_webull_market_snapshot(bars, holding.currency or 'USD')
+        entry_price = quoted or provisional.get('last_price') or holding.last_price or holding.cost_price
         if not entry_price or float(entry_price) <= 0:
             raise WebullConnectionError('Webull did not return a usable current market price for this holding.')
+        # One price per payload: the market context quotes the same live
+        # price the decision is anchored to, never the last bar's close.
+        market = build_webull_market_snapshot(bars, holding.currency or 'USD',
+                                              current_price=float(entry_price))
     family = 'crypto' if instrument_type == 'CRYPTO' else 'equity'
     horizon = _settings_value(settings, instrument_type, 'horizon_hours')
     rules = format_forecast_rules(get_sentiment_thresholds(settings))

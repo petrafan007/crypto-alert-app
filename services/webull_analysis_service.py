@@ -1,7 +1,7 @@
 """Read-only market context helpers for the Webull AI research workspace."""
 
 
-def build_webull_market_snapshot(bars, currency='USD'):
+def build_webull_market_snapshot(bars, currency='USD', current_price=None):
     """Summarize normalized Webull bars without inventing unavailable data."""
     closes = [float(bar['close']) for bar in (bars or []) if bar.get('close') not in (None, '')]
     if not closes:
@@ -11,6 +11,11 @@ def build_webull_market_snapshot(bars, currency='USD'):
         }
 
     latest = closes[-1]
+    if current_price:
+        # The caller's live quote is the price the decision is anchored
+        # to; the context must quote that same price, not the close of
+        # the last completed bar, or one payload states two prices.
+        latest = float(current_price)
     changes = {}
     for label, periods in (('1 bar', 1), ('5 bars', 5), ('20 bars', 20)):
         if len(closes) > periods and closes[-(periods + 1)] > 0:

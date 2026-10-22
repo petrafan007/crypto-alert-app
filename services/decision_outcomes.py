@@ -45,9 +45,17 @@ def evaluate_pending_outcomes(now=None, limit=500):
                         DecisionEvaluation.decision_time >= row.outcome_due_at-timedelta(minutes=15),
                         DecisionEvaluation.decision_time <= min(now, row.outcome_due_at+timedelta(minutes=15)),
                         DecisionEvaluation.entry_price > 0).all()
-                closest = min(quotes, key=lambda q: abs((q.decision_time-row.outcome_due_at).total_seconds()), default=None)
-                if closest:
-                    price, actual_at = closest.entry_price, closest.decision_time
+                # Grade only from a quote that is plausible for this
+                # asset. A later evaluation carrying another asset's
+                # price level (cross-symbol contamination) must never
+                # become the outcome; fall through to the next-closest
+                # plausible quote, and when none is plausible the row
+                # stays unscored.
+                quotes.sort(key=lambda q: abs((q.decision_time-row.outcome_due_at).total_seconds()))
+                for candidate in quotes:
+                    if candidate.entry_price and 0.25 <= candidate.entry_price/row.entry_price <= 4.0:
+                        price, actual_at = candidate.entry_price, candidate.decision_time
+                        break
             elif row.market_source == 'binance' and row.instrument_type == 'CRYPTO':
                 target = int(row.outcome_due_at.replace(tzinfo=timezone.utc).timestamp())
                 observed = int(now.replace(tzinfo=timezone.utc).timestamp())
@@ -58,7 +66,8 @@ def evaluate_pending_outcomes(now=None, limit=500):
                 if closest:
                     price, actual_at = closest.price, datetime.fromtimestamp(closest.timestamp, timezone.utc).replace(tzinfo=None)
             if (not price or not actual_at or actual_at > now or actual_at < row.decision_time
-                    or abs((actual_at-row.outcome_due_at).total_seconds()) > 900):
+                    or abs((actual_at-row.outcome_due_at).total_seconds()) > 900
+                    or not 0.25 <= price/row.entry_price <= 4.0):
                 continue
             row.outcome_price = price
             row.outcome_return_pct = (price/row.entry_price-1)*100

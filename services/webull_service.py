@@ -719,11 +719,15 @@ def get_webull_market_bars(
             ),
             'market-data request',
         )
-        for record in _webull_records(payload):
-            if not isinstance(record, dict):
-                continue
-            if record.get('symbol') and str(record['symbol']).upper() != clean_symbol:
-                continue
+        records = [record for record in _webull_records(payload) if isinstance(record, dict)]
+        # Fail closed on symbol identity: when the payload labels its
+        # records, only the requested symbol's records may be used.
+        # Merging every record regardless of label can silently mix
+        # another asset's bars into this symbol's series.
+        if any(record.get('symbol') for record in records):
+            records = [record for record in records
+                       if str(record['symbol']).upper() == clean_symbol]
+        for record in records:
             raw_bars = record['result'] if isinstance(record.get('result'), list) else [record]
             for raw_bar in raw_bars:
                 bar = _normalise_webull_bar(raw_bar, strict_ohlc=strict_ohlc)
@@ -804,7 +808,7 @@ def get_webull_market_snapshot(
         ),
         'market snapshot request',
     )
-    raw = _first_option_record(payload)
+    raw = _matching_snapshot_record(payload, clean_symbol)
     if not isinstance(raw, dict):
         raise WebullConnectionError('Webull returned no market snapshot for this symbol.')
 
@@ -845,6 +849,25 @@ def _first_option_record(payload):
         if isinstance(direct, dict):
             return direct
     return None
+
+
+def _matching_snapshot_record(payload, clean_symbol):
+    """Select the snapshot record for the requested symbol.
+
+    A list response may carry several instruments; taking the first
+    record unconditionally can hand back another asset's price, which
+    the caller then stamps with the requested symbol. Fail closed: when
+    records carry symbols, one must match the request.
+    """
+    records = [record for record in _webull_records(payload) if isinstance(record, dict)]
+    if not records:
+        return _first_option_record(payload)
+    for record in records:
+        if str(record.get('symbol') or '').upper() == clean_symbol:
+            return record
+    if any(record.get('symbol') for record in records):
+        return None
+    return records[0] if len(records) == 1 else None
 
 
 def _normalise_option_snapshot_record(raw):

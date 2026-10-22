@@ -1,8 +1,18 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.12.0
+**Version:** 4.12.1
 
 ## Recent Updates
+
+### v4.12.1
+* **Cross-symbol price contamination in the Decision Engine: fixed, guarded, and the scoreboard repaired.** On Oct 21 the live quant gate recorded two ETH evaluations carrying Bitcoin's price ($84,783.08) on a 15-bar stub series, and the outcome evaluator then graded six healthy ETH evaluations from those rows, printing fake returns of +3,358% to +3,368%. The production scans themselves used correct per-symbol data throughout (verified against the scan decision log); the contaminated rows entered through the gate carrying evidence that was never validated. Three integrity guards now make that class of failure impossible to record silently:
+  * **Gate evidence validation (`decision_quant.evaluate_entry`).** A candidate is refused - verdict ABSTAIN, no evaluation recorded - when its completed hourly bars fall below 100 (the scan requests a 150-bar window), when its price is incoherent with its own entry-channel high, or when its price sits outside a 0.25x-4.0x band around the asset's own recent evaluation median. An ETH candidate priced at BTC's level fails the band; the deterministic signal stays in charge, so a guard failure can never suppress or force an entry.
+  * **Outcome-quote plausibility (`decision_outcomes.evaluate_pending_outcomes`).** A quant outcome is graded only from a later quote within 0.25x-4.0x of the graded row's own entry price, falling through to the next-closest plausible quote; a contaminated quote alone leaves the row unscored instead of printing an impossible return. The same band guards every grading branch.
+  * **Fail-closed Webull symbol identity (`webull_service`).** Bar payloads that label their records now contribute only the requested symbol's records (previously every record was merged into the series), and snapshot selection picks the record matching the requested symbol instead of the first record, whose price the caller then stamped with the requested symbol.
+  * **One price per sentiment payload (`webull_signal_service`, `webull_analysis_service`).** The market context now quotes the same live price the decision is anchored to instead of the last completed bar's close - the mismatch seen in production payloads whose `current_price` disagreed with their own market context (374.585 vs 379.15; 147.01 vs 159.31).
+  * **Scoreboard repair.** The six contaminated ETH outcome rows were recomputed from the independent Binance price history (real returns +2.20% to +2.82%); the three stub evaluations (one BTC, two ETH) were closed unscored so they can never be graded or counted in calibration. A full-table scan confirms no implausible outcome ratios remain.
+  * **Safety audit.** Every live-gate quant evaluation since v4.11.0 was reviewed: three rows total - one BTC abstain, two ETH blocks, zero CONFIRMs ever - and the only crypto lots opened that day were two pre-cutover BTC deterministic entries. No entry was ever confirmed on contaminated data.
+  * **Tests:** 855 passed, 0 failed, 134 skipped (850 baseline + 5 new regression tests in `tests/test_decision_integrity.py`: an ETH candidate end-to-end records ETH's own price series; the gate rejects a BTC-priced ETH candidate and thin 15-bar evidence; the outcome evaluator skips a contaminated quote for the next plausible one and leaves a row unscored when only a contaminated quote exists).
 
 ### v4.12.0
 * **Quantitative Strategy Engine: Event and options modules made tradeable again.** The engine was rejecting effectively every candidate it discovered. Five distinct root causes were found and fixed, each with a regression test.
