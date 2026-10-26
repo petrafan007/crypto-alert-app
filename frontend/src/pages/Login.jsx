@@ -13,6 +13,22 @@ export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get('error');
+    if (err) {
+      if (err === 'account_not_found') {
+        setError('No Crypto & Securities Dashboard account found matching your Authentik credentials.');
+      } else if (err === 'sso_cancelled') {
+        setError('Sign in with SSO was cancelled.');
+      } else if (err === 'sso_session_expired') {
+        setError('SSO session expired. Please try again.');
+      } else {
+        setError(`SSO sign-in failed (${err}).`);
+      }
+    }
+  }, []);
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
@@ -63,6 +79,51 @@ export default function Login() {
       </h2>
 
       <form onSubmit={handleSubmit}>
+        {!requires2FA && (
+          <div style={{ marginBottom: 20 }}>
+            <a
+              href="/api/auth/sso/login"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                width: '100%',
+                padding: '12px 16px',
+                borderRadius: 8,
+                background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                color: '#ffffff',
+                fontWeight: 600,
+                fontSize: 15,
+                textDecoration: 'none',
+                boxSizing: 'border-box',
+                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
+                transition: 'opacity 0.15s',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '0.92'; }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+            >
+              <span style={{ fontSize: 16 }}>🔑</span>
+              <span>Sign in with Authentik / Passkey</span>
+            </a>
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              margin: '20px 0 16px',
+              gap: 12
+            }}>
+              <div style={{ flex: 1, height: 1, background: '#444' }} />
+              <span style={{ fontSize: 12, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                or continue with password
+              </span>
+              <div style={{ flex: 1, height: 1, background: '#444' }} />
+            </div>
+          </div>
+        )}
+
         <div style={{ marginBottom: 20 }}>
           <label style={{
             display: 'block',

@@ -30,6 +30,8 @@ from services.ai_service import is_ollama_admin
 from services.totp_service import verify_totp_code
 import json
 import re
+import secrets
+from urllib.parse import urlencode, quote
 
 # Create Blueprint
 auth_bp = Blueprint('auth', __name__)
@@ -229,6 +231,127 @@ def api_login():
         "user": {"username": user.username, "id": user.id},
         "onboarding_required": bool(onboarding.onboarding_required and not onboarding.onboarding_completed),
     })
+
+
+@auth_bp.route("/api/auth/sso/login")
+def sso_login():
+    """Initiate OIDC authentication with Authentik."""
+    state = secrets.token_hex(16)
+    session['sso_state'] = state
+    session.permanent = True
+
+    host = request.headers.get("x-forwarded-host") or request.host
+    proto = request.headers.get("x-forwarded-proto") or (request.scheme if request.scheme else "https")
+    if "csdapp.online" in host:
+        redirect_uri = f"{proto}://{host}/api/auth/sso/callback"
+    else:
+        redirect_uri = "https://www.csdapp.online/api/auth/sso/callback"
+    session['sso_redirect_uri'] = redirect_uri
+
+    auth_url = os.getenv("AUTHENTIK_AUTH_URL", "https://auth.petrafied.net/application/o/authorize/")
+    client_id = os.getenv("AUTHENTIK_CLIENT_ID", "csdapp_sso_client")
+    params = {
+        "client_id": client_id,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "redirect_uri": redirect_uri,
+        "state": state
+    }
+    target_url = f"{auth_url}?{urlencode(params)}"
+    logger.info(f"[SSO] Redirecting to Authentik authorize: {target_url}")
+    return redirect(target_url)
+
+
+@auth_bp.route("/api/auth/sso/callback")
+def sso_callback():
+    """Handle OIDC authorization code callback from Authentik."""
+    error = request.args.get("error")
+    code = request.args.get("code")
+    state = request.args.get("state")
+
+    if error:
+        logger.warning(f"[SSO] Error param in callback: {error}")
+        return redirect(f"/login?error={quote(error)}")
+
+    if not code or not state:
+        logger.warning("[SSO] Missing code or state in callback")
+        return redirect("/login?error=sso_cancelled")
+
+    expected_state = session.pop('sso_state', None)
+    redirect_uri = session.pop('sso_redirect_uri', None) or "https://www.csdapp.online/api/auth/sso/callback"
+
+    if not expected_state or expected_state != state:
+        logger.warning(f"[SSO] State mismatch: expected {expected_state}, got {state}")
+        return redirect("/login?error=sso_session_expired")
+
+    token_url = os.getenv("AUTHENTIK_TOKEN_URL", "https://auth.petrafied.net/application/o/token/")
+    client_id = os.getenv("AUTHENTIK_CLIENT_ID", "csdapp_sso_client")
+    client_secret = os.getenv("AUTHENTIK_CLIENT_SECRET", "dxzNg7MDScUuGEJ1LlITOen9fnmokiOCkuoeygr5Yd3hppWuvgWiCjBr5jBptlPK")
+
+    try:
+        token_res = requests.post(
+            token_url,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+            timeout=10
+        )
+        if not token_res.ok:
+            logger.error(f"[SSO] Token exchange failed with status {token_res.status_code}: {token_res.text}")
+            return redirect("/login?error=sso_token_failed")
+
+        token_data = token_res.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            logger.error("[SSO] No access token in response")
+            return redirect("/login?error=sso_token_failed")
+
+        userinfo_url = os.getenv("AUTHENTIK_USERINFO_URL", "https://auth.petrafied.net/application/o/userinfo/")
+        userinfo_res = requests.get(
+            userinfo_url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10
+        )
+        if not userinfo_res.ok:
+            logger.error(f"[SSO] Userinfo fetch failed: {userinfo_res.status_code}")
+            return redirect("/login?error=sso_userinfo_failed")
+
+        userinfo = userinfo_res.json()
+        email = (userinfo.get("email") or "").strip().lower()
+        preferred_username = (userinfo.get("preferred_username") or "").strip().lower()
+
+        logger.info(f"[SSO] Userinfo received: email={email}, username={preferred_username}")
+
+        user = None
+        if email:
+            user = User.query.filter(db.func.lower(User.email) == email).first()
+
+        # Map to primary user account if Authentik username or email matches petrafan007 / jcavallarojr
+        if not user and (preferred_username in ("jcavallarojr", "petrafan007") or email == "petrafan007@gmail.com"):
+            user = User.query.get(1)
+
+        if not user:
+            logger.warning(f"[SSO] No matching user found for email={email}, preferred_username={preferred_username}")
+            return redirect("/login?error=account_not_found")
+
+        user.last_login = datetime.utcnow()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        login_user(user, remember=True)
+        session.permanent = True
+        logger.info(f"[SSO] Successfully logged in user {user.username} (ID: {user.id}) via Authentik SSO")
+        return redirect("/")
+
+    except Exception as exc:
+        logger.error(f"[SSO] Exception during callback: {exc}")
+        return redirect("/login?error=sso_error")
 
 
 @auth_bp.route('/api/session', methods=['GET'])
