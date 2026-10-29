@@ -23,6 +23,10 @@ class AuditContextTests(unittest.TestCase):
         with patch('services.event_settlement_data.requests.get', return_value=response) as get:
             response.json = lambda: {'market': market}
             self.assertEqual(confirmed_kalshi_settlement(symbol, cutoff, now)['settled_outcome'], 'YES')
+            hourly_symbol = 'KXINXU-26OCT21H1600-T7769.9999'
+            hourly_market = {**market, 'ticker': hourly_symbol}
+            response.json = lambda: {'market': hourly_market}
+            self.assertEqual(confirmed_kalshi_settlement(hourly_symbol, cutoff, now)['settled_outcome'], 'YES')
             for change in ({'ticker': 'WRONG'}, {'result': 'scalar'}, {'status': 'determined'},
                            {'is_provisional': True}, {'settlement_value_dollars': '0.0'},
                            {'close_time': '2026-09-07T01:00:00Z'}, {'settlement_ts': None},

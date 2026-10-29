@@ -39,7 +39,7 @@ def validated_kalshi_market(symbol, cutoff_at, market, observed_at):
 
 
 def confirmed_kalshi_settlement(symbol, cutoff_at, now=None):
-    if not re.fullmatch(r'KX[A-Z0-9]+-\d{2}[A-Z]{3}\d{4}[A-Z0-9.-]*', symbol or '') or not cutoff_at:
+    if not re.fullmatch(r'KX[A-Z0-9]+-\d{2}[A-Z]{3}[A-Z0-9.-]+', symbol or '') or not cutoff_at:
         return None
     now = now or datetime.now(timezone.utc)
     def aware(value):

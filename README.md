@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.12.2
+**Version:** 4.13.1
 
 ## Recent Updates
+
+### v4.13.1
+* **Quantitative Strategy Engine: Event Contract Kalshi settlement regex fix & unblocking 7,200+ rejected signals.** Fixed a critical regex flaw in `services/event_settlement_data.py` where contract tickers were required to contain exactly 4 digits after the month code (`\d{4}`), causing hourly S&P 500 contracts with `H`-coded hours (such as `KXINXU-26OCT21H1600-T7769.9999`) to be rejected by the Kalshi fallback lookup. Because Webull rapidly delists expired contracts, these positions remained stuck indefinitely in `PENDING` settlement status, saturating the `max_open_positions` ceiling (3.0) and blocking over 7,200 qualified event signals with `Module position limit reached`. Broadened the pattern to `r'KX[A-Z0-9]+-\d{2}[A-Z]{3}[A-Z0-9.-]+'`, allowing Kalshi to immediately finalize expired contracts, close out settled lots, and unfreeze the Events module trading pipeline.
+* **Goal Tracking: 30-Day CAGR Milestone Countdown & Daily Run Rate Pacing.** Enhanced `PortfolioGoalTracking.jsx` with an informative milestone progression indicator showing exact days remaining until the 30-day descriptive CAGR unlocks (preventing misleading small-sample extrapolation during the first month). Added a compounded daily target pace indicator ($/day) alongside the observed daily run rate to provide transparent progress monitoring toward the 18.5% annual research target.
+* **Test Suite:** Added regression test coverage in `tests/test_portfolio_audit_context.py` verifying hourly and daily Kalshi contract formats match and resolve cleanly.
 
 ### v4.12.2
 * **Decision Engine: SubQ Snap model upgraded from `subq-snap-preview` to `subq-snap-1.1`.** Snap 1.1 shipped Oct 22 and tied for #1 on Artificial Analysis' Decision Index, a 14-point jump over the preview. The model name is pinned by the `SUBQ_MODEL` constant in `services/decision_settings.py` - `normalize_transport()` overwrites the stored per-user `decision_model` setting with that constant on every load - so the swap is a code change, not a settings change. The constant, the Decision Settings UI labels and defaults, the credentials column default, the tests that pin the model name, and the primary account's stored setting were all updated together. No endpoints, thresholds, or gate policy changed.

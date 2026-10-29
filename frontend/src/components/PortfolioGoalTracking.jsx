@@ -12,16 +12,35 @@ const tableStyle = { width: '100%', borderCollapse: 'collapse', textAlign: 'left
 export default function PortfolioGoalTracking({ goal, showChart = true }) {
   if (!goal) return <section aria-label="Paper return goal"><h4>Paper return goal</h4><p>Goal tracking is not available in this saved report. Generate a new report to capture calculated progress; historical reports are unchanged.</p></section>;
   const coverage = goal.observations || {};
-  const curve = goal.curve || [];
+  const minDays = goal.annualization_min_days || 30;
+  const elapsed = Number(goal.elapsed_days) || 0;
+  const daysRemaining = Math.max(0, Math.ceil(minDays - elapsed));
+  const progressPct = Math.min(100, Math.max(0, (elapsed / minDays) * 100));
+  const dailyTargetUsd = goal.initial_equity && goal.target_annual_return_pct
+    ? (goal.initial_equity * (goal.target_annual_return_pct / 100)) / 365
+    : null;
+  const dailyPacingUsd = elapsed > 0 && goal.initial_equity && goal.current_equity
+    ? (goal.current_equity - goal.initial_equity) / elapsed
+    : null;
+
   return <section aria-label="Paper return goal" style={{ border: '1px solid rgba(148,163,184,.25)', borderRadius: 10, padding: 16, margin: '18px 0' }}>
-    <h4 style={{ marginTop: 0 }}>PAPER · {number(goal.target_annual_return_pct, '%')} annual research goal</h4>
+    <h4 style={{ marginTop: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+      <span>PAPER · {number(goal.target_annual_return_pct, '%')} annual research goal</span>
+      {goal.annualized_return_pct == null && (
+        <span style={{ fontSize: '0.8rem', padding: '3px 8px', borderRadius: 6, background: 'rgba(56,189,248,0.15)', color: '#38bdf8', fontWeight: 600 }}>
+          30-Day Milestone: {progressPct.toFixed(0)}% ({daysRemaining}d remaining)
+        </span>
+      )}
+    </h4>
     <p>Run started {timestamp(goal.started_at)} · Valuation {timestamp(goal.as_of)} · {number(goal.elapsed_days)} elapsed days</p>
     <div style={gridStyle}>
       {[
         ['Observed equity', money(goal.current_equity)], ['Compounded target equity', money(goal.target_equity)],
         ['Actual minus target', `${money(goal.target_gap_usd)} (${number(goal.target_gap_pct, '%')})`],
         ['Observed total return', number(goal.total_return_pct, '%')],
-        ['Annualized return (descriptive)', goal.annualized_return_pct == null ? `Awaiting ${goal.annualization_min_days || 30} elapsed days` : number(goal.annualized_return_pct, '%')],
+        ['Target pace (compounded)', dailyTargetUsd != null ? `${money(dailyTargetUsd)} / day` : 'Unavailable'],
+        ['Observed run rate', dailyPacingUsd != null ? `${money(dailyPacingUsd)} / day` : 'Unavailable'],
+        ['Annualized return (descriptive)', goal.annualized_return_pct == null ? `Awaiting ${minDays}d (${daysRemaining}d left)` : number(goal.annualized_return_pct, '%')],
         ['Annualized minus target', goal.cagr_gap_pct_points == null ? 'Awaiting annualization' : number(goal.cagr_gap_pct_points, ' pp')],
         ['Capital utilization (marked)', number(goal.capital_utilization_pct, '%')],
         ['Reserved capital', money(goal.reserved_capital_usd)],
