@@ -1940,11 +1940,25 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
 
         # Send Telegram alert if notable trading signal
         if notifications_enabled:
+            # Coin must be visible as an active row and have alerts enabled
+            allow_alert = False
+            if is_watchlist:
+                target_w = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
+                if target_w and not getattr(target_w, 'hidden', False) and getattr(target_w, 'alert_enabled', False):
+                    allow_alert = True
+            else:
+                target_c = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
+                if target_c:
+                    is_visible = getattr(target_c, 'force_visible', False) or (not getattr(target_c, 'hidden', False) and float(getattr(target_c, 'amount', 0) or 0) >= 0.0001)
+                    if is_visible and getattr(target_c, 'alert_enabled', False):
+                        allow_alert = True
+
             should_notify = False
-            if is_watchlist and sentiment_result in ['Definitely Buy', 'Consider Buying']:
-                should_notify = True
-            elif not is_watchlist and sentiment_result in ['Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling']:
-                should_notify = True
+            if allow_alert:
+                if is_watchlist and sentiment_result in ['Definitely Buy', 'Consider Buying']:
+                    should_notify = True
+                elif not is_watchlist and sentiment_result in ['Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling']:
+                    should_notify = True
 
             if should_notify:
                 alert_msg = (
@@ -2080,16 +2094,31 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
                 logger.info(f"Skipping sentiment analysis for stablecoin {symbol}")
                 return 0
             try:
-                c_init = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).first()
+                c_init = Coin.query.filter(
+                    Coin.user_id == user_id,
+                    Coin.symbol == symbol.upper().strip(),
+                    db.or_(Coin.hidden == False, Coin.force_visible == True),
+                    db.or_(Coin.amount >= 0.0001, Coin.force_visible == True)
+                ).first()
                 if c_init:
                     c_init.sentiment = "Checking now..."
                     c_init.sentiment_last_updated = datetime.utcnow()
                     db.session.commit()
             except Exception:
                 db.session.rollback()
-            coins = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).all()
+            coins = Coin.query.filter(
+                Coin.user_id == user_id,
+                Coin.symbol == symbol.upper().strip(),
+                db.or_(Coin.hidden == False, Coin.force_visible == True),
+                db.or_(Coin.amount >= 0.0001, Coin.force_visible == True)
+            ).all()
         else:
-            coins = Coin.query.filter_by(user_id=user_id, hidden=False).filter(Coin.amount > 0).all()
+            coins = Coin.query.filter(
+                Coin.user_id == user_id,
+                db.or_(Coin.hidden == False, Coin.force_visible == True),
+                db.or_(Coin.amount >= 0.0001, Coin.force_visible == True)
+            ).all()
+            coins = [c for c in coins if getattr(c, 'force_visible', False) or (not c.hidden and float(c.amount or 0) >= 0.0001)]
             coins = [c for c in coins if not is_stablecoin(c.symbol)]
             coins = [c for c in coins if getattr(c, 'sentiment_tracking_enabled', True) is not False]
 

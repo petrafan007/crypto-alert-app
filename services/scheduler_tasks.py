@@ -124,6 +124,30 @@ def _reset_automated_trigger_confirmation(coin, field_name):
     if getattr(coin, field_name, None) is not None:
         setattr(coin, field_name, None)
 
+def is_portfolio_coin_visible(coin):
+    """
+    Check if a portfolio coin is visible as an active row in the user's dashboard table.
+    A coin is visible if:
+      - force_visible is True, OR
+      - NOT hidden AND amount >= 0.0001
+    """
+    if getattr(coin, 'force_visible', False):
+        return True
+    if getattr(coin, 'hidden', False):
+        return False
+    amount = float(getattr(coin, 'amount', 0) or 0)
+    if amount < 0.0001:
+        return False
+    return True
+
+def is_watchlist_coin_visible(coin):
+    """
+    Check if a watchlist coin is visible as an active row in the user's dashboard table.
+    A watchlist coin is visible if NOT hidden.
+    """
+    return not bool(getattr(coin, 'hidden', False))
+
+
 def safe_background_iteration(f):
     def wrapper(*args, **kwargs):
         try:
@@ -325,9 +349,15 @@ def portfolio_alert_loop(app):
                 for user in users:
                     coins = Coin.query.filter(
                         Coin.user_id == user.id,
-                        db.or_(Coin.hidden == False, Coin.amount > 0, Coin.force_visible == True)
+                        Coin.alert_enabled == True,
+                        db.or_(Coin.hidden == False, Coin.force_visible == True),
+                        db.or_(Coin.amount >= 0.0001, Coin.force_visible == True)
                     ).all()
                     for coin in coins:
+                        if not is_portfolio_coin_visible(coin):
+                            continue
+                        if not getattr(coin, 'alert_enabled', False):
+                            continue
                         symbol = (coin.symbol or '').upper()
                         price = None
                         
@@ -427,31 +457,47 @@ def watchlist_alert_loop(app):
             def iteration():
                 users = User.query.all()
                 for user in users:
-                    watchlist_coins = WatchlistCoin.query.filter_by(user_id=user.id, hidden=False).all()
+                    watchlist_coins = WatchlistCoin.query.filter_by(user_id=user.id, hidden=False, alert_enabled=True).all()
                     for coin in watchlist_coins:
+                        if not is_watchlist_coin_visible(coin):
+                            continue
+                        if not getattr(coin, 'alert_enabled', False):
+                            continue
                         symbol = (coin.symbol or '').upper()
+                        asset_type = getattr(coin, 'asset_type', 'crypto') or 'crypto'
                         price = None
                         
-                        if binance_rate_limiter.can_call(symbol):
+                        if asset_type == 'stock':
                             try:
-                                price = fetch_binance_price(symbol)
+                                from routes.portfolio import _fetch_stock_price_yf
+                                price = _fetch_stock_price_yf(symbol, user.id)
                                 if price and price > 0:
-                                    binance_rate_limiter.record_call(symbol)
-                                    try:
-                                        coin.current_price = price
-                                        db.session.commit()
-                                    except: pass
-                                else:
-                                    binance_rate_limiter.record_failure(symbol)
-                                    price = getattr(coin, 'current_price', None)
-                            except Exception as fetch_err:
-                                binance_rate_limiter.record_failure(symbol)
-                                logger.warning(f"Binance API failed for watchlist {symbol}: {fetch_err}")
+                                    coin.current_price = price
+                                    db.session.commit()
+                            except Exception as stock_err:
+                                logger.warning(f"Stock price fetch failed for watchlist {symbol}: {stock_err}")
                                 price = getattr(coin, 'current_price', None)
                         else:
-                            price = getattr(coin, 'current_price', None)
+                            if binance_rate_limiter.can_call(symbol):
+                                try:
+                                    price = fetch_binance_price(symbol)
+                                    if price and price > 0:
+                                        binance_rate_limiter.record_call(symbol)
+                                        try:
+                                            coin.current_price = price
+                                            db.session.commit()
+                                        except: pass
+                                    else:
+                                        binance_rate_limiter.record_failure(symbol)
+                                        price = getattr(coin, 'current_price', None)
+                                except Exception as fetch_err:
+                                    binance_rate_limiter.record_failure(symbol)
+                                    logger.warning(f"Binance API failed for watchlist {symbol}: {fetch_err}")
+                                    price = getattr(coin, 'current_price', None)
+                            else:
+                                price = getattr(coin, 'current_price', None)
                             
-                        if price is None or not coin.alert_enabled:
+                        if price is None or not getattr(coin, 'alert_enabled', False):
                             continue
 
                         if coin.down_alert is not None:
@@ -488,12 +534,17 @@ def check_coin_volatility(user, coin, ticker_map, client, volatility_hours, tabl
     """Check volatility against the configured number of completed hourly candles."""
     try:
         if table_type == 'portfolio':
-            # Skip hidden coins with zero balance that are not forced visible
-            if bool(getattr(coin, 'hidden', False)) and float(getattr(coin, 'amount', 0) or 0) <= 0 and not bool(getattr(coin, 'force_visible', False)):
+            if not is_portfolio_coin_visible(coin):
                 return
         elif table_type == 'watchlist':
-            if bool(getattr(coin, 'hidden', False)):
+            if not is_watchlist_coin_visible(coin):
                 return
+            if getattr(coin, 'asset_type', 'crypto') == 'stock':
+                return  # Binance ticker and klines are crypto-only
+
+        # Alerts must be explicitly enabled on the coin
+        if not bool(getattr(coin, 'alert_enabled', False)):
+            return
 
         symbol = coin.symbol.upper()
         volatility_threshold = float(coin.volatility_pct or 0)
@@ -548,13 +599,13 @@ def check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours=24
     """
     try:
         confirmation_field = 'auto_sell_confirmation_started_at'
-        if not getattr(coin, 'auto_sell_enabled', False):
+        if not getattr(coin, 'auto_sell_enabled', False) or not bool(getattr(coin, 'alert_enabled', False)):
             _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
-        if table_type == 'portfolio' and (not coin.amount or float(coin.amount) <= 0 or (bool(getattr(coin, 'hidden', False)) and not bool(getattr(coin, 'force_visible', False)))):
+        if table_type == 'portfolio' and not is_portfolio_coin_visible(coin):
             _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
-        if table_type == 'watchlist' and bool(getattr(coin, 'hidden', False)):
+        if table_type == 'watchlist' and (not is_watchlist_coin_visible(coin) or getattr(coin, 'asset_type', 'crypto') == 'stock'):
             _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
 
@@ -882,13 +933,13 @@ def check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours=24,
     """
     try:
         confirmation_field = 'auto_buy_confirmation_started_at'
-        if not getattr(coin, 'auto_buy_enabled', False):
+        if not getattr(coin, 'auto_buy_enabled', False) or not bool(getattr(coin, 'alert_enabled', False)):
             _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
-        if table_type == 'portfolio' and bool(getattr(coin, 'hidden', False)) and float(getattr(coin, 'amount', 0) or 0) <= 0 and not bool(getattr(coin, 'force_visible', False)):
+        if table_type == 'portfolio' and not is_portfolio_coin_visible(coin):
             _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
-        if table_type == 'watchlist' and bool(getattr(coin, 'hidden', False)):
+        if table_type == 'watchlist' and (not is_watchlist_coin_visible(coin) or getattr(coin, 'asset_type', 'crypto') == 'stock'):
             _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
 
@@ -1215,12 +1266,16 @@ def volatility_alert_loop(app):
                     )
                     coins = Coin.query.filter(
                         Coin.user_id == user.id,
-                        or_(Coin.hidden == False, Coin.amount > 0, Coin.force_visible == True),
+                        Coin.alert_enabled == True,
+                        or_(Coin.hidden == False, Coin.force_visible == True),
+                        or_(Coin.amount >= 0.0001, Coin.force_visible == True),
                         or_(Coin.volatility_pct > 0, Coin.auto_sell_enabled == True, Coin.auto_buy_enabled == True)
                     ).all()
                     watchlist_coins = WatchlistCoin.query.filter(
                         WatchlistCoin.user_id == user.id,
                         WatchlistCoin.hidden == False,
+                        WatchlistCoin.alert_enabled == True,
+                        WatchlistCoin.asset_type != 'stock',
                         or_(WatchlistCoin.volatility_pct > 0, WatchlistCoin.auto_sell_enabled == True, WatchlistCoin.auto_buy_enabled == True)
                     ).all()
                     
@@ -1241,6 +1296,8 @@ def volatility_alert_loop(app):
                         continue
 
                     for coin in coins:
+                        if not is_portfolio_coin_visible(coin) or not getattr(coin, 'alert_enabled', False):
+                            continue
                         if coin.volatility_pct and float(coin.volatility_pct) > 0:
                             check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'portfolio')
                         if getattr(coin, 'auto_sell_enabled', False):
@@ -1248,6 +1305,8 @@ def volatility_alert_loop(app):
                         if getattr(coin, 'auto_buy_enabled', False):
                             check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours, confirmation_minutes, 'portfolio')
                     for coin in watchlist_coins:
+                        if not is_watchlist_coin_visible(coin) or not getattr(coin, 'alert_enabled', False):
+                            continue
                         if coin.volatility_pct and float(coin.volatility_pct) > 0:
                             check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'watchlist')
                         if getattr(coin, 'auto_sell_enabled', False):

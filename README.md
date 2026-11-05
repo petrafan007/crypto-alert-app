@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.13.3
+**Version:** 4.13.4
 
 ## Recent Updates
+
+### v4.13.4
+* **Alert System: Strict Visibility & Alert-Enabled Enforcement across Volatility, Price, Automated Triggers, and Sentiment Watches.** Resolved an issue where hidden portfolio coins or sub-dust balances (such as inactive residual balances) could continue to evaluate thresholds and fire Telegram volatility alerts or price notifications.
+  * **Strict Table Visibility Gate:** Alerts (volatility, price up/down, automated buy/sell confirmations, and AI sentiment signals) now strictly require the asset to be an active, visible row in the dashboard (respecting `hidden == False` and filtering sub-dust amounts `< 0.0001` unless explicitly set to `force_visible`).
+  * **Master Alert Toggle Verification:** Volatility checks, automated triggers, and sentiment analysis now strictly honor the `alert_enabled` flag, preventing notifications whenever alerts are turned off for a coin or watchlist item.
+  * **Stock/ETF vs. Cryptocurrency Watchlist Isolation:** Prevented traditional securities and ETFs in the watchlist (such as Webull ETH ETFs) from routing through Binance crypto price limiters or evaluating Binance crypto klines for volatility.
+  * **State Neutralization on Hide:** Hiding an asset or automatic hiding due to zero/dust balance now immediately clears stale volatility thresholds and sets `alert_enabled` to false.
 
 ### v4.13.3
 * **Webull Trading: Display Order Placement Success in Dialog Modal.** Replaced the inline success alert located below the submit order button with the unified `OrderFeedbackModal` dialog box, matching the Binance.US order placement experience. Successful orders (standard market/limit orders, combo orders, scheduled orders, and synthetic orders) now present a clean confirmation dialog displaying the execution details, order ID, and portfolio status with an acknowledgment button, eliminating layout shifting below trade submission controls.

@@ -226,6 +226,7 @@ def api_coin_data_live():
                     if not coin.hidden:
                         coin.hidden = True
                         coin.auto_hidden = True
+                        coin.alert_enabled = False
                         visibility_changed = True
                     continue
                 elif is_staked and coin.hidden and getattr(coin, 'auto_hidden', False):
@@ -482,6 +483,7 @@ def api_coin_data():
                     if not coin.hidden:
                         coin.hidden = True
                         coin.auto_hidden = True
+                        coin.alert_enabled = False
                         visibility_changed = True
                     continue
                 elif is_staked and coin.hidden and getattr(coin, 'auto_hidden', False):

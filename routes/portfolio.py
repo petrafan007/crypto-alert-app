@@ -5758,6 +5758,7 @@ def hide_coin():
             wb_holding.alert_enabled = False
             wb_holding.force_visible = False
             wb_holding.auto_hidden = False
+            wb_holding.volatility_pct = None
         else:
             wb_holding.auto_hidden = False
             wb_holding.force_visible = True
@@ -5783,6 +5784,7 @@ def hide_coin():
                 wb_holding.alert_enabled = False
                 wb_holding.force_visible = False
                 wb_holding.auto_hidden = False
+                wb_holding.volatility_pct = None
             else:
                 wb_holding.auto_hidden = False
                 wb_holding.force_visible = True
@@ -5805,6 +5807,7 @@ def hide_coin():
             coin.auto_hidden = False
             coin.auto_sell_enabled = False
             coin.auto_buy_enabled = False
+            coin.volatility_pct = None
         else:
             coin.auto_hidden = False
             coin.force_visible = True
