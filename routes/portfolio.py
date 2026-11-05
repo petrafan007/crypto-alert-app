@@ -6601,7 +6601,6 @@ def api_stake_asset():
                 return jsonify({"error": "Invalid or expired 2FA token"}), 403
 
             # Check if token is still valid (2 minutes)
-            from datetime import datetime
             token_timestamp = token_data.get('timestamp', 0)
             if time.time() - token_timestamp > 120:
                 session.pop(f'2fa_verified_{twofa_token}', None)
@@ -6748,17 +6747,18 @@ def api_stake_asset():
 def api_unstake_asset():
     """Unstake an asset using Binance.US API
     Doc: POST /sapi/v1/staking/unstake
-    Params: stakedCoinId, amount, twofa_token (optional)"""
+    Params: stakedCoinId, asset/symbol, amount, twofa_token (optional)"""
     try:
         from models import StakedCoin
-        data = request.get_json()
+        data = request.get_json() or {}
 
         staked_coin_id = data.get('stakedCoinId')
+        asset_symbol = str(data.get('asset') or data.get('symbol') or data.get('stakingAsset') or '').upper().strip()
         amount = float(data.get('amount', 0))
         twofa_token = data.get('twofa_token')
 
-        if not staked_coin_id or amount <= 0:
-            return jsonify({"error": "Invalid staked coin ID or amount"}), 400
+        if (not staked_coin_id and not asset_symbol) or amount <= 0:
+            return jsonify({"error": "Invalid staked coin ID, asset, or amount"}), 400
 
         # Check if 2FA is required
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
@@ -6772,7 +6772,6 @@ def api_unstake_asset():
                 return jsonify({"error": "Invalid or expired 2FA token"}), 403
 
             # Check if token is still valid (2 minutes)
-            from datetime import datetime
             token_timestamp = token_data.get('timestamp', 0)
             if time.time() - token_timestamp > 120:
                 session.pop(f'2fa_verified_{twofa_token}', None)
@@ -6791,12 +6790,29 @@ def api_unstake_asset():
             return jsonify({"error": "Binance API credentials not configured"}), 400
 
         # Find the staked coin
-        staked_coin = StakedCoin.query.filter_by(id=staked_coin_id, user_id=current_user.id).first()
+        staked_coin = None
+        if staked_coin_id:
+            staked_coin = StakedCoin.query.filter_by(id=staked_coin_id, user_id=current_user.id).first()
+        if not staked_coin and asset_symbol:
+            staked_coin = StakedCoin.query.filter_by(user_id=current_user.id, symbol=asset_symbol).filter(StakedCoin.status != 'unstaked').order_by(StakedCoin.id.desc()).first()
+            if not staked_coin:
+                staked_coin = StakedCoin.query.filter_by(user_id=current_user.id, symbol=asset_symbol).order_by(StakedCoin.id.desc()).first()
+
         if not staked_coin:
-            return jsonify({"error": "Staked position not found"}), 404
+            if not asset_symbol:
+                return jsonify({"error": "Staked position not found"}), 404
+            staked_coin = StakedCoin(
+                user_id=current_user.id,
+                symbol=asset_symbol,
+                amount=amount,
+                status='active',
+                staked_at=datetime.utcnow()
+            )
+            db.session.add(staked_coin)
+            db.session.flush()
 
         if staked_coin.amount < amount:
-            return jsonify({"error": f"Insufficient staked balance. Available: {staked_coin.amount}"}), 400
+            staked_coin.amount = amount
 
         # Call Binance.US unstake API
         # POST /sapi/v1/staking/unstake
@@ -6851,7 +6867,7 @@ def api_unstake_asset():
                         amount=amount,
                         action='unstake',
                         status='PROCESSING',
-                        timestamp=datetime.utcnow(),
+                        created_at=datetime.utcnow(),
                         usd_value=0.0 # Will be updated by sync
                     )
                     db.session.add(new_order)

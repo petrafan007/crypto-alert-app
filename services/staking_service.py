@@ -338,7 +338,7 @@ def build_staking_balance_view(cred, asset_param=None):
             params['asset'] = asset_param
         
         from models import Coin as CoinModel
-        user_id = getattr(current_user, 'id', None)
+        user_id = getattr(current_user, 'id', None) or getattr(cred, 'user_id', None)
 
         def get_local_price(symbol, default=None):
             if not user_id: return default
@@ -430,6 +430,8 @@ def build_staking_balance_view(cred, asset_param=None):
         total_usd = 0.0
         total_apy = 0.0
         found_symbols = set()
+        matched_record_ids = set()
+        seen_transactions = set()
 
         for staked in staking_data:
             asset = str(staked.get('asset', '')).upper()
@@ -448,9 +450,23 @@ def build_staking_balance_view(cred, asset_param=None):
                 apy = 0.0
 
             pos = {
-                'asset': asset, 'amount': amount, 'currentValue': round(current_value, 2),
+                'asset': asset, 'amount': amount, 'stakingAmount': amount, 'currentValue': round(current_value, 2),
                 'currentPrice': price, 'apy': apy, 'status': 'active'
             }
+            records = db_lookup.get(asset, [])
+            matched = next((r for r in records if r.id not in matched_record_ids and r.status != 'unstaked'), None)
+            if matched:
+                matched_record_ids.add(matched.id)
+                pos['id'] = matched.id
+                if getattr(matched, 'unstaking_period_hours', None):
+                    pos['unstaking_period_hours'] = matched.unstaking_period_hours
+                if str(matched.status or '').lower() in ('processing', 'pending', 'bonding'):
+                    try:
+                        matched.status = 'active'
+                        db.session.commit()
+                    except Exception:
+                        pass
+
             positions.append(pos)
             active_positions.append(pos)
             active_usd += current_value
@@ -459,8 +475,6 @@ def build_staking_balance_view(cred, asset_param=None):
         # Pending records are distinct from active exchange balances.
         # Deduplicate exchange history entries and local database records so
         # that a pending stake is never counted twice.
-        matched_record_ids = set()
-        seen_transactions = set()
         for txn in pending_transactions:
             transaction_id = str(txn.get('tranId') or '')
             if transaction_id:

@@ -12,6 +12,7 @@ const tableStyle = { width: '100%', borderCollapse: 'collapse', textAlign: 'left
 export default function PortfolioGoalTracking({ goal, showChart = true }) {
   if (!goal) return <section aria-label="Paper return goal"><h4>Paper return goal</h4><p>Goal tracking is not available in this saved report. Generate a new report to capture calculated progress; historical reports are unchanged.</p></section>;
   const coverage = goal.observations || {};
+  const curve = Array.isArray(goal.curve) ? goal.curve : [];
   const minDays = goal.annualization_min_days || 30;
   const elapsed = Number(goal.elapsed_days) || 0;
   const daysRemaining = Math.max(0, Math.ceil(minDays - elapsed));

@@ -370,7 +370,8 @@ export default function Staking({ isLightMode }) {
   const submitUnstake = async (twofaToken) => {
     try {
       const payload = {
-        stakedCoinId: selectedStakedCoin.id,
+        stakedCoinId: selectedStakedCoin?.id,
+        asset: selectedStakedCoin?.asset || selectedStakedCoin?.symbol,
         amount: parseFloat(unstakeAmount)
       };
 
@@ -965,17 +966,20 @@ export default function Staking({ isLightMode }) {
       )}
 
       {/* Unstake Modal */}
-      {showUnstakeModal && selectedStakedCoin && (
+      {showUnstakeModal && selectedStakedCoin && (() => {
+        const stakedQty = Number(selectedStakedCoin.amount ?? selectedStakedCoin.stakingAmount ?? 0);
+        const currentPrice = Number(selectedStakedCoin.currentPrice) || 0;
+        return (
         <div className="modal-overlay" onClick={handleCloseUnstakeModal} style={{ zIndex: 10000, backdropFilter: 'blur(4px)' }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Unstake {selectedStakedCoin.asset}</h3>
+              <h3>Unstake {selectedStakedCoin.asset || selectedStakedCoin.symbol}</h3>
               <button className="modal-close" onClick={handleCloseUnstakeModal}>×</button>
             </div>
             <div className="modal-body">
               <div className="modal-info">
                 <div className="info-row">
-                  <span>Currently Staked: {selectedStakedCoin.stakingAmount.toFixed(8)} {selectedStakedCoin.asset}</span>
+                  <span>Currently Staked: {stakedQty.toFixed(8)} {selectedStakedCoin.asset || selectedStakedCoin.symbol}</span>
                 </div>
                 <div className="info-row">
                   <span>Amount to Unstake:</span>
@@ -988,12 +992,12 @@ export default function Staking({ isLightMode }) {
                     onChange={(e) => setUnstakeAmount(e.target.value)}
                     placeholder="0.00000000"
                     step="0.00000001"
-                    max={selectedStakedCoin.stakingAmount}
+                    max={stakedQty}
                   />
                   <button
                     type="button"
                     className="input-max-btn"
-                    onClick={() => setUnstakeAmount(selectedStakedCoin.stakingAmount.toString())}
+                    onClick={() => setUnstakeAmount(stakedQty.toString())}
                     title="Unstake Max Amount"
                   >
                     MAX
@@ -1010,8 +1014,8 @@ export default function Staking({ isLightMode }) {
 
               <div className="unstake-summary">
                 You will receive:<br />
-                <strong>{parseFloat(unstakeAmount || 0).toFixed(8)} {selectedStakedCoin.asset}</strong>
-                {' '}(~${(parseFloat(unstakeAmount || 0) * selectedStakedCoin.currentPrice).toFixed(2)})
+                <strong>{parseFloat(unstakeAmount || 0).toFixed(8)} {selectedStakedCoin.asset || selectedStakedCoin.symbol}</strong>
+                {' '}(~${(parseFloat(unstakeAmount || 0) * currentPrice).toFixed(2)})
               </div>
 
               {/* 2FA Input Section */}
@@ -1065,7 +1069,8 @@ export default function Staking({ isLightMode }) {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

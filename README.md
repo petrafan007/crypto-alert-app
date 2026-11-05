@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.13.1
+**Version:** 4.13.2
 
 ## Recent Updates
+
+### v4.13.2
+* **Quantitative Strategy Engine: Fix View Loading Crash in Goal Tracking.** Resolved an unhandled `ReferenceError: curve is not defined` in `PortfolioGoalTracking.jsx` caused by an omitted variable declaration when rendering the equity chart. The chart data mapping now safely references `Array.isArray(goal?.curve) ? goal.curve : []`, restoring the Quantitative Strategy Engine tab under Settings and Webull trading views.
+* **Binance Staking: Fix Unstake Modal Render Crash and Backend Position Synchronization.** Resolved a `TypeError: Cannot read properties of undefined (reading 'toFixed')` crash in `Staking.jsx` when opening the Unstake modal for active exchange positions. Quantity calculations now safely fall back across `amount` and `stakingAmount`, and price conversion handles missing or null quotes gracefully. Enhanced `services/staking_service.py` to populate `stakingAmount` on active balances and link exchange positions to local database records (transitioning pending records to active). Updated `routes/portfolio.py` to allow unstaking by asset symbol in addition to local record ID.
 
 ### v4.13.1
 * **Quantitative Strategy Engine: Event Contract Kalshi settlement regex fix & unblocking 7,200+ rejected signals.** Fixed a critical regex flaw in `services/event_settlement_data.py` where contract tickers were required to contain exactly 4 digits after the month code (`\d{4}`), causing hourly S&P 500 contracts with `H`-coded hours (such as `KXINXU-26OCT21H1600-T7769.9999`) to be rejected by the Kalshi fallback lookup. Because Webull rapidly delists expired contracts, these positions remained stuck indefinitely in `PENDING` settlement status, saturating the `max_open_positions` ceiling (3.0) and blocking over 7,200 qualified event signals with `Module position limit reached`. Broadened the pattern to `r'KX[A-Z0-9]+-\d{2}[A-Z]{3}[A-Z0-9.-]+'`, allowing Kalshi to immediately finalize expired contracts, close out settled lots, and unfreeze the Events module trading pipeline.
