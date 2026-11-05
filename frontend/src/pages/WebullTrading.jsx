@@ -11,6 +11,7 @@ import WebullFuturesDiscoverySuite, { WebullFuturesSpecStrip } from '../componen
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
 import PaperDepositModal from '../components/PaperDepositModal';
+import OrderFeedbackModal from '../components/OrderFeedbackModal';
 import SyntheticOrderReview from '../components/SyntheticOrderReview';
 import CancelOrderModal from '../components/CancelOrderModal';
 import PercentPriceModal from '../components/PercentPriceModal';
@@ -1893,7 +1894,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
               : 'QUANT_ACC_INDIVIDUAL_CASH';
         setSelectedAccountId(initialQuantAcc);
         await loadQuantTradingData();
-        setOrderFeedback({ type: 'success', message: 'Switched to Quantitative Strategy Engine Mode (Multi-Asset Algo).' });
+        setOrderFeedback({ type: '', message: '' });
       } else if (mode === 'TEST') {
         await axios.post('/api/webull/test/toggle', { enabled: true }, { withCredentials: true });
         setTradingMode('TEST');
@@ -1909,7 +1910,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
               : 'TEST_ACC_INDIVIDUAL_CASH';
         setSelectedAccountId(initialTestAcc);
         await loadPaperTradingData();
-        setOrderFeedback({ type: 'success', message: 'Switched to Webull Test Mode (Paper Trading with live quotes).' });
+        setOrderFeedback({ type: '', message: '' });
       } else {
         await axios.post('/api/webull/test/toggle', { enabled: false }, { withCredentials: true });
         setTradingMode('REAL');
@@ -1919,7 +1920,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         setPaperSummary(null);
         setQuantSummary(null);
         await load(false);
-        setOrderFeedback({ type: 'success', message: 'Switched to Webull Live Trading Mode.' });
+        setOrderFeedback({ type: '', message: '' });
       }
     } catch (err) {
       console.error('Failed to switch trading mode:', err);
@@ -1942,7 +1943,6 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-      setOrderFeedback({ type: 'success', message: 'Backup ZIP archive downloaded successfully.' });
     } catch (err) {
       console.error('Failed to download quant backup archive:', err);
       setOrderFeedback({ type: 'error', message: 'Failed to download quant backup archive.' });
@@ -3369,9 +3369,8 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     try {
       const response = await axios.put('/api/webull/default-account', { account_id: cleanAccountId }, { withCredentials: true });
       setDefaultAccountId(String(response.data?.default_account_id || cleanAccountId));
-      setOrderFeedback({ type: 'success', message: 'Webull default trading account saved.' });
     } catch (requestError) {
-      setOrderFeedback({ type: 'error', message: requestError.response?.data?.message || 'Unable to save the default Webull account.' });
+      console.error('Unable to save default Webull account:', requestError);
     } finally {
       setSavingDefaultAccount(false);
     }
@@ -4159,12 +4158,22 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         const orderStatus = response.data?.status || response.data?.order?.status;
         const isFilled = orderStatus === 'Filled';
         const isWorking = orderStatus === 'Working' || orderStatus === 'Open';
-        const feedbackMsg = isTestMode && isFilled
-          ? `${response.data.message || 'Simulated order executed successfully!'} (Position is now active under Positions and recorded in Order History)`
+        const orderId = response.data?.order?.order_id || response.data?.order?.orderId || response.data?.order_id;
+        let feedbackMsg = isTestMode && isFilled
+          ? `${response.data.message || 'Simulated order executed successfully!'}\n\n(Position is now active under Positions and recorded in Order History)`
           : (response.data.message || 'Order placed successfully!');
+        if (orderId && !String(feedbackMsg).includes(String(orderId))) {
+          feedbackMsg += `\n\nOrder ID: ${orderId}`;
+        }
+        if (!isTestMode && !String(feedbackMsg).includes('portfolio will be updated')) {
+          feedbackMsg += '\n\nYour portfolio will be updated once the order is filled.';
+        }
         setOrderFeedback({ type: 'success', message: feedbackMsg });
         setShowConfirmModal(false);
         setReplacingOrderId(null);
+        if (isEmbeddedReplaceMode && typeof onEmbeddedSuccess === 'function') {
+          onEmbeddedSuccess(response.data);
+        }
         setOrderForm((prev) => ({
           ...prev,
           quantity: '',
@@ -4309,7 +4318,12 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       };
       const response = await axios.post('/api/webull/orders/place', { ...payload, replacing_order_id: isEmbeddedReplaceMode ? embeddedOrder?.order_id : null }, { withCredentials: true });
       if (response.data?.success) {
-        setOrderFeedback({ type: 'success', message: response.data.message || 'Webull combo order submitted successfully!' });
+        const orderId = response.data?.order?.client_combo_order_id || response.data?.order?.order_id || response.data?.order_id;
+        let comboMsg = response.data.message || 'Webull combo order submitted successfully!';
+        if (orderId && !String(comboMsg).includes(String(orderId))) {
+          comboMsg += `\n\nOrder ID: ${orderId}`;
+        }
+        setOrderFeedback({ type: 'success', message: comboMsg });
         if (isTestMode) {
           loadPaperTradingData();
           loadOpenOrders(selectedAccountId || 'TEST_ACC_INDIVIDUAL_CASH');
@@ -6857,23 +6871,6 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                         )}
                       </button>
                     </div>
-                    {orderFeedback.message && orderFeedback.type === 'success' && (
-                        <div
-                          role="alert"
-                          aria-live="assertive"
-                          className="modern-real-success"
-                          style={{
-                            marginTop: '12px',
-                            padding: '12px 16px',
-                            borderRadius: '8px',
-                            background: 'rgba(16, 185, 129, 0.15)',
-                            color: '#10b981',
-                            border: '1px solid rgba(16, 185, 129, 0.3)',
-                          }}
-                        >
-                          ✅ {orderFeedback.message}
-                        </div>
-                    )}
 
                     {/* Row 6: Warning in Real / Test / Quant Trading Mode */}
                     {isQuantMode ? (
@@ -7495,6 +7492,14 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         onReviewOrder={handleReviewEventPositionOrder}
         onCancelOrder={openCancelModalForOrder}
         cancellingOrderId={cancellingOrderId}
+      />
+      {/* Order Feedback Modal */}
+      <OrderFeedbackModal
+        isVisible={Boolean(orderFeedback.message && orderFeedback.type === 'success')}
+        onClose={() => setOrderFeedback({ type: '', message: '' })}
+        message={orderFeedback.message}
+        type="success"
+        isLightMode={isLightMode}
       />
       <TwoFactorModal
         isVisible={twoFactorModal.isVisible}

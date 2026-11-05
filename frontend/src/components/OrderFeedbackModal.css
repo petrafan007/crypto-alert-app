@@ -9,7 +9,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1200;
   padding: 20px;
 }
 
@@ -110,11 +110,13 @@
 
 /* LIGHT MODE STYLING FOR ORDER FEEDBACK MODAL */
 body.light-mode .order-feedback-modal-backdrop,
+.order-feedback-modal-backdrop.light-mode,
 body:not(.dark-mode) .order-feedback-modal-backdrop {
   background: rgba(0, 0, 0, 0.5) !important;
 }
 
 body.light-mode .order-feedback-modal,
+.order-feedback-modal.light-mode,
 body:not(.dark-mode) .order-feedback-modal {
   background: #f3f4f6 !important;
   border: 1px solid #9ca3af !important;
@@ -122,36 +124,43 @@ body:not(.dark-mode) .order-feedback-modal {
 }
 
 body.light-mode .order-feedback-modal-header,
+.order-feedback-modal.light-mode .order-feedback-modal-header,
 body:not(.dark-mode) .order-feedback-modal-header {
   border-bottom: 1px solid #d1d5db !important;
 }
 
 body.light-mode .order-feedback-modal-header h3,
+.order-feedback-modal.light-mode .order-feedback-modal-header h3,
 body:not(.dark-mode) .order-feedback-modal-header h3 {
   color: #1e40af !important;
 }
 
 body.light-mode .order-feedback-modal.success .order-feedback-modal-header h3,
+.order-feedback-modal.light-mode.success .order-feedback-modal-header h3,
 body:not(.dark-mode) .order-feedback-modal.success .order-feedback-modal-header h3 {
   color: #059669 !important;
 }
 
 body.light-mode .order-feedback-modal.error .order-feedback-modal-header h3,
+.order-feedback-modal.light-mode.error .order-feedback-modal-header h3,
 body:not(.dark-mode) .order-feedback-modal.error .order-feedback-modal-header h3 {
   color: #dc2626 !important;
 }
 
 body.light-mode .order-feedback-modal.warning .order-feedback-modal-header h3,
+.order-feedback-modal.light-mode.warning .order-feedback-modal-header h3,
 body:not(.dark-mode) .order-feedback-modal.warning .order-feedback-modal-header h3 {
   color: #d97706 !important;
 }
 
 body.light-mode .order-feedback-message,
+.order-feedback-modal.light-mode .order-feedback-message,
 body:not(.dark-mode) .order-feedback-message {
   color: #1f2937 !important;
 }
 
 body.light-mode .order-feedback-modal-footer,
+.order-feedback-modal.light-mode .order-feedback-modal-footer,
 body:not(.dark-mode) .order-feedback-modal-footer {
   border-top: 1px solid #d1d5db !important;
 }

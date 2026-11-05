@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.13.2
+**Version:** 4.13.3
 
 ## Recent Updates
+
+### v4.13.3
+* **Webull Trading: Display Order Placement Success in Dialog Modal.** Replaced the inline success alert located below the submit order button with the unified `OrderFeedbackModal` dialog box, matching the Binance.US order placement experience. Successful orders (standard market/limit orders, combo orders, scheduled orders, and synthetic orders) now present a clean confirmation dialog displaying the execution details, order ID, and portfolio status with an acknowledgment button, eliminating layout shifting below trade submission controls.
 
 ### v4.13.2
 * **Quantitative Strategy Engine: Fix View Loading Crash in Goal Tracking.** Resolved an unhandled `ReferenceError: curve is not defined` in `PortfolioGoalTracking.jsx` caused by an omitted variable declaration when rendering the equity chart. The chart data mapping now safely references `Array.isArray(goal?.curve) ? goal.curve : []`, restoring the Quantitative Strategy Engine tab under Settings and Webull trading views.

@@ -1,7 +1,7 @@
 import React from 'react';
 import './OrderFeedbackModal.css';
 
-export default function OrderFeedbackModal({ isVisible, onClose, message, type = "success" }) {
+export default function OrderFeedbackModal({ isVisible, onClose, message, type = "success", title = null, isLightMode = false }) {
   if (!isVisible) return null;
 
   const handleBackdropClick = (e) => {
@@ -24,6 +24,7 @@ export default function OrderFeedbackModal({ isVisible, onClose, message, type =
   };
 
   const getTitle = () => {
+    if (title) return title;
     switch (type) {
       case 'success':
         return 'Order Successful';
@@ -37,8 +38,8 @@ export default function OrderFeedbackModal({ isVisible, onClose, message, type =
   };
 
   return (
-    <div className="order-feedback-modal-backdrop" onClick={handleBackdropClick}>
-      <div className={`order-feedback-modal ${type}`}>
+    <div className={`order-feedback-modal-backdrop ${isLightMode ? 'light-mode' : ''}`} onClick={handleBackdropClick}>
+      <div className={`order-feedback-modal ${type} ${isLightMode ? 'light-mode' : ''}`}>
         <div className="order-feedback-modal-header">
           <div className="order-feedback-icon">{getIcon()}</div>
           <h3>{getTitle()}</h3>
