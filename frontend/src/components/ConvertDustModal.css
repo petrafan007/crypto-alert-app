@@ -158,14 +158,16 @@
 
 /* ---------- Assets table ---------- */
 .dust-assets-table {
-  width: 100%;
-  border-collapse: collapse;
+  width: 100% !important;
+  margin-top: 0 !important;
+  border-collapse: collapse !important;
   font-size: 0.88rem;
-  background: transparent;
+  background: transparent !important;
+  border: none !important;
 }
 
 .dust-assets-table thead {
-  background: #252b35;
+  background: #1e2430 !important;
 }
 
 .dust-assets-table thead th {
@@ -175,8 +177,10 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #e2e8f0;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  color: #c7d2fe !important;
+  background: #1e2430 !important;
+  border: none !important;
+  border-bottom: 2px solid rgba(102, 126, 234, 0.4) !important;
   white-space: nowrap;
 }
 
@@ -247,9 +251,20 @@
 }
 
 /* ---------- 2FA section ---------- */
-.dust-2fa-section {
+/* ---------- 2FA section / form ---------- */
+@keyframes onDustAutofillStart { from {} to {} }
+
+.dust-2fa-section,
+.dust-2fa-form {
   border-top: 1px solid rgba(255,255,255,0.08);
   padding-top: 18px;
+}
+
+.dust-2fa-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
 }
 
 .dust-2fa-label {
@@ -257,7 +272,23 @@
   color: #e2e8f0;
   font-size: 0.9rem;
   font-weight: 600;
-  margin-bottom: 10px;
+  margin-bottom: 0;
+}
+
+.dust-2fa-paste-btn {
+  background: rgba(102, 126, 234, 0.15);
+  border: 1px solid rgba(102, 126, 234, 0.4);
+  color: #a5b4fc;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.dust-2fa-paste-btn:hover {
+  background: rgba(102, 126, 234, 0.3);
+  color: #ffffff;
 }
 
 .dust-2fa-input {
@@ -270,7 +301,7 @@
   background: rgba(255,255,255,0.05);
   border: 2px solid rgba(102,126,234,0.3);
   border-radius: 12px;
-  color: #ffffff;
+  color: #ffffff !important;
   font-family: 'Courier New', monospace;
   transition: all 0.2s;
   box-sizing: border-box;
@@ -283,6 +314,21 @@
 }
 .dust-2fa-input::placeholder { color: rgba(255,255,255,0.2); letter-spacing: 8px; }
 .dust-2fa-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.dust-2fa-input:-webkit-autofill,
+.dust-2fa-input:-moz-autofill {
+  animation-name: onDustAutofillStart;
+  animation-duration: 0.001s;
+}
+
+.dust-2fa-input:-webkit-autofill,
+.dust-2fa-input:-webkit-autofill:hover,
+.dust-2fa-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #ffffff !important;
+  -webkit-box-shadow: 0 0 0 1000px #1e2430 inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: #ffffff;
+}
 
 .dust-2fa-help {
   color: #9ca3af;
@@ -410,14 +456,18 @@ body:not(.dark-mode) .dust-empty {
 }
 
 body.light-mode .dust-assets-table thead th,
+[data-theme="light"] .dust-assets-table thead th,
 body:not(.dark-mode) .dust-assets-table thead th {
-  color: #334155;
-  border-bottom-color: #cbd5e1;
+  color: #1e40af !important;
+  background: #f1f5f9 !important;
+  border: none !important;
+  border-bottom: 2px solid #cbd5e1 !important;
 }
 
 body.light-mode .dust-assets-table thead,
+[data-theme="light"] .dust-assets-table thead,
 body:not(.dark-mode) .dust-assets-table thead {
-  background: #e2e8f0;
+  background: #f1f5f9 !important;
 }
 
 body.light-mode .dust-assets-table tbody tr td,
@@ -457,29 +507,59 @@ body:not(.dark-mode) .dust-totals-row strong {
 }
 
 body.light-mode .dust-2fa-label,
+[data-theme="light"] .dust-2fa-label,
 body:not(.dark-mode) .dust-2fa-label {
   color: #1f2937;
 }
 
+body.light-mode .dust-2fa-paste-btn,
+[data-theme="light"] .dust-2fa-paste-btn,
+body:not(.dark-mode) .dust-2fa-paste-btn {
+  background: rgba(102, 126, 234, 0.1);
+  border-color: rgba(102, 126, 234, 0.3);
+  color: #2563eb;
+}
+body.light-mode .dust-2fa-paste-btn:hover,
+[data-theme="light"] .dust-2fa-paste-btn:hover,
+body:not(.dark-mode) .dust-2fa-paste-btn:hover {
+  background: rgba(102, 126, 234, 0.2);
+  color: #1d4ed8;
+}
+
 body.light-mode .dust-2fa-input,
+[data-theme="light"] .dust-2fa-input,
 body:not(.dark-mode) .dust-2fa-input {
-  background: #f9fafb;
+  background: #f9fafb !important;
   border-color: #d1d5db;
-  color: #111;
+  color: #0f172a !important;
 }
 body.light-mode .dust-2fa-input:focus,
+[data-theme="light"] .dust-2fa-input:focus,
 body:not(.dark-mode) .dust-2fa-input:focus {
   border-color: #667eea;
-  background: #fff;
+  background: #fff !important;
+}
+
+body.light-mode .dust-2fa-input:-webkit-autofill,
+body.light-mode .dust-2fa-input:-webkit-autofill:hover,
+body.light-mode .dust-2fa-input:-webkit-autofill:focus,
+[data-theme="light"] .dust-2fa-input:-webkit-autofill {
+  -webkit-text-fill-color: #0f172a !important;
+  -webkit-box-shadow: 0 0 0 1000px #f8fafc inset !important;
+  caret-color: #0f172a;
 }
 
 body.light-mode .dust-2fa-help,
+[data-theme="light"] .dust-2fa-help,
 body:not(.dark-mode) .dust-2fa-help {
   color: #6b7280;
 }
 
 body.light-mode .dust-2fa-section,
-body:not(.dark-mode) .dust-2fa-section {
+body.light-mode .dust-2fa-form,
+[data-theme="light"] .dust-2fa-form,
+body:not(.dark-mode) .dust-2fa-section,
+body:not(.dark-mode) .dust-2fa-form {
   border-top-color: #e5e7eb;
 }
 

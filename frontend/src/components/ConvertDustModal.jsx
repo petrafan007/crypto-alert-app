@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import TotpCodeInput from './TotpCodeInput';
+import TotpCodeInput, { sanitizeTotpCode } from './TotpCodeInput';
 import './ConvertDustModal.css';
 
 const TO_ASSET_OPTIONS = ['BNB', 'BTC', 'ETH', 'USDT'];
@@ -282,12 +282,45 @@ export default function ConvertDustModal({ isVisible, onClose, require2fa, onSuc
 
           {/* Section 3 — 2FA (only if required) */}
           {require2fa && (
-            <div className="dust-2fa-section">
-              <label className="dust-2fa-label" htmlFor="dustTwoFaCode">
-                🔐 Two-Factor Authentication
-              </label>
+            <form
+              className="dust-2fa-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (canConvert && twoFaCode.length === 6) {
+                  handleConvert();
+                }
+              }}
+              autoComplete="on"
+            >
+              <div className="dust-2fa-header-row">
+                <label className="dust-2fa-label" htmlFor="twoFactorCode">
+                  🔐 Two-Factor Authentication
+                </label>
+                {typeof navigator !== 'undefined' && navigator.clipboard && (
+                  <button
+                    type="button"
+                    className="dust-2fa-paste-btn"
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        const sanitized = sanitizeTotpCode(text);
+                        if (sanitized) {
+                          setTwoFaCode(sanitized);
+                          setError('');
+                        }
+                      } catch {
+                        // ignore clipboard read errors
+                      }
+                    }}
+                    title="Paste 2FA code from clipboard"
+                  >
+                    📋 Paste Code
+                  </button>
+                )}
+              </div>
               <TotpCodeInput
-                id="dustTwoFaCode"
+                id="twoFactorCode"
+                name="totp"
                 value={twoFaCode}
                 onChange={(e) => {
                   setTwoFaCode(e.target.value);
@@ -300,7 +333,7 @@ export default function ConvertDustModal({ isVisible, onClose, require2fa, onSuc
               <p className="dust-2fa-help">
                 Enter the code from your authenticator app (e.g. Google Authenticator, Bitwarden)
               </p>
-            </div>
+            </form>
           )}
 
           {/* Error */}

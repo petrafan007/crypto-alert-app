@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.13.4
+**Version:** 4.13.5
 
 ## Recent Updates
+
+### v4.13.5
+* **Binance.US Trading: Convert Small Balances Modal Theme Awareness & 2FA Autofill Reliability.**
+  * **Theme-Aware Column Headers:** Fixed table column headers (`.dust-assets-table thead th`) in the Convert Small Balances modal to have explicit dark/light mode background and contrast styles with high precedence, preventing global table header styling from leaking white backgrounds on light text.
+  * **2FA Input & Password Manager Autofill:** Standardized the two-factor authentication field within a dedicated form structure with standard `name="totp"`, `id="twoFactorCode"`, `autoComplete="one-time-code"`, and `data-bwautofill="totp"`. This enables Bitwarden and other password managers to properly identify the field as a verification code instead of a login credential. Added native event listeners, periodic value polling, and animation-start detection so autofilled codes immediately update React state and display in the box.
+  * **One-Click Paste Helper:** Added a "Paste Code" clipboard button to the 2FA prompt for instant population of clipboard-copied authenticator tokens.
 
 ### v4.13.4
 * **Alert System: Strict Visibility & Alert-Enabled Enforcement across Volatility, Price, Automated Triggers, and Sentiment Watches.** Resolved an issue where hidden portfolio coins or sub-dust balances (such as inactive residual balances) could continue to evaluate thresholds and fire Telegram volatility alerts or price notifications.
