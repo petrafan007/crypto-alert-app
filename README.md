@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.13.6
+**Version:** 4.13.7
 
 ## Recent Updates
+
+### v4.13.7
+* **Binance.US Staking: Pending Unstake Accuracy, Double-Count Resolution & Completion Date/Time Tracking.**
+  * **Eliminate Double-Counting on Active Unstakes:** Resolved an issue where assets undergoing unstaking (such as GRAM during its 18-hour unbonding period) were counted twice in the Total Staked Value summary (once from active exchange balances and once from pending transaction history). In-flight pending unstakes now deduct from active earning balances, ensuring the portfolio total strictly reflects actual staked value without duplication.
+  * **Unstake Status Badge & Action Lock:** Positions with an active unstake order now accurately display the "Unstaking" status badge rather than "Active", and the "Unstake" action button is properly disabled and grayed out to prevent duplicate redemption requests while unbonding is in progress.
+  * **Pending Positions Type Accuracy:** Fixed a bug where pending transactions defaulted to displaying "Stake" in the details column; unstake requests now correctly display the "Unstake" type badge.
+  * **Completion Date and Time Column:** Added a dedicated "Completion Date and Time" column to the Pending Staking Positions table, providing exact estimated dates and times (in Eastern Time) when unbonding finishes and the assets return to the spot wallet as tradable balances (or when staking bonding completes).
 
 ### v4.13.6
 * **PWA: Installable app for desktop and iPhone.** Added a web app manifest (`manifest.webmanifest`, standalone display), a service worker (`sw.js`, root scope) that caches only fingerprinted static assets and never caches `/api/` traffic, auth pages, or navigations, plus install icons (192/512/maskable + 180px Apple touch icon) and iOS Add to Home Screen meta tags. The service worker is registered from `main.jsx` on window load. Public Flask routes serve `/sw.js` and `/manifest.webmanifest` at root scope; the dashboard itself still requires login. Install: desktop Brave/Chrome via the install icon or Save and share -> Install; iPhone Safari via Share -> Add to Home Screen.

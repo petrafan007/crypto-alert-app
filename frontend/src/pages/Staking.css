@@ -348,6 +348,26 @@
   background-color: #e64a19;
 }
 
+.btn-unstake:disabled,
+.btn-unstake.disabled {
+  background-color: #475569;
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.65;
+  box-shadow: none;
+}
+
+.btn-unstake:disabled:hover,
+.btn-unstake.disabled:hover {
+  background-color: #475569;
+}
+
+.light .btn-unstake:disabled,
+.light .btn-unstake.disabled {
+  background-color: #e2e8f0;
+  color: #94a3b8;
+}
+
 .unstake-countdown {
   font-size: 12px;
   color: #ff9800;

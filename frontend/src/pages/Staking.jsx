@@ -117,8 +117,9 @@ export default function Staking({ isLightMode }) {
     if (actionParam === 'unstake') {
       const activeStaked = (stakedCoins || []).find(c => (c.symbol || c.asset) === coinParam && Number(c.stakingAmount || c.amount || 0) > 0);
       const isPending = (pendingPositions || []).some(p => (p.asset || p.symbol) === coinParam);
+      const isUnstaking = activeStaked?.has_pending_unstake || (activeStaked?.status || '').toLowerCase() === 'unstaking';
 
-      if (activeStaked) {
+      if (activeStaked && !isUnstaking) {
         handledParamRef.current = currentKey;
         handleUnstakeClick({
           ...activeStaked,
@@ -126,9 +127,13 @@ export default function Staking({ isLightMode }) {
           stakingAmount: Number(activeStaked.stakingAmount || activeStaked.amount || 0),
           currentPrice: Number(activeStaked.currentPrice || activeStaked.current_price || 0)
         });
-      } else if (isPending) {
+      } else if (isPending || isUnstaking) {
         handledParamRef.current = currentKey;
-        setError(`${coinParam} is currently in its staking bonding period (Processing) on Binance.US and cannot be unstaked until bonding completes.`);
+        const pendingPos = (pendingPositions || []).find(p => (p.asset || p.symbol) === coinParam);
+        const isUnstakePending = isUnstaking || pendingPos?.type === 'unstake';
+        setError(isUnstakePending
+          ? `${coinParam} has an unstake order currently processing on Binance.US.`
+          : `${coinParam} is currently in its staking bonding period (Processing) on Binance.US and cannot be unstaked until bonding completes.`);
         setSearchParams(prev => {
           const next = new URLSearchParams(prev);
           next.delete('action');
@@ -227,6 +232,9 @@ export default function Staking({ isLightMode }) {
   };
 
   const handleUnstakeClick = (stakedCoin) => {
+    if (stakedCoin?.has_pending_unstake || (stakedCoin?.status || '').toLowerCase() === 'unstaking') {
+      return;
+    }
     setSelectedStakedCoin(stakedCoin);
     setUnstakeAmount('');
     setTwoFactorCode('');
@@ -562,21 +570,33 @@ export default function Staking({ isLightMode }) {
             <div className="pending-activity-card">
               <h3>Pending Activity</h3>
               <ul className="pending-activity-list">
-                {pendingTransactions.map((txn, index) => (
-                  <li key={txn.tranId || `${txn.asset}-${index}`}>
-                    <div className="pending-activity-row">
-                      <div>
-                        <strong>{txn.asset}</strong> · {formatStatusLabel(txn.status)}
+                {pendingTransactions.map((txn, index) => {
+                  const typeRaw = (txn.type || '').toString().toLowerCase();
+                  const isUnstake = typeRaw.includes('unstake') || typeRaw.includes('redeem');
+                  const typeLabel = isUnstake ? 'Unstake' : (txn.type ? `${txn.type.charAt(0).toUpperCase()}${txn.type.slice(1)}` : 'Stake');
+                  return (
+                    <li key={txn.tranId || `${txn.asset}-${index}`}>
+                      <div className="pending-activity-row">
+                        <div>
+                          <strong>{txn.asset}</strong> · <span className={`type-badge type-${isUnstake ? 'unstake' : 'stake'}`}>{typeLabel}</span> · {formatStatusLabel(txn.status)}
+                        </div>
+                        <div>
+                          {parseFloat(txn.amount || 0).toFixed(8)} {txn.asset} ({formatUsd(txn.currentValue)})
+                        </div>
                       </div>
-                      <div>
-                        {parseFloat(txn.amount || 0).toFixed(8)} {txn.asset} ({formatUsd(txn.currentValue)})
+                      <div className="pending-activity-times" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '4px', fontSize: '12px', color: '#888' }}>
+                        {txn.initiatedTime && (
+                          <div className="pending-activity-time">Initiated: {formatDate(txn.initiatedTime)}</div>
+                        )}
+                        {txn.completionTime && (
+                          <div className="pending-activity-time" style={{ color: isUnstake ? '#4ade80' : '#60a5fa' }}>
+                            Est. Completion: {formatDate(txn.completionTime)} ({isUnstake ? 'Tradable in Spot Wallet' : 'Bonding Complete'})
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    {txn.initiatedTime && (
-                      <div className="pending-activity-time">{formatDate(txn.initiatedTime)}</div>
-                    )}
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : (
@@ -592,7 +612,8 @@ export default function Staking({ isLightMode }) {
                     <th>Amount</th>
                     <th>Value</th>
                     <th>Status</th>
-                    <th>Details</th>
+                    <th>Type</th>
+                    <th>Completion Date and Time</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -606,6 +627,11 @@ export default function Staking({ isLightMode }) {
                     const statusKeyRaw = (position.status || position.statusCategory || 'pending').toString().toLowerCase();
                     const statusKey = statusKeyRaw.replace(/\s+/g, '-');
                     const statusLabel = position.statusLabel || formatStatusLabel(position.status || position.statusCategory);
+                    const typeRaw = (position.type || '').toString().toLowerCase();
+                    const isUnstake = typeRaw.includes('unstake') || typeRaw.includes('redeem');
+                    const typeLabel = isUnstake
+                      ? 'Unstake'
+                      : (position.type ? `${position.type.charAt(0).toUpperCase()}${position.type.slice(1)}` : (position.detail || 'Stake'));
                     return (
                       <tr key={position.id || position.tranId || `pending-${index}`}>
                         <td>{position.asset || position.binanceData?.asset || '—'}</td>
@@ -617,11 +643,27 @@ export default function Staking({ isLightMode }) {
                           </span>
                         </td>
                         <td>
-                          {position.type ? `${position.type.charAt(0).toUpperCase()}${position.type.slice(1)}` : (position.detail || 'Stake')}
+                          <span className={`type-badge type-${isUnstake ? 'unstake' : 'stake'}`}>
+                            {typeLabel}
+                          </span>
                           {position.initiatedTime && (
                             <span style={{ display: 'block', fontSize: '12px', color: '#999', marginTop: '4px' }}>
-                              {formatDate(position.initiatedTime)}
+                              Initiated: {formatDate(position.initiatedTime)}
                             </span>
+                          )}
+                        </td>
+                        <td>
+                          {position.completionTime ? (
+                            <>
+                              <div style={{ fontWeight: 500 }}>
+                                {formatDate(position.completionTime)}
+                              </div>
+                              <span style={{ display: 'block', fontSize: '12px', color: isUnstake ? '#4ade80' : '#60a5fa', marginTop: '4px' }}>
+                                {isUnstake ? 'Tradable in Spot Wallet' : 'Bonding Complete'}
+                              </span>
+                            </>
+                          ) : (
+                            <span style={{ color: '#888' }}>—</span>
                           )}
                         </td>
                       </tr>
@@ -634,21 +676,33 @@ export default function Staking({ isLightMode }) {
               <div className="pending-activity-card">
                 <h3>Pending Activity</h3>
                 <ul className="pending-activity-list">
-                  {pendingTransactions.map((txn, index) => (
-                    <li key={txn.tranId || `${txn.asset}-${index}`}>
-                      <div className="pending-activity-row">
-                        <div>
-                          <strong>{txn.asset}</strong> · {formatStatusLabel(txn.status)}
+                  {pendingTransactions.map((txn, index) => {
+                    const typeRaw = (txn.type || '').toString().toLowerCase();
+                    const isUnstake = typeRaw.includes('unstake') || typeRaw.includes('redeem');
+                    const typeLabel = isUnstake ? 'Unstake' : (txn.type ? `${txn.type.charAt(0).toUpperCase()}${txn.type.slice(1)}` : 'Stake');
+                    return (
+                      <li key={txn.tranId || `${txn.asset}-${index}`}>
+                        <div className="pending-activity-row">
+                          <div>
+                            <strong>{txn.asset}</strong> · <span className={`type-badge type-${isUnstake ? 'unstake' : 'stake'}`}>{typeLabel}</span> · {formatStatusLabel(txn.status)}
+                          </div>
+                          <div>
+                            {parseFloat(txn.amount || 0).toFixed(8)} {txn.asset} ({formatUsd(txn.currentValue)})
+                          </div>
                         </div>
-                        <div>
-                          {parseFloat(txn.amount || 0).toFixed(8)} {txn.asset} ({formatUsd(txn.currentValue)})
+                        <div className="pending-activity-times" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '4px', fontSize: '12px', color: '#888' }}>
+                          {txn.initiatedTime && (
+                            <div className="pending-activity-time">Initiated: {formatDate(txn.initiatedTime)}</div>
+                          )}
+                          {txn.completionTime && (
+                            <div className="pending-activity-time" style={{ color: isUnstake ? '#4ade80' : '#60a5fa' }}>
+                              Est. Completion: {formatDate(txn.completionTime)} ({isUnstake ? 'Tradable in Spot Wallet' : 'Bonding Complete'})
+                            </div>
+                          )}
                         </div>
-                      </div>
-                      {txn.initiatedTime && (
-                        <div className="pending-activity-time">{formatDate(txn.initiatedTime)}</div>
-                      )}
-                    </li>
-                  ))}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
@@ -711,6 +765,7 @@ export default function Staking({ isLightMode }) {
                       </td>
                       <td>
                         {(statusKey === 'active' || statusKey === 'staked' || coin.can_redeem) &&
+                          !coin.has_pending_unstake &&
                           statusKey !== 'unstaking' &&
                           statusKey !== 'redeeming' &&
                           statusKey !== 'unbonding' ? (
@@ -721,8 +776,8 @@ export default function Staking({ isLightMode }) {
                             Unstake
                           </button>
                         ) : (
-                          <button className="btn-unstake disabled" disabled>
-                            {statusKey === 'unstaking' || statusKey === 'redeeming' || statusKey === 'unbonding' ? 'Unstaking' : 'Locked'}
+                          <button className="btn-unstake disabled" disabled title="Unstake order already processing">
+                            {statusKey === 'unstaking' || statusKey === 'redeeming' || statusKey === 'unbonding' || coin.has_pending_unstake ? 'Unstaking' : 'Locked'}
                           </button>
                         )}
                       </td>
