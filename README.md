@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.13.5
+**Version:** 4.13.6
 
 ## Recent Updates
+
+### v4.13.6
+* **PWA: Installable app for desktop and iPhone.** Added a web app manifest (`manifest.webmanifest`, standalone display), a service worker (`sw.js`, root scope) that caches only fingerprinted static assets and never caches `/api/` traffic, auth pages, or navigations, plus install icons (192/512/maskable + 180px Apple touch icon) and iOS Add to Home Screen meta tags. The service worker is registered from `main.jsx` on window load. Public Flask routes serve `/sw.js` and `/manifest.webmanifest` at root scope; the dashboard itself still requires login. Install: desktop Brave/Chrome via the install icon or Save and share -> Install; iPhone Safari via Share -> Add to Home Screen.
 
 ### v4.13.5
 * **Binance.US Trading: Convert Small Balances Modal Theme Awareness & 2FA Autofill Reliability.**

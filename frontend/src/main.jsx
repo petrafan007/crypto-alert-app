@@ -35,6 +35,17 @@ window.addEventListener('unhandledrejection', (event) => {
   }
 });
 
+// Register the PWA service worker (root scope, so it covers every route).
+// Static assets are cached for fast repeat loads; API traffic and pages
+// always go to the network. A failed registration must never break the app.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      console.warn('Service worker registration failed:', error);
+    });
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary fallbackTitle="Crypto & Securities Dashboard Error" fallbackMessage="An error occurred while loading the application interface. Please reload to reconnect.">

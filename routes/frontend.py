@@ -1,5 +1,6 @@
 
 from datetime import timedelta, datetime
+import os
 import requests
 import threading
 from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
@@ -25,6 +26,23 @@ def dashboard():
 def favicon():
     """Return 204 No Content for favicon requests"""
     return '', 204
+
+@frontend_bp.route('/sw.js')
+def service_worker():
+    """Serve the PWA service worker at root scope (public: browsers fetch it without a session)."""
+    path = os.path.join(current_app.static_folder or '', 'sw.js')
+    response = send_file(path, mimetype='application/javascript')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response.headers['Service-Worker-Allowed'] = '/'
+    return response
+
+
+@frontend_bp.route('/manifest.webmanifest')
+def pwa_manifest():
+    """Serve the PWA manifest at root (public: installability checks fetch it without a session)."""
+    path = os.path.join(current_app.static_folder or '', 'manifest.webmanifest')
+    return send_file(path, mimetype='application/manifest+json')
+
 
 @frontend_bp.route("/trading")
 @login_required
