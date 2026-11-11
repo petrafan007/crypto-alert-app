@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.13.7
+**Version:** 4.13.8
 
 ## Recent Updates
+
+### v4.13.8
+* **Binance.US Staking: Automatic Unstake Completion Synchronization & Expired Status Reconciliation.**
+  * **Completed Unstake Reconciler:** Resolved an issue where successfully unstaked assets (such as GRAM whose unstaking window completed) remained stuck indefinitely under "Pending Staking Positions" and retained an active staked badge on the Dashboard. Live Binance transaction history reporting `SUCCESS` or `COMPLETED` for unstake requests now automatically reconciles local `StakedCoin` records and `StakingOrder` tracking to `unstaked` and `COMPLETED`.
+  * **Expired Completion Auto-Clear:** Background balance calculations, local balance views, and frontend position tables now detect expired completion timestamps and live exchange balance releases, automatically retiring finished unstaking entries and restoring full available spot balance without double-counting or phantom locked balances.
+  * **Dashboard Staking Status Accuracy:** Enhanced portfolio tooltips and row titles to distinguish between active earning, validator bonding, and pending unstake states, while cleanly omitting staking badges once unstaking finishes.
 
 ### v4.13.7
 * **Binance.US Staking: Pending Unstake Accuracy, Double-Count Resolution & Completion Date/Time Tracking.**

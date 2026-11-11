@@ -2121,14 +2121,17 @@ function Dashboard({ isLightMode }) {
       lines.push(`⚡ Active Auto-Sell: Automatically sells for ${quote} on -${vol}% drop in ${volatilityHoursSetting}h only after it holds for ${automatedTriggerConfirmationMinutes}m${pending}`);
     }
 
-    if (coin.is_staked || Number(coin.staked_amount || 0) > 0) {
+    const status = (coin.staking_status || '').toLowerCase();
+    const isStakedCoin = !isExternal && (coin.is_staked || Number(coin.staked_amount || 0) > 0) && status !== 'unstaked';
+    if (isStakedCoin) {
       const avail = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
       const staked = Number(coin.staked_amount || 0);
       const sym = (coin.symbol || '').toUpperCase();
-      const isBonding = ['processing', 'pending'].includes((coin.staking_status || '').toLowerCase());
-      if (isBonding) {
+      if (status === 'unstaking') {
+        lines.push(`⏳ Staked Asset (Unstaking): ${staked.toFixed(4)} ${sym} pending unstake · ${avail.toFixed(4)} ${sym} available for trading`);
+      } else if (['processing', 'pending', 'bonding'].includes(status)) {
         lines.push(`⏳ Staked Asset (Bonding / Processing): ${staked.toFixed(4)} ${sym} locked in bonding · ${avail.toFixed(4)} ${sym} available for trading`);
-      } else {
+      } else if (staked > 0) {
         lines.push(`🔷 Staked Asset (Active): ${staked.toFixed(4)} ${sym} staked · ${avail.toFixed(4)} ${sym} available for trading`);
       }
     }
@@ -5610,7 +5613,8 @@ function Dashboard({ isLightMode }) {
                     const hasExchangeOrder = getPendingOrdersForCoin(coin).length > 0 || hasLockedQuote;
                     const isAutoBuy = !!coin.auto_buy_enabled;
                     const isAutoSell = !!coin.auto_sell_enabled;
-                    const isStaked = !isExternal && (!!coin.is_staked || Number(coin.staked_amount || 0) > 0);
+                    const status = (coin.staking_status || '').toLowerCase();
+                    const isStaked = !isExternal && (!!coin.is_staked || Number(coin.staked_amount || 0) > 0) && status !== 'unstaked';
                     const stakedAmount = Number(coin.staked_amount || 0);
                     const availableAmount = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
 
@@ -5629,10 +5633,13 @@ function Dashboard({ isLightMode }) {
 
                     let rowTitle = undefined;
                     if (isStaked) {
-                      const isBonding = ['processing', 'pending'].includes((coin.staking_status || '').toLowerCase());
-                      rowTitle = isBonding
-                        ? `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} locked in staking bonding)`
-                        : `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} staked)`;
+                      const isUnstaking = status === 'unstaking';
+                      const isBonding = ['processing', 'pending', 'bonding'].includes(status);
+                      rowTitle = isUnstaking
+                        ? `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} pending unstake)`
+                        : isBonding
+                          ? `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} locked in staking bonding)`
+                          : `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} staked)`;
                     } else if (hasLockedQuote) {
                       rowTitle = `${availableQuote.toFixed(2)} available`;
                     }

@@ -184,7 +184,13 @@ export default function Staking({ isLightMode }) {
       const rawPending = data.pendingPositions || [];
       const seenKeys = new Set();
       const uniquePending = [];
+      const nowMs = Date.now();
       rawPending.forEach((p, idx) => {
+        const isUnstake = (p.type || '').toString().toLowerCase().includes('unstake') || (p.status || '').toString().toLowerCase().includes('unstaking');
+        // Filter out expired unstake positions that have already returned to spot wallet
+        if (isUnstake && p.completionTime && Number(p.completionTime) <= nowMs) {
+          return;
+        }
         const key = p.tranId || (p.id ? `db-${p.id}` : `${(p.asset || '').toUpperCase()}:${parseFloat(p.amount || p.stakingAmount || 0).toFixed(6)}`);
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
@@ -192,7 +198,11 @@ export default function Staking({ isLightMode }) {
         }
       });
       setPendingPositions(uniquePending);
-      setPendingTransactions(data.pendingTransactions || []);
+      const rawPendingTxns = (data.pendingTransactions || []).filter(txn => {
+        const isUnstake = (txn.type || '').toString().toLowerCase().includes('unstake') || (txn.status || '').toString().toLowerCase().includes('unstaking');
+        return !(isUnstake && txn.completionTime && Number(txn.completionTime) <= nowMs);
+      });
+      setPendingTransactions(rawPendingTxns);
       setBalanceSummary({ ...(data.summary || {}), pendingCount: uniquePending.length });
       setTotalStakedValue(data.summary?.totalUsd ?? data.totalStakedValue ?? 0);
     }).catch(reportError).finally(() => setPanelsLoading(false));

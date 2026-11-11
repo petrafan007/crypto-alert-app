@@ -1,11 +1,12 @@
 import unittest
 from unittest.mock import patch, MagicMock
 from types import SimpleNamespace
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Flask
 from core.extensions import db
 from models import StakedCoin
+from trading_models import StakingOrder
 from services import staking_service
 import routes.portfolio as portfolio
 
@@ -99,6 +100,99 @@ class StakingUnstakeTests(unittest.TestCase):
             
             refreshed = db.session.get(StakedCoin, record_id)
             self.assertEqual(refreshed.status, 'unstaking')
+
+    def test_build_staking_balance_view_auto_reconciles_successful_unstake_from_history(self):
+        cred = SimpleNamespace(api_key='key', api_secret='sec', user_id=1)
+        record = StakedCoin(
+            user_id=1,
+            symbol='GRAM',
+            amount=68.64,
+            status='unstaking',
+            unstake_requested_at=datetime.utcnow() - timedelta(days=2),
+            unstake_available_at=datetime.utcnow() - timedelta(days=1),
+            staked_at=datetime.utcnow() - timedelta(days=10)
+        )
+        db.session.add(record)
+        order = StakingOrder(
+            user_id=1,
+            symbol='GRAM',
+            action='unstake',
+            amount=68.64,
+            status='PROCESSING',
+            created_at=datetime.utcnow() - timedelta(days=2)
+        )
+        db.session.add(order)
+        db.session.commit()
+        record_id = record.id
+        order_id = order.id
+
+        mock_balance_resp = MagicMock(status_code=200)
+        mock_balance_resp.json.return_value = {'success': True, 'data': []}
+        mock_asset_resp = MagicMock(status_code=200)
+        mock_asset_resp.json.return_value = {'data': []}
+        mock_hist_resp = MagicMock(status_code=200)
+        mock_hist_resp.json.return_value = {
+            'data': [{'asset': 'GRAM', 'amount': '68.64', 'type': 'unstaked', 'status': 'SUCCESS', 'initiatedTime': 1793857579781}]
+        }
+
+        with patch.object(staking_service, 'binance_us_api_call', side_effect=[mock_balance_resp, mock_asset_resp, mock_hist_resp]), \
+             patch.object(staking_service, 'fetch_binance_price', return_value=1.14):
+            result = staking_service.build_staking_balance_view(cred)
+            self.assertEqual(len(result.get('pendingPositions', [])), 0)
+            self.assertEqual(len(result.get('activePositions', [])), 0)
+            self.assertEqual(result.get('summary', {}).get('pendingCount'), 0)
+            self.assertEqual(result.get('summary', {}).get('totalUsd'), 0.0)
+
+            refreshed_rec = db.session.get(StakedCoin, record_id)
+            self.assertEqual(refreshed_rec.status, 'unstaked')
+
+            refreshed_order = db.session.get(StakingOrder, order_id)
+            self.assertEqual(refreshed_order.status, 'COMPLETED')
+
+    def test_build_staking_balance_view_auto_reconciles_expired_unstake(self):
+        cred = SimpleNamespace(api_key='key', api_secret='sec', user_id=1)
+        record = StakedCoin(
+            user_id=1,
+            symbol='GRAM',
+            amount=68.64,
+            status='unstaking',
+            unstake_requested_at=datetime.utcnow() - timedelta(days=5),
+            unstake_available_at=datetime.utcnow() - timedelta(days=4),
+            staked_at=datetime.utcnow() - timedelta(days=15)
+        )
+        db.session.add(record)
+        db.session.commit()
+        record_id = record.id
+
+        mock_balance_resp = MagicMock(status_code=200)
+        mock_balance_resp.json.return_value = {'success': True, 'data': []}
+        mock_asset_resp = MagicMock(status_code=200)
+        mock_asset_resp.json.return_value = {'data': []}
+        mock_hist_resp = MagicMock(status_code=200)
+        mock_hist_resp.json.return_value = {'data': []}
+
+        with patch.object(staking_service, 'binance_us_api_call', side_effect=[mock_balance_resp, mock_asset_resp, mock_hist_resp]), \
+             patch.object(staking_service, 'fetch_binance_price', return_value=1.14):
+            result = staking_service.build_staking_balance_view(cred)
+            self.assertEqual(len(result.get('pendingPositions', [])), 0)
+            refreshed_rec = db.session.get(StakedCoin, record_id)
+            self.assertEqual(refreshed_rec.status, 'unstaked')
+
+    def test_get_user_staked_balance_map_clears_completed_unstake(self):
+        record = StakedCoin(
+            user_id=1,
+            symbol='GRAM',
+            amount=68.64,
+            status='unstaking',
+            unstake_requested_at=datetime.utcnow() - timedelta(days=5),
+            unstake_available_at=datetime.utcnow() - timedelta(days=4),
+            staked_at=datetime.utcnow() - timedelta(days=15)
+        )
+        db.session.add(record)
+        db.session.commit()
+
+        s_map = staking_service.get_user_staked_balance_map(1)
+        self.assertNotIn('GRAM', s_map)
 
 
 if __name__ == '__main__':

@@ -178,6 +178,7 @@ def calculate_staking_value_for_user(cred, user_id=None):
         try:
             staked_records = StakedCoin.query.filter_by(user_id=target_user_id).all()
             dirty = False
+            now_dt = datetime.utcnow()
             for record in staked_records:
                 asset = (record.symbol or '').upper()
                 amount = float(record.amount or 0.0)
@@ -185,9 +186,14 @@ def calculate_staking_value_for_user(cred, user_id=None):
                 
                 # If the live Binance staking API responded successfully, it is authoritative
                 if active_api_ok:
-                    if status == 'active' and asset not in found_symbols:
-                        record.status = 'unstaked'
-                        dirty = True
+                    if asset not in found_symbols:
+                        if status == 'active':
+                            record.status = 'unstaked'
+                            dirty = True
+                        elif status == 'unstaking':
+                            if not record.unstake_available_at or record.unstake_available_at <= now_dt:
+                                record.status = 'unstaked'
+                                dirty = True
                     continue
                 
                 if status != 'active' or not asset or amount <= 0:
@@ -224,8 +230,20 @@ def get_user_staked_balance_map(user_id, cred=None):
     if not user_id:
         return result
 
+    if not cred:
+        try:
+            from services.credential_service import get_user_credentials
+            from credentials import User
+            user_obj = db.session.get(User, user_id)
+            if user_obj:
+                cred = get_user_credentials(user_obj.username)
+        except Exception:
+            pass
+
     try:
         staked_records = StakedCoin.query.filter_by(user_id=user_id).all()
+        dirty = False
+        now_dt = datetime.utcnow()
         for record in staked_records:
             asset = (record.symbol or '').upper().strip()
             amount = float(record.amount or 0.0)
@@ -233,6 +251,12 @@ def get_user_staked_balance_map(user_id, cred=None):
             if not asset or amount <= 0:
                 continue
             if status in ('unstaked', 'cancelled', 'canceled', 'failed'):
+                continue
+
+            # Auto-reconcile unstaking records whose availability date has passed
+            if status == 'unstaking' and record.unstake_available_at and record.unstake_available_at <= now_dt:
+                record.status = 'unstaked'
+                dirty = True
                 continue
 
             if asset not in result:
@@ -249,6 +273,13 @@ def get_user_staked_balance_map(user_id, cred=None):
             else:
                 result[asset]['pending_amount'] += amount
                 result[asset]['status'] = status
+
+        if dirty:
+            try:
+                db.session.commit()
+            except Exception as commit_err:
+                db.session.rollback()
+                logger.error(f"Error committing unstaked coin updates in get_user_staked_balance_map: {commit_err}")
     except Exception as err:
         logger.error(f"Error querying local staked records for user {user_id}: {err}")
 
@@ -258,40 +289,53 @@ def get_user_staked_balance_map(user_id, cred=None):
             active_positions = overview.get('activePositions', [])
             pending_positions = overview.get('pendingPositions', [])
 
-            if active_positions or pending_positions:
-                for pos in active_positions:
-                    asset = str(pos.get('asset', '')).upper().strip()
-                    amount = _coerce_float(pos.get('amount', 0.0), 0.0)
-                    if asset and amount > 0:
-                        if asset not in result:
-                            result[asset] = {
-                                'staked_amount': 0.0,
-                                'active_amount': 0.0,
-                                'pending_amount': 0.0,
-                                'status': 'active',
-                                'is_staked': True
-                            }
-                        result[asset]['active_amount'] = amount
-                        result[asset]['staked_amount'] = result[asset]['active_amount'] + result[asset]['pending_amount']
-                        result[asset]['status'] = 'active'
+            live_active_assets = set()
+            for pos in active_positions:
+                asset = str(pos.get('asset', '')).upper().strip()
+                amount = _coerce_float(pos.get('amount', 0.0), 0.0)
+                if asset and amount > 0:
+                    live_active_assets.add(asset)
+                    if asset not in result:
+                        result[asset] = {
+                            'staked_amount': 0.0,
+                            'active_amount': 0.0,
+                            'pending_amount': 0.0,
+                            'status': 'active',
+                            'is_staked': True
+                        }
+                    result[asset]['active_amount'] = amount
+                    result[asset]['staked_amount'] = result[asset]['active_amount'] + result[asset]['pending_amount']
+                    result[asset]['status'] = 'active'
 
-                for pos in pending_positions:
-                    asset = str(pos.get('asset', '')).upper().strip()
-                    amount = _coerce_float(pos.get('amount', 0.0), 0.0)
-                    status = str(pos.get('status', 'processing')).lower()
-                    if asset and amount > 0:
-                        if asset not in result:
-                            result[asset] = {
-                                'staked_amount': 0.0,
-                                'active_amount': 0.0,
-                                'pending_amount': 0.0,
-                                'status': status,
-                                'is_staked': True
-                            }
-                        result[asset]['pending_amount'] = amount
-                        result[asset]['staked_amount'] = result[asset]['active_amount'] + result[asset]['pending_amount']
-                        if result[asset]['active_amount'] == 0:
-                            result[asset]['status'] = status
+            for pos in pending_positions:
+                asset = str(pos.get('asset', '')).upper().strip()
+                amount = _coerce_float(pos.get('amount', 0.0), 0.0)
+                status = str(pos.get('status', 'processing')).lower()
+                pos_type = str(pos.get('type', '')).lower()
+                is_unstake = 'unstake' in pos_type or 'unstaking' in status
+                completion_time = pos.get('completionTime')
+                now_ms = time.time() * 1000
+                if is_unstake and completion_time and completion_time <= now_ms:
+                    continue
+
+                if asset and amount > 0:
+                    if asset not in result:
+                        result[asset] = {
+                            'staked_amount': 0.0,
+                            'active_amount': 0.0,
+                            'pending_amount': 0.0,
+                            'status': status,
+                            'is_staked': True
+                        }
+                    result[asset]['pending_amount'] = amount
+                    result[asset]['staked_amount'] = result[asset]['active_amount'] + result[asset]['pending_amount']
+                    if result[asset]['active_amount'] == 0:
+                        result[asset]['status'] = status
+
+            # Any asset in local result that is neither actively staked nor pending on Binance:
+            for asset in list(result.keys()):
+                if asset not in live_active_assets and not any((p.get('asset') or '').upper() == asset for p in pending_positions):
+                    del result[asset]
         except Exception as api_err:
             logger.debug(f"Error merging live staking balance in get_user_staked_balance_map: {api_err}")
 
@@ -400,62 +444,102 @@ def build_staking_balance_view(cred, asset_param=None):
 
         # Pending transactions (history)
         pending_transactions = []
+        completed_unstake_assets = set()
+        seen_transactions = set()
+        staked_coin_records = StakedCoin.query.filter_by(user_id=user_id).all() if user_id else []
+        db_dirty = False
+
         try:
             history_response = binance_us_api_call(cred, '/sapi/v1/staking/history', method='GET', params_dict={'limit': 200}, use_trading_keys=True)
             if history_response.status_code == 200:
                 history_data = history_response.json().get('data', []) if isinstance(history_response.json(), dict) else history_response.json()
+                now_ms = time.time() * 1000
                 for txn in (history_data or []):
                     status_raw = str(txn.get('status', '')).upper()
-                    if status_raw and status_raw not in {'SUCCESS', 'COMPLETED', 'FAILED', 'CANCELLED', 'CANCELED'}:
-                        asset = str(txn.get('asset', '')).upper()
-                        amount = _coerce_float(txn.get('amount'), 0.0)
-                        price = asset_price(asset)
+                    raw_type = str(txn.get('type') or txn.get('action') or txn.get('product') or '').lower()
+                    asset = str(txn.get('asset', '')).upper()
+                    tran_id = str(txn.get('tranId') or '')
+                    if tran_id:
+                        seen_transactions.add(tran_id)
 
-                        # Determine transaction type (unstake vs stake)
-                        raw_type = str(txn.get('type') or txn.get('action') or txn.get('product') or '').lower()
-                        if 'unstake' in raw_type or 'redeem' in raw_type:
-                            txn_type = 'unstake'
-                        elif 'stake' in raw_type:
-                            txn_type = 'stake'
-                        else:
-                            txn_type = 'unstake'
+                    is_unstake = 'unstake' in raw_type or 'redeem' in raw_type or raw_type == 'unstaked'
+
+                    # Reconcile completed unstakes from live history
+                    if status_raw in {'SUCCESS', 'COMPLETED'}:
+                        if is_unstake and asset:
+                            completed_unstake_assets.add(asset)
+                            for rec in staked_coin_records:
+                                if (rec.symbol or '').upper() == asset and str(rec.status or '').lower() in ('unstaking', 'active', 'pending', 'bonding', 'processing'):
+                                    rec.status = 'unstaked'
+                                    db_dirty = True
                             try:
                                 from trading_models import StakingOrder
-                                recent_order = StakingOrder.query.filter_by(user_id=user_id, symbol=asset).order_by(StakingOrder.id.desc()).first()
-                                if recent_order and recent_order.action:
-                                    txn_type = recent_order.action.lower()
+                                p_orders = StakingOrder.query.filter_by(user_id=user_id, symbol=asset, action='unstake').filter(StakingOrder.status.in_(['PROCESSING', 'PENDING', 'processing', 'pending'])).all()
+                                for po in p_orders:
+                                    po.status = 'COMPLETED'
+                                    db_dirty = True
                             except Exception:
                                 pass
+                        continue
 
-                        metadata = get_asset_metadata(asset, txn.get('productId')) or {}
-                        initiated_time = _coerce_float(txn.get('initiatedTime'), 0.0)
-                        completion_time = None
-                        if initiated_time > 0:
-                            init_ms = initiated_time if initiated_time > 1e11 else initiated_time * 1000
-                            if txn_type == 'unstake':
-                                unstake_hours = _coerce_float(metadata.get('unstakingPeriod'), 0.0)
-                                if unstake_hours <= 0:
-                                    unstake_hours = 18.0 if asset == 'GRAM' else 168.0
-                                completion_time = int(init_ms + unstake_hours * 3600 * 1000)
-                            else:
-                                bonding_hours = _coerce_float(metadata.get('bondingPeriod'), 24.0)
-                                completion_time = int(init_ms + bonding_hours * 3600 * 1000)
+                    if status_raw in {'FAILED', 'CANCELLED', 'CANCELED'}:
+                        continue
 
-                        pending_transactions.append({
-                            'tranId': txn.get('tranId'),
-                            'asset': asset,
-                            'amount': amount,
-                            'type': txn_type,
-                            'status': status_raw,
-                            'initiatedTime': txn.get('initiatedTime'),
-                            'completionTime': completion_time,
-                            'currentPrice': price,
-                            'currentValue': round(amount * price, 2) if price else 0.0
-                        })
+                    amount = _coerce_float(txn.get('amount'), 0.0)
+                    price = asset_price(asset)
+
+                    # Determine transaction type (unstake vs stake)
+                    if is_unstake:
+                        txn_type = 'unstake'
+                    elif 'stake' in raw_type:
+                        txn_type = 'stake'
+                    else:
+                        txn_type = 'unstake'
+                        try:
+                            from trading_models import StakingOrder
+                            recent_order = StakingOrder.query.filter_by(user_id=user_id, symbol=asset).order_by(StakingOrder.id.desc()).first()
+                            if recent_order and recent_order.action:
+                                txn_type = recent_order.action.lower()
+                        except Exception:
+                            pass
+
+                    metadata = get_asset_metadata(asset, txn.get('productId')) or {}
+                    initiated_time = _coerce_float(txn.get('initiatedTime'), 0.0)
+                    completion_time = None
+                    if initiated_time > 0:
+                        init_ms = initiated_time if initiated_time > 1e11 else initiated_time * 1000
+                        if txn_type == 'unstake':
+                            unstake_hours = _coerce_float(metadata.get('unstakingPeriod'), 0.0)
+                            if unstake_hours <= 0:
+                                unstake_hours = 18.0 if asset == 'GRAM' else 168.0
+                            completion_time = int(init_ms + unstake_hours * 3600 * 1000)
+                        else:
+                            bonding_hours = _coerce_float(metadata.get('bondingPeriod'), 24.0)
+                            completion_time = int(init_ms + bonding_hours * 3600 * 1000)
+
+                    # If this unstake already passed its completion time, it is no longer pending
+                    if txn_type == 'unstake' and completion_time and completion_time <= now_ms:
+                        completed_unstake_assets.add(asset)
+                        for rec in staked_coin_records:
+                            if (rec.symbol or '').upper() == asset and str(rec.status or '').lower() in ('unstaking', 'active', 'pending', 'bonding', 'processing'):
+                                rec.status = 'unstaked'
+                                db_dirty = True
+                        continue
+
+                    pending_transactions.append({
+                        'tranId': txn.get('tranId'),
+                        'asset': asset,
+                        'amount': amount,
+                        'type': txn_type,
+                        'status': status_raw,
+                        'initiatedTime': txn.get('initiatedTime'),
+                        'completionTime': completion_time,
+                        'currentPrice': price,
+                        'currentValue': round(amount * price, 2) if price else 0.0
+                    })
         except Exception as hist_err:
             logger.warning(f"Error fetching staking history: {hist_err}")
 
-        staked_coin_records = StakedCoin.query.filter_by(user_id=user_id).all()
         db_lookup = {}
         for record in staked_coin_records:
             db_lookup.setdefault(record.symbol.upper(), []).append(record)
@@ -612,22 +696,43 @@ def build_staking_balance_view(cred, asset_param=None):
             pending_positions.append(pos)
             pending_usd += txn.get('currentValue', 0)
 
+        now_dt = datetime.utcnow()
         for record in staked_coin_records:
             if record.id in matched_record_ids:
                 continue
-            if str(record.status or '').lower() not in ('pending', 'bonding', 'unstaking', 'processing'):
+            status_lower = str(record.status or '').lower()
+            if status_lower not in ('pending', 'bonding', 'unstaking', 'processing'):
                 continue
-            if str(record.stake_transaction_id or '') in seen_transactions or (record.symbol or '').upper() in found_symbols:
+            rec_asset = (record.symbol or '').upper()
+            if str(record.stake_transaction_id or '') in seen_transactions or rec_asset in found_symbols:
                 continue
+
+            # Auto-reconcile unstaking records that have already finished
+            if status_lower == 'unstaking':
+                has_expired = record.unstake_available_at and record.unstake_available_at <= now_dt
+                is_completed = rec_asset in completed_unstake_assets or has_expired or (active_api_ok and rec_asset not in found_symbols and not any((t.get('asset') or '').upper() == rec_asset for t in pending_transactions))
+                if is_completed:
+                    record.status = 'unstaked'
+                    db_dirty = True
+                    try:
+                        from trading_models import StakingOrder
+                        p_orders = StakingOrder.query.filter_by(user_id=user_id, symbol=rec_asset, action='unstake').filter(StakingOrder.status.in_(['PROCESSING', 'PENDING', 'processing', 'pending'])).all()
+                        for po in p_orders:
+                            po.status = 'COMPLETED'
+                            db_dirty = True
+                    except Exception:
+                        pass
+                    continue
+
             price = asset_price(record.symbol) or 0
             value = float(record.amount or 0) * price
-            rec_type = 'unstake' if str(record.status or '').lower() == 'unstaking' else 'stake'
+            rec_type = 'unstake' if status_lower == 'unstaking' else 'stake'
             rec_completion = None
             if getattr(record, 'unstake_available_at', None):
                 rec_completion = int(record.unstake_available_at.timestamp() * 1000)
             pending_positions.append({
                 'id': record.id,
-                'asset': (record.symbol or '').upper(),
+                'asset': rec_asset,
                 'stakingAmount': record.amount,
                 'amount': record.amount,
                 'type': rec_type,
@@ -636,6 +741,13 @@ def build_staking_balance_view(cred, asset_param=None):
                 'status': record.status
             })
             pending_usd += value
+
+        if db_dirty:
+            try:
+                db.session.commit()
+            except Exception as commit_err:
+                db.session.rollback()
+                logger.error(f"Error committing staking balance view reconciliations: {commit_err}")
 
         active_earning_count = sum(1 for p in active_positions if p.get('status') == 'active' and p.get('activeAmount', p.get('amount', 0)) > 0)
         summary = {
