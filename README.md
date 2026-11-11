@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.13.8
+**Version:** 4.13.9
 
 ## Recent Updates
+
+### v4.13.9
+* **Pending Orders & Active Triggers: Restore Row Hover Tooltip Box Across Portfolio and Watchlist.**
+  * **Fix Unhandled Reference Error:** Resolved an issue where hovering over rows with pending orders, active automated triggers, or staked assets (e.g. BTC and GRAM in Portfolio or Watchlist) failed to show the yellow floating order details tooltip. An unhandled undeclared variable reference in the tooltip formatter crashed the hover handler, preventing tooltip state from updating.
+  * **Enhanced Viewport Boundary Clamping:** Clamped tooltip coordinates safely within the visible browser viewport and positioned tooltips below rows when near the top of the screen to eliminate clipping.
+  * **Immediate Hover Response:** Added `onMouseEnter` handlers to Portfolio and Watchlist table rows to trigger tooltip rendering immediately upon cursor entry.
 
 ### v4.13.8
 * **Binance.US Staking: Automatic Unstake Completion Synchronization & Expired Status Reconciliation.**

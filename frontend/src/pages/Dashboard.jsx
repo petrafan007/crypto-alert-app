@@ -287,7 +287,7 @@ function Dashboard({ isLightMode }) {
   const [trendHistory, setTrendHistory] = useState([]);
   const [trendHistoryRange, setTrendHistoryRange] = useState(null);
   const [pendingOrders, setPendingOrders] = useState([]);
-  const [orderTooltip, setOrderTooltip] = useState({ isVisible: false, text: '', position: { x: 0, y: 0 } });
+  const [orderTooltip, setOrderTooltip] = useState({ visible: false, text: '', x: 0, y: 0 });
   const [trendRange, setTrendRange] = useState('7D');
   const [showTrendRangeModal, setShowTrendRangeModal] = useState(false);
   const [visibleTrendRangeKeys, setVisibleTrendRangeKeys] = useState(() => {
@@ -2077,66 +2077,72 @@ function Dashboard({ isLightMode }) {
 
   // Generate tooltip text for pending orders & auto triggers
   const generateOrderTooltipText = (coin, orders) => {
-    const lines = [];
+    try {
+      const lines = [];
 
-    if (orders && orders.length > 0) {
-      const describeOrder = (order) => {
-        if (['LADDER', 'TRAILING_STOP'].includes(order.type)) return syntheticOrderTooltip(order, coin?.symbol);
-        const orderTypeName = (order.type || 'LIMIT').replace(/_/g, ' ').toLowerCase();
-        const side = (order.side || '').toLowerCase();
-        const trigger = order.trigger_price
-          ? order.trigger_price.toFixed(4)
-          : order.price
-            ? Number(order.price).toFixed(4)
-            : 'N/A';
-        const orderQuantity = Number(order.quantity ?? 0);
-        const quantityText = formatOrderQuantity(orderQuantity);
-        const assetSymbol = (order.asset || coin?.symbol || '').toUpperCase();
-        const priceReference = Number(order.trigger_price || order.price || 0);
-        const quoteValue = order.quantity_usdt !== undefined && order.quantity_usdt !== null
-          ? Number(order.quantity_usdt)
-          : orderQuantity * priceReference;
-        const usdText = formatOrderUsd(quoteValue);
-        const sizeDescription = quantityText
-          ? `${quantityText} ${assetSymbol}${usdText ? ` (~${usdText} USDT)` : ''}`
-          : assetSymbol || 'this asset';
+      if (orders && orders.length > 0) {
+        const describeOrder = (order) => {
+          if (['LADDER', 'TRAILING_STOP'].includes(order.type)) return syntheticOrderTooltip(order, coin?.symbol);
+          const orderTypeName = (order.type || 'LIMIT').replace(/_/g, ' ').toLowerCase();
+          const side = (order.side || '').toLowerCase();
+          const trigger = order.trigger_price !== undefined && order.trigger_price !== null
+            ? Number(order.trigger_price).toFixed(4)
+            : order.price !== undefined && order.price !== null
+              ? Number(order.price).toFixed(4)
+              : 'N/A';
+          const orderQuantity = Number(order.quantity ?? 0);
+          const quantityText = formatOrderQuantity(orderQuantity);
+          const assetSymbol = (order.asset || coin?.symbol || '').toUpperCase();
+          const priceReference = Number(order.trigger_price || order.price || 0);
+          const quoteValue = order.quantity_usdt !== undefined && order.quantity_usdt !== null
+            ? Number(order.quantity_usdt)
+            : orderQuantity * priceReference;
+          const usdText = formatOrderUsd(quoteValue);
+          const sizeDescription = quantityText
+            ? `${quantityText} ${assetSymbol}${usdText ? ` (~${usdText} USDT)` : ''}`
+            : assetSymbol || 'this asset';
 
-        return `Pending ${orderTypeName} ${side} for ${sizeDescription} when price ${order.direction || ''} ${trigger} USDT`;
-      };
-      lines.push(...orders.map(describeOrder));
-    }
-
-    if (coin.auto_buy_enabled) {
-      const vol = coin.auto_buy_volatility_pct || coin.volatility_pct || '—';
-      const amt = coin.auto_buy_amount !== undefined && coin.auto_buy_amount !== null ? Number(coin.auto_buy_amount).toFixed(2) : '—';
-      const quote = coin.auto_buy_quote_currency || 'USDT';
-      const pending = coin.auto_buy_confirmation_started_at ? ' (confirmation in progress)' : '';
-      lines.push(`⚡ Active Auto-Buy: Automatically purchases with $${amt} ${quote} on +${vol}% surge in ${volatilityHoursSetting}h only after it holds for ${automatedTriggerConfirmationMinutes}m${pending}`);
-    }
-
-    if (coin.auto_sell_enabled) {
-      const vol = coin.auto_sell_volatility_pct || coin.volatility_pct || '—';
-      const quote = coin.auto_sell_quote_currency || 'USDT';
-      const pending = coin.auto_sell_confirmation_started_at ? ' (confirmation in progress)' : '';
-      lines.push(`⚡ Active Auto-Sell: Automatically sells for ${quote} on -${vol}% drop in ${volatilityHoursSetting}h only after it holds for ${automatedTriggerConfirmationMinutes}m${pending}`);
-    }
-
-    const status = (coin.staking_status || '').toLowerCase();
-    const isStakedCoin = !isExternal && (coin.is_staked || Number(coin.staked_amount || 0) > 0) && status !== 'unstaked';
-    if (isStakedCoin) {
-      const avail = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
-      const staked = Number(coin.staked_amount || 0);
-      const sym = (coin.symbol || '').toUpperCase();
-      if (status === 'unstaking') {
-        lines.push(`⏳ Staked Asset (Unstaking): ${staked.toFixed(4)} ${sym} pending unstake · ${avail.toFixed(4)} ${sym} available for trading`);
-      } else if (['processing', 'pending', 'bonding'].includes(status)) {
-        lines.push(`⏳ Staked Asset (Bonding / Processing): ${staked.toFixed(4)} ${sym} locked in bonding · ${avail.toFixed(4)} ${sym} available for trading`);
-      } else if (staked > 0) {
-        lines.push(`🔷 Staked Asset (Active): ${staked.toFixed(4)} ${sym} staked · ${avail.toFixed(4)} ${sym} available for trading`);
+          return `Pending ${orderTypeName} ${side} for ${sizeDescription} when price ${order.direction || ''} ${trigger} USDT`;
+        };
+        lines.push(...orders.map(describeOrder));
       }
-    }
 
-    return lines.join('\n');
+      if (coin?.auto_buy_enabled) {
+        const vol = coin.auto_buy_volatility_pct || coin.volatility_pct || '—';
+        const amt = coin.auto_buy_amount !== undefined && coin.auto_buy_amount !== null ? Number(coin.auto_buy_amount).toFixed(2) : '—';
+        const quote = coin.auto_buy_quote_currency || 'USDT';
+        const pending = coin.auto_buy_confirmation_started_at ? ' (confirmation in progress)' : '';
+        lines.push(`⚡ Active Auto-Buy: Automatically purchases with $${amt} ${quote} on +${vol}% surge in ${volatilityHoursSetting}h only after it holds for ${automatedTriggerConfirmationMinutes}m${pending}`);
+      }
+
+      if (coin?.auto_sell_enabled) {
+        const vol = coin.auto_sell_volatility_pct || coin.volatility_pct || '—';
+        const quote = coin.auto_sell_quote_currency || 'USDT';
+        const pending = coin.auto_sell_confirmation_started_at ? ' (confirmation in progress)' : '';
+        lines.push(`⚡ Active Auto-Sell: Automatically sells for ${quote} on -${vol}% drop in ${volatilityHoursSetting}h only after it holds for ${automatedTriggerConfirmationMinutes}m${pending}`);
+      }
+
+      const isExternalCoin = coin?.is_external === true || coin?.source === 'webull';
+      const status = (coin?.staking_status || '').toLowerCase();
+      const isStakedCoin = !isExternalCoin && (coin?.is_staked || Number(coin?.staked_amount || 0) > 0) && status !== 'unstaked';
+      if (isStakedCoin) {
+        const avail = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
+        const staked = Number(coin.staked_amount || 0);
+        const sym = (coin?.symbol || '').toUpperCase();
+        if (status === 'unstaking') {
+          lines.push(`⏳ Staked Asset (Unstaking): ${staked.toFixed(4)} ${sym} pending unstake · ${avail.toFixed(4)} ${sym} available for trading`);
+        } else if (['processing', 'pending', 'bonding'].includes(status)) {
+          lines.push(`⏳ Staked Asset (Bonding / Processing): ${staked.toFixed(4)} ${sym} locked in bonding · ${avail.toFixed(4)} ${sym} available for trading`);
+        } else if (staked > 0) {
+          lines.push(`🔷 Staked Asset (Active): ${staked.toFixed(4)} ${sym} staked · ${avail.toFixed(4)} ${sym} available for trading`);
+        }
+      }
+
+      return lines.filter(Boolean).join('\n');
+    } catch (err) {
+      console.error('Error generating order tooltip text:', err);
+      return '';
+    }
   };
 
   // Handle hover on row for pending order tooltip
@@ -2155,17 +2161,27 @@ function Dashboard({ isLightMode }) {
     }
 
     const orders = getPendingOrdersForCoin(coin);
-    const hasTriggers = coin.auto_buy_enabled || coin.auto_sell_enabled;
-    const isStaked = !!coin.is_staked || Number(coin.staked_amount || 0) > 0;
+    const hasTriggers = coin?.auto_buy_enabled || coin?.auto_sell_enabled;
+    const isExternalCoin = coin?.is_external === true || coin?.source === 'webull';
+    const status = (coin?.staking_status || '').toLowerCase();
+    const isStaked = !isExternalCoin && (!!coin?.is_staked || Number(coin?.staked_amount || 0) > 0) && status !== 'unstaked';
 
     if (orders.length > 0 || hasTriggers || isStaked) {
-      const rect = event.currentTarget.getBoundingClientRect();
-      setOrderTooltip({
-        visible: true,
-        text: generateOrderTooltipText(coin, orders),
-        x: event.clientX + 15,
-        y: rect.top - 60
-      });
+      const text = generateOrderTooltipText(coin, orders);
+      if (text && text.trim()) {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const clientX = typeof event.clientX === 'number' ? event.clientX : rect.left + 50;
+        const x = Math.max(10, Math.min(clientX + 15, (window?.innerWidth || 1200) - 370));
+        const y = rect.top >= 100 ? Math.max(10, rect.top - 60) : (rect.bottom + 10);
+        setOrderTooltip({
+          visible: true,
+          text,
+          x,
+          y
+        });
+      } else {
+        handleRowLeave();
+      }
     }
   };
 
@@ -5649,6 +5665,7 @@ function Dashboard({ isLightMode }) {
                         key={coin.id || coin.symbol}
                         className={rowClass}
                         title={rowTitle}
+                        onMouseEnter={(e) => handleRowHover(coin, e)}
                         onMouseMove={(e) => handleRowHover(coin, e)}
                         onMouseLeave={handleRowLeave}
                       >
@@ -6056,7 +6073,7 @@ function Dashboard({ isLightMode }) {
             box's fixed coordinates are resolved relative to the table instead of the viewport,
             so it renders correctly only for rows near the top of the table and drifts off-screen
             for rows further down (e.g. it looked "missing" on any row past the first couple). */}
-        {orderTooltip.visible && typeof document !== 'undefined' && createPortal(
+        {orderTooltip.visible && orderTooltip.text && typeof document !== 'undefined' && createPortal(
           <div
             className="pending-order-tooltip"
             style={{
@@ -6218,6 +6235,7 @@ function Dashboard({ isLightMode }) {
                       <tr
                         key={item.symbol}
                         className={rowClass}
+                        onMouseEnter={(e) => handleRowHover(item, e)}
                         onMouseMove={(e) => handleRowHover(item, e)}
                         onMouseLeave={handleRowLeave}
                       >
