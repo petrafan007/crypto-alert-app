@@ -23,7 +23,7 @@ class Quant450SignalTests(unittest.TestCase):
     def test_trend_rotation_and_pullback_are_independent(self):
         cfg = {'trend_sma_days': 50, 'rsi_period': 2,
                'rsi_entry_threshold': 10, 'bollinger_std': 2}
-        benchmark = bars([100] * 200)
+        benchmark = bars([100 + index * .1 for index in range(200)])
         leader = bars([100 + index * .5 for index in range(200)])
         ranks = equity_rotation_scores({'LEAD': leader}, benchmark, cfg)
         self.assertEqual(ranks, {'LEAD': 1})
@@ -61,7 +61,8 @@ class Quant450SignalTests(unittest.TestCase):
                 base = server.handle({'schema': 1, 'op': 'source', 'module': 'crypto'})
                 modified = base['source'].replace('c["price_above_entry_channel"] and c["dominance_gate_passed"]',
                                                    'c["price_above_entry_channel"]')
-                fixture = {'checks': {'price_above_entry_channel': True, 'dominance_gate_passed': False}}
+                fixture = {'checks': {'price_above_entry_channel': True, 'dominance_gate_passed': False,
+                                      'price_above_trend_sma': True, 'atr_above_noise_floor': True}}
                 proposed = server.handle({'schema': 1, 'op': 'propose', 'module': 'crypto',
                     'parent_sha256': base['sha256'], 'source': modified,
                     'fixtures': [{'features': fixture}]})

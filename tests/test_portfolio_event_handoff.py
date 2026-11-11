@@ -409,3 +409,63 @@ class EventHandoffLedgerTests(unittest.TestCase):
         handoff.consume_event_decisions(self.user_id)
         telemetry = json.loads(self.state.telemetry_json)
         self.assertTrue(telemetry['events']['entries_paused'])
+
+    def test_unconfirmable_lot_past_timeout_is_released_and_flagged(self):
+        """An expired contract that no provider will confirm must not hold its
+        entry slot forever; the EST-parser freeze blocked the module for ten
+        days behind three such lots."""
+        symbol = 'KXBTC15M-26NOV010100EST-00'
+        db.session.add(EventStrategyConfig(user_id=self.user_id, name='Test Events', enabled=True))
+        self.cfg.enabled, self.cfg.worker_status = True, 'RUNNING'
+        db.session.commit()
+        cfg, acc, state = engine.locked(self.user_id)
+        engine.enter_lot(cfg, acc, state, 'events', symbol, {'enter': True, 'side': 'LONG'}, .4, datetime.utcnow(),
+                         details={'contract_symbol': symbol, 'outcome': 'YES'}, key=f'events:{symbol}')
+        db.session.commit()
+        lot = engine.Lot.query.filter_by(user_id=self.user_id).one()
+        self.assertIsNone(lot.closed_at)
+        with patch.object(engine, 'mark_event', side_effect=ValueError('Awaiting fresh event quote or provider-confirmed settlement.')):
+            result = handoff.consume_event_decisions(self.user_id)
+        self.assertTrue(result['success'])
+        db.session.refresh(lot)
+        self.assertIsNotNone(lot.closed_at)
+        self.assertTrue(json.loads(lot.details_json)['settlement_timeout'])
+        messages = json.loads(self.state.telemetry_json)['events']['messages']
+        self.assertTrue(any('SETTLEMENT_TIMEOUT' in message for message in messages))
+
+    def test_overdue_lot_within_timeout_stays_open_with_an_alarm(self):
+        from datetime import timezone
+        from zoneinfo import ZoneInfo
+        eastern = (datetime.now(timezone.utc) - timedelta(hours=10)).astimezone(ZoneInfo('America/New_York'))
+        symbol = f"KXBTC15M-{eastern.strftime('%y%b%d%H%M').upper()}-00"
+        db.session.add(EventStrategyConfig(user_id=self.user_id, name='Test Events', enabled=True))
+        self.cfg.enabled, self.cfg.worker_status = True, 'RUNNING'
+        db.session.commit()
+        cfg, acc, state = engine.locked(self.user_id)
+        engine.enter_lot(cfg, acc, state, 'events', symbol, {'enter': True, 'side': 'LONG'}, .4, datetime.utcnow(),
+                         details={'contract_symbol': symbol, 'outcome': 'YES'}, key=f'events:{symbol}')
+        db.session.commit()
+        lot = engine.Lot.query.filter_by(user_id=self.user_id).one()
+        with patch.object(engine, 'mark_event', side_effect=ValueError('Awaiting fresh event quote or provider-confirmed settlement.')):
+            handoff.consume_event_decisions(self.user_id)
+        db.session.refresh(lot)
+        self.assertIsNone(lot.closed_at)
+        messages = json.loads(self.state.telemetry_json)['events']['messages']
+        self.assertTrue(any('settlement overdue' in message for message in messages))
+
+    def test_24h_handoff_counts_are_recomputed_not_carried_forward(self):
+        """The 24h counters once accumulated forever and became identical to
+        the lifetime counters, reporting weeks-old rejections as current."""
+        old = (datetime.utcnow() - timedelta(hours=25)).isoformat() + 'Z'
+        self.state.telemetry_json = json.dumps({'events': {
+            'handoff_dispositions': [{'status': 'REJECTED', 'recorded_at': old}],
+            'handoff_counts_24h': {'REJECTED': 999},
+            'handoff_counts_lifetime': {'REJECTED': 999},
+        }})
+        db.session.commit()
+        self.decision()
+        handoff.consume_event_decisions(self.user_id, quote_loader=lambda user, decision: quote(decision.contract_symbol))
+        events = json.loads(self.state.telemetry_json)['events']
+        self.assertEqual(events['handoff_counts_24h'], {'FILLED': 1})
+        self.assertEqual(events['handoff_counts_lifetime'], {'REJECTED': 999, 'FILLED': 1})
+        self.assertEqual(len(events['handoff_dispositions']), 1)

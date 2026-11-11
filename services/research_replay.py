@@ -45,11 +45,11 @@ def baseline_sources():
     return {module:digest((RULES/(module+'.py')).read_text()) for module in STRATEGY_MODULES}
 
 
-def _probe_bars(count):
+def _probe_bars(count,slope=.1):
     """Deterministic candles used only to exercise a candidate's decision shape."""
     bars=[]
     for index in range(count):
-        close=100.0+index*.1
+        close=100.0+index*slope
         bars.append({'time':index*3600.0,'open':close,'high':close+.5,'low':close-.5,'close':close,'volume':1000.0})
     return bars
 
@@ -90,7 +90,9 @@ def candidate_fixtures(module,settings=None):
         return [{'checks':checks},{'checks':{**checks,'rotation_top_two':False,'pullback_qualified':False}}]
     if module=='options':
         rules={**{'min_ivr':40},**(values.get('options') or {})}
-        bars=_probe_bars(61)
+        # The slope must clear the direction confirmation band so the probe
+        # exercises a real PUT direction, not the no-direction branch.
+        bars=_probe_bars(61,.2)
         try:
             regime=option_regime(bars,bars[-1]['close']+1.0,.25,50,50,rules['min_ivr'])
             checks=regime['checks'];basis=regime['basis']
@@ -215,7 +217,7 @@ def scenario_run(dataset,config,points,name,iv,candidate=None):
         current=points[0][0].replace(tzinfo=None)
         @classmethod
         def utcnow(cls):return cls.current
-    def costs(module,price,quantity):return base_costs(module,price,quantity,fee_factor)
+    def costs(module,price,quantity,legs=2):return base_costs(module,price,quantity,fee_factor,legs=legs)
     def fill(module,price,side,closing=False):
         if name=='one_cent_adverse_book' and module in ('options','events'):
             buy=(side=='LONG')!=closing

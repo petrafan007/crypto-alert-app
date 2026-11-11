@@ -10,6 +10,14 @@ TYPES = dict(zip(MODULES, ('EQUITY', 'OPTION', 'CRYPTO', 'FUTURES', 'EVENT')))
 # The overbought exit uses a standard 14-period oscillator. It is deliberately
 # decoupled from the configured entry RSI period.
 EXIT_RSI_PERIOD = 14
+# A 20-session trend smaller than this is noise, not direction; trading credit
+# spreads against it flips PUT/CALL on every scan and only pays friction.
+DIRECTION_CONFIRMATION_BAND = 0.02
+CRYPTO_TREND_SMA_PERIODS = 20
+# Breakouts in a flat tape are almost always false; require hourly range
+# activity of at least this fraction of price before a Donchian entry counts.
+CRYPTO_MIN_ATR_FRACTION = 0.0025
+EQUITY_REGIME_SMA_SESSIONS = 50
 
 
 def finite(value, name='value', minimum=0, maximum=1e12):
@@ -152,15 +160,21 @@ def equity_signal(bars, price, settings, benchmark, rotation_rank=None):
     middle = sum(closes[-20:]) / 20
     deviation = math.sqrt(sum((x-middle)**2 for x in closes[-20:]) / 20)
     lower = middle - settings['bollinger_std'] * deviation
+    # Long-only setups in a bear index regime are fighting the tape: individual
+    # names rarely hold a trend while the broad market sits below its own
+    # 50-session average. Both setups require the benchmark regime to confirm.
+    regime_average = sum(b['close'] for b in benchmark[-EQUITY_REGIME_SMA_SESSIONS:]) / EQUITY_REGIME_SMA_SESSIONS
+    regime_ok = benchmark[-1]['close'] > regime_average
     trend = closes[-1] > average and momentum > 0
-    rotation = trend and relative >= 0 and rotation_rank is not None and rotation_rank <= 2
-    reversal = trend and pullback < settings['rsi_entry_threshold'] and closes[-1] <= lower
+    rotation = trend and relative >= 0 and regime_ok and rotation_rank is not None and rotation_rank <= 2
+    reversal = trend and regime_ok and pullback < settings['rsi_entry_threshold'] and closes[-1] <= lower
     setup = 'TREND_ROTATION_V1' if rotation else 'TREND_PULLBACK_V1' if reversal else None
     return {'enter': bool(setup), 'setup': setup,
             'checks': {'completed_daily_bars': len(bars), 'trend_sma': average,
                        'completed_close_above_sma': closes[-1] > average,
                        'current_price_above_sma': price > average,
                        'momentum_63_sessions': momentum, 'relative_momentum_vs_spy': relative,
+                       'benchmark_sma_50': regime_average, 'benchmark_regime_ok': regime_ok,
                        'rotation_rank': rotation_rank, 'rotation_top_two': bool(rotation),
                        'rsi': pullback, 'rsi_below_entry_threshold': pullback < settings['rsi_entry_threshold'],
                        'exit_rsi': exit_rsi,
@@ -190,7 +204,11 @@ def option_regime(bars, price, current_iv, rank_30=None, rank_252=None, min_ivr=
     closes = [row['close'] for row in bars]
     trend = closes[-1] / closes[-21] - 1
     average = sum(closes[-50:]) / 50
-    kind = 'PUT' if trend > 0 and closes[-1] > average else 'CALL' if trend < 0 and closes[-1] < average else None
+    # A direction is only established once the 20-session trend clears the
+    # confirmation band. Inside the band the trend is noise, and flipping
+    # between PUT and CALL spreads on every scan only pays friction.
+    kind = ('PUT' if trend > DIRECTION_CONFIRMATION_BAND and closes[-1] > average else
+            'CALL' if trend < -DIRECTION_CONFIRMATION_BAND and closes[-1] < average else None)
     basis = 'ANNUAL_IV_RANK_252' if rank_252 is not None else 'SHORT_IV_PERCENTILE_30' if rank_30 is not None else 'CURRENT_IV_VS_REALIZED_VOL'
     ready = bool(kind and (rank_252 >= min_ivr if rank_252 is not None else rank_30 >= min_ivr if rank_30 is not None else iv >= 1.05 * rv20))
     return {'enter': ready, 'option_type': kind, 'basis': basis,
@@ -198,26 +216,38 @@ def option_regime(bars, price, current_iv, rank_30=None, rank_252=None, min_ivr=
                        'underlying_sma_50': average, 'rv_20': rv20, 'rv_60': rv60,
                        'current_atm_iv': iv, 'short_iv_percentile_30': rank_30,
                        'annual_iv_rank_252': rank_252, 'direction': kind,
+                       'direction_confirmation_band': DIRECTION_CONFIRMATION_BAND,
+                       'trend_clears_confirmation_band': abs(trend) > DIRECTION_CONFIRMATION_BAND,
                        'current_iv_above_1_05x_rv20': iv >= 1.05 * rv20},
             'reason': basis if ready else 'No aligned underlying trend and eligible volatility regime.'}
 
 
 def crypto_signal(bars, price, settings, dominance_ok):
     entry, leave = settings['entry_channel_periods'], settings['exit_channel_periods']
-    if len(bars) < max(entry, leave, 15):
+    if len(bars) < max(entry, leave, CRYPTO_TREND_SMA_PERIODS, 15):
         raise ValueError('Insufficient completed hourly channel history.')
     # The live quote is compared with prior completed bars, never its own high.
     upper = max(b['high'] for b in bars[-entry:])
     volatility = atr(bars)
-    return {'enter': dominance_ok and price > upper,
+    closes = [b['close'] for b in bars]
+    trend_average = sum(closes[-CRYPTO_TREND_SMA_PERIODS:]) / CRYPTO_TREND_SMA_PERIODS
+    trend_ok = price > trend_average
+    atr_ok = volatility >= CRYPTO_MIN_ATR_FRACTION * price
+    enter = dominance_ok and price > upper and trend_ok and atr_ok
+    reason = ('Breakout, trend, volatility and dominance gates passed.' if enter else
+              'Price has not exceeded the completed-bar Donchian high.' if price <= upper else
+              'Price is below the 20-hour trend average.' if not trend_ok else
+              'Hourly range is too flat for a breakout to be meaningful.' if not atr_ok else
+              'Altcoin dominance gate did not pass.')
+    return {'enter': enter,
             'checks': {'completed_hourly_bars': len(bars), 'entry_channel_high': upper,
                        'price_above_entry_channel': price > upper, 'dominance_gate_passed': bool(dominance_ok),
+                       'trend_sma_20h': trend_average, 'price_above_trend_sma': trend_ok,
+                       'min_atr_fraction': CRYPTO_MIN_ATR_FRACTION, 'atr_above_noise_floor': atr_ok,
                        'atr_period': 14, 'atr': volatility},
             'exit': price < min(b['low'] for b in bars[-leave:]),
             'stop': price - settings['atr_stop_multiplier'] * volatility, 'side': 'LONG',
-            'reason': ('Breakout and dominance gates passed.' if dominance_ok and price > upper else
-                       'Price has not exceeded the completed-bar Donchian high.' if price <= upper else
-                       'Altcoin dominance gate did not pass.')}
+            'reason': reason}
 
 
 def futures_signal(bars, price, settings, now):
@@ -255,6 +285,8 @@ def select_credit_spread(contracts, price, iv_rank, settings, now, *, allow_warm
         try:
             strike = finite(short['strike'], 'strike', 0.000001)
             delta = finite(abs(float(short['delta'])), 'absolute delta', 0.01, 0.5)
+            if delta > settings.get('max_short_delta', 0.25):
+                continue
             dte = (datetime.fromisoformat(short['expiration']).date()-today).days
             kind = short['option_type']
             if kind not in ('PUT', 'CALL') or (preferred_kind and kind != preferred_kind) or not 20 <= dte <= 65:
@@ -312,7 +344,7 @@ def select_credit_spread(contracts, price, iv_rank, settings, now, *, allow_warm
                                    friction/credit if credit > 0 else 9.99, break_even,
                                    {'short': short, 'long': long, 'credit': credit, 'width': width,
                                     'friction': friction, 'break_even_win_rate': break_even,
-                                    'expiration': short['expiration'],
+                                    'expiration': short['expiration'], 'legs': 2,
                                     # The mark space is the executable close cost.
                                     # At entry that is the credit plus the
                                     # round-trip bid-ask cost, which is exactly

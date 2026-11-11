@@ -46,6 +46,15 @@ class SharedExecutionMathTests(unittest.TestCase):
         self.assertAlmostEqual(fill_price('equities', 100, 'SHORT'), 99.95)
         self.assertEqual(fill_price('events', 0.5, 'LONG'), 0.5)
 
+    def test_options_commission_is_charged_per_leg(self):
+        self.assertAlmostEqual(costs('options', 100, 2, legs=1), 1.3)
+        self.assertAlmostEqual(costs('options', 100, 2, legs=2), 2.6)
+        self.assertAlmostEqual(costs('options', 100, 2, legs=4), 5.2)
+        self.assertAlmostEqual(entry_quantity('options', 0.55, 1000, 50000, None,
+                                              multiplier=100, unit=145.0,
+                                              risk_per_unit=145.0, legs=4),
+                               int(50000 * 0.005 / (145.0 + 2 * 2.6)))
+
     def test_cash_stop_risk_and_daily_loss_caps(self):
         quantity = entry_quantity('crypto', 100, 100000, 50000, 90)
         self.assertLessEqual(quantity * (10 + 2 * costs('crypto', 100, 1)), 250)

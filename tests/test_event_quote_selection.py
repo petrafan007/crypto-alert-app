@@ -113,6 +113,46 @@ class HourlyCutoffTests(unittest.TestCase):
         self.assertEqual(interval['minutes'], 15)
 
 
+class LegacyEstCutoffTests(unittest.TestCase):
+    """Legacy tickers suffix the Eastern time with EST (``-26NOV010100EST-00``).
+
+    The suffix once defeated the cutoff parser, which fell back to the end of
+    the trading day. Kalshi then rejected the finalized settlement because its
+    close_time no longer matched the stored cutoff within one second, and the
+    contracts stayed open forever, blocking every new Event entry.
+    """
+
+    def test_the_legacy_est_symbol_resolves_to_its_real_settlement(self):
+        cutoff = _cutoff_from_symbol('KXETH15M-26NOV010100EST-00')
+        # 01:00 Eastern on 2026-11-01 is 06:00 UTC (standard time).
+        self.assertEqual(cutoff, datetime(2026, 11, 1, 6, 0))
+
+    def test_the_legacy_est_symbol_without_minutes_resolves(self):
+        cutoff = _cutoff_from_symbol('KXETH15M-26NOV0115EST-15')
+        # 15:00 Eastern is 20:00 UTC in November.
+        self.assertEqual(cutoff, datetime(2026, 11, 1, 20, 0))
+
+    def test_the_legacy_est_interval_is_fifteen_minutes(self):
+        interval = _event_symbol_interval('KXBTC15M-26NOV010100EST-00')
+        self.assertIsNotNone(interval)
+        self.assertEqual(interval['minutes'], 15)
+        self.assertEqual(interval['end'], interval['start'] + timedelta(minutes=15))
+        self.assertEqual(interval['end'].astimezone(timezone.utc), datetime(2026, 11, 1, 6, 0, tzinfo=timezone.utc))
+
+    def test_the_legacy_est_label_is_a_fixed_offset_even_in_summer(self):
+        cutoff = _cutoff_from_symbol('KXBTC15M-26JUL011200EST-00')
+        # EST declares UTC-5 regardless of season; noon EST is 17:00 UTC.
+        self.assertEqual(cutoff, datetime(2026, 7, 1, 17, 0))
+
+    def test_seconds_precision_legacy_symbols_resolve(self):
+        cutoff = _cutoff_from_symbol('KXBTC15M-26NOV01010000EST-00')
+        self.assertEqual(cutoff, datetime(2026, 11, 1, 6, 0))
+
+    def test_malformed_time_digits_do_not_resolve(self):
+        self.assertIsNone(_cutoff_from_symbol('KXBTC15M-26NOV01010EST-00'))
+        self.assertIsNone(_cutoff_from_symbol('KXBTC15M-26NOV012500EST-00'))
+
+
 class SeriesUnderlyingTests(unittest.TestCase):
     """Each Event series must resolve to the asset it settles against."""
 

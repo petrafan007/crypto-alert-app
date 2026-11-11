@@ -18,7 +18,7 @@ from services.provider_resilience import AuditCancelled
 
 logger = logging.getLogger(__name__)
 MODULES = ('equities', 'options', 'crypto', 'events')
-MAX_DAILY_AI_REQUESTS = 1  # Default; saved config may allow at most three.
+MAX_DAILY_AI_REQUESTS = 3  # Default; saved config may allow at most six.
 
 
 def _hash(value):
@@ -43,6 +43,11 @@ def evidence(user_id, cfg):
     since = now - timedelta(days=35)
     rows = Decision.query.filter(Decision.user_id == user_id, Decision.evaluated_at >= since).order_by(
         Decision.evaluated_at.desc()).limit(80).all()
+    # Link each decision to the realized outcome of the lot it opened, so the
+    # reviewer can attribute P&L to the exact features that produced the trade
+    # instead of inferring it from module-level aggregates.
+    lot_ids = [row.lot_id for row in rows if row.lot_id]
+    lots = {lot.id: lot for lot in Lot.query.filter(Lot.id.in_(lot_ids)).all()} if lot_ids else {}
     source = {module: request('source', module=module) for module in MODULES}
     counts = {module: {'evaluated': 0, 'qualified': 0, 'filled': 0, 'dispositions': {},
                        'closed_trades': 0, 'net_pnl_usd': 0.0, 'observation_sessions': 0}
@@ -78,11 +83,18 @@ def evidence(user_id, cfg):
             'recent_decisions': [{'id': row.id, 'module': row.module, 'symbol': row.symbol,
                                   'at': row.evaluated_at.isoformat() + 'Z', 'setup': row.setup,
                                   'action': row.proposed_action, 'disposition': row.disposition,
-                                  'reason': row.reason[:180], 'checks': json.loads(row.checks_json or '{}')}
+                                  'reason': row.reason[:180], 'checks': json.loads(row.checks_json or '{}'),
+                                  'lot_id': row.lot_id,
+                                  'realized_pnl_usd': (round(lots[row.lot_id].realized_pnl, 2)
+                                                       if row.lot_id in lots and lots[row.lot_id].closed_at is not None
+                                                       and lots[row.lot_id].realized_pnl is not None else None),
+                                  'trade_closed_at': (lots[row.lot_id].closed_at.isoformat() + 'Z'
+                                                      if row.lot_id in lots and lots[row.lot_id].closed_at is not None else None)}
                                  for row in rows[:80]],
-            'active_sources': source, 'daily_request_limit': max(1, min(3, int(json.loads(cfg.master_ai_config or '{}').get('daily_strategy_requests', 1)))),
+            'active_sources': source, 'daily_request_limit': max(1, min(6, int(json.loads(cfg.master_ai_config or '{}').get('daily_strategy_requests', MAX_DAILY_AI_REQUESTS)))),
             'limitations': ['Only measured paper outcomes can validate a revision.',
                             'Unknown counterfactual fills cannot be credited.',
+                            'A decision\'s realized_pnl_usd is null until the lot it opened closes; open lots are marked, not settled.',
                             'AI may propose source, but activation needs future held-out evidence.']}
 
 
@@ -217,7 +229,7 @@ def review_user(user_id, day=None):
     cfg = Config.query.filter_by(user_id=user_id).first()
     if not cfg or not cfg.enabled or cfg.mode != 'PAPER':
         return None
-    daily_limit = max(1, min(3, int(json.loads(cfg.master_ai_config or '{}').get('daily_strategy_requests', 1))))
+    daily_limit = max(1, min(6, int(json.loads(cfg.master_ai_config or '{}').get('daily_strategy_requests', MAX_DAILY_AI_REQUESTS))))
     if previous:
         if previous.status in ('NO_CHANGE', 'CANDIDATE_SHADOW', 'CANDIDATE_REJECTED',
                                'AI_UNAVAILABLE', 'AI_BUDGET_EXHAUSTED'):

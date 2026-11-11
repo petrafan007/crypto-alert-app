@@ -24,10 +24,6 @@ from services.decision_contracts import (
 )
 from services.decision_engine import DecisionClient, DecisionError
 from services.decision_settings import (
-    INCEPTION_DECISIONS_ENDPOINT,
-    INCEPTION_DECISIONS_MODEL,
-    SUBQ_ENDPOINT,
-    SUBQ_MODEL,
     key_for_transport,
     normalize_transport,
     settings_for,
@@ -115,27 +111,24 @@ def get_evaluation(evaluation_id):
         return session.get(DecisionEvaluation, evaluation_id)
 
 
-def _clients_for(config, credential):
-    """Build the primary and fallback clients for the saved configuration."""
+def _clients_for(config, credential, master_ai_config=None):
+    """Build the primary and fallback clients for the saved configuration.
+
+    Each transport is resolved independently: a missing primary key must not
+    hide a usable fallback key.
+    """
     transport = config.get('decision_transport', 'subq')
-    key = key_for_transport(credential, transport)
-    if not key or key == '********':
-        return None, None
-    primary = DecisionClient(key, config['decision_endpoint'], config['decision_model'],
-                             config['decision_timeout_seconds'], transport=transport)
-    fallback = None
     other = 'inception' if transport == 'subq' else 'subq'
-    other_key = key_for_transport(credential, other)
-    if other_key and other_key != '********':
-        fallback_config = normalize_transport({
-            'decision_transport': other,
-            'decision_endpoint': INCEPTION_DECISIONS_ENDPOINT if other == 'inception' else SUBQ_ENDPOINT,
-            'decision_model': INCEPTION_DECISIONS_MODEL if other == 'inception' else SUBQ_MODEL,
-        })
-        fallback = DecisionClient(other_key, fallback_config['decision_endpoint'],
-                                  fallback_config['decision_model'],
-                                  config['decision_timeout_seconds'], transport=other)
-    return primary, fallback
+
+    def client_for(name):
+        key = key_for_transport(credential, name, master_ai_config)
+        if not key or key == '********':
+            return None
+        resolved = normalize_transport({'decision_transport': name})
+        return DecisionClient(key, resolved['decision_endpoint'], resolved['decision_model'],
+                              config['decision_timeout_seconds'], transport=name)
+
+    return client_for(transport), client_for(other)
 
 
 def process_evaluation(evaluation_id):
@@ -162,13 +155,16 @@ def process_evaluation(evaluation_id):
         enabled = current['decision_enabled'] and (
             current['decision_sentiment_mode'] != 'off' if row.use_case == 'sentiment'
             else current['decision_quant_enabled'])
+        from portfolio_algo_models import PortfolioStrategyConfig
+        portfolio = session.query(PortfolioStrategyConfig).filter_by(user_id=row.user_id).first()
+        master_ai_config = portfolio.master_ai_config if portfolio else None
     # No ORM session, row lock, or paper engine callback survives into this block.
     if not enabled or now-row.created_at > timedelta(minutes=5):
         update_evaluation(evaluation_id, status='abstained', error_code='disabled_or_stale', completed_at=now)
         return get_evaluation(evaluation_id)
     try:
         questions = config['questions']
-        primary, fallback = _clients_for(config, credential)
+        primary, fallback = _clients_for(config, credential, master_ai_config)
         if primary is None and fallback is None:
             raise DecisionError('missing_key')
         result, tried = _evaluate(primary, fallback, row, questions, config)

@@ -1,3 +1,4 @@
+import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from credentials import Credential, UserSetting
@@ -225,7 +226,7 @@ class DecisionSettingsTests(DecisionTestCase):
         self.assertEqual(response_data['message'], 'Decision Engine connection succeeded.')
         self.assertNotIn('synthetic-subq-secret', str(response_data))
         client.assert_called_once_with(
-            'synthetic-subq-secret', SUBQ_ENDPOINT, SUBQ_MODEL, 3.0, transport='subq',
+            'synthetic-subq-secret', SUBQ_ENDPOINT, SUBQ_MODEL, 8.0, transport='subq',
         )
         client.return_value.evaluate.assert_called_once()
 
@@ -247,7 +248,7 @@ class DecisionSettingsTests(DecisionTestCase):
         self.assertEqual(reply.status_code, 200)
         self.assertEqual(reply.get_json()['provider'], 'Inception')
         client.assert_called_once_with(
-            'synthetic-inception-secret', INCEPTION_DECISIONS_ENDPOINT, INCEPTION_DECISIONS_MODEL, 3.0,
+            'synthetic-inception-secret', INCEPTION_DECISIONS_ENDPOINT, INCEPTION_DECISIONS_MODEL, 8.0,
             transport='inception',
         )
 
@@ -309,3 +310,51 @@ class DecisionMigrationTests(unittest.TestCase):
                 self.assertEqual(tuple(row), (True, False, 'first', False))
         finally:
             engine.dispose()
+
+
+class DecisionKeyResolutionTests(unittest.TestCase):
+    """Mercury Decide must find the same Inception key the Mercury audit uses."""
+
+    def test_audit_tier_key_is_used_when_no_credential_key_exists(self):
+        import json
+        from services.decision_settings import key_for_transport
+        config = json.dumps({'tertiary': {'provider': 'inception', 'model': 'mercury-3',
+                                          'api_key': 'encrypted-tier-key'}})
+        with patch('credential_security.decrypt_secret', return_value='mercury-3-key'):
+            key = key_for_transport(SimpleNamespace(), 'inception', config)
+        self.assertEqual(key, 'mercury-3-key')
+
+    def test_dedicated_decisions_key_precedes_the_shared_key(self):
+        import json
+        from services.decision_settings import key_for_transport
+        credential = SimpleNamespace(inception_decisions_key='dedicated-key')
+        config = json.dumps({'primary': {'provider': 'inception', 'api_key': 'encrypted'}})
+        with patch('credential_security.decrypt_secret', return_value='tier-key'):
+            self.assertEqual(key_for_transport(credential, 'inception', config), 'dedicated-key')
+
+    def test_credential_fallback_variants_are_resolved(self):
+        from services.decision_settings import key_for_transport
+        credential = SimpleNamespace(inception_key_tertiary='tertiary-key')
+        self.assertEqual(key_for_transport(credential, 'inception'), 'tertiary-key')
+
+    def test_missing_everywhere_returns_none(self):
+        from services.decision_settings import key_for_transport
+        self.assertIsNone(key_for_transport(SimpleNamespace(), 'inception', '{}'))
+        self.assertIsNone(key_for_transport(None, 'inception', None))
+
+    def test_subq_resolution_is_unchanged(self):
+        from services.decision_settings import key_for_transport
+        credential = SimpleNamespace(subq_api_key='subq-key')
+        self.assertEqual(key_for_transport(credential, 'subq'), 'subq-key')
+
+    def test_missing_primary_key_does_not_hide_a_usable_fallback(self):
+        from services.decision_evaluations import _clients_for
+        from services.decision_settings import DEFAULTS
+        credential = SimpleNamespace(inception_key='shared-inception-key')
+        config = {**DEFAULTS, 'decision_transport': 'subq'}
+        with patch('services.decision_evaluations.DecisionClient') as client:
+            primary, fallback = _clients_for(config, credential)
+        self.assertIsNone(primary)
+        self.assertIsNotNone(fallback)
+        self.assertEqual(client.call_args.args[0], 'shared-inception-key')
+        self.assertEqual(client.call_args.kwargs['transport'], 'inception')

@@ -832,9 +832,9 @@ def api_ai_settings():
                 del ai_settings['ai_custom_prompts']
 
             logger.error("=== DEBUG: Final AI settings response generated ===")
-            from services.credential_views import decision_credential_status
+            from services.credential_views import decision_status_for_user
             credential = Credential.query.filter_by(user_id=current_user.id).first()
-            ai_settings.update(decision_credential_status(credential))
+            ai_settings.update(decision_status_for_user(current_user.id, credential))
             return jsonify(ai_settings)
 
         elif request.method == "POST":
@@ -1069,8 +1069,8 @@ def api_ai_settings():
                     else:
                         setattr(user_setting, key, str(value))
             db.session.commit()
-            from services.credential_views import decision_credential_status
-            return jsonify({"success": True, "message": "AI settings updated", **decision_credential_status(cred)})
+            from services.credential_views import decision_status_for_user
+            return jsonify({"success": True, "message": "AI settings updated", **decision_status_for_user(current_user.id, cred)})
 
     except Exception as e:
         logger.error(f"Error in AI settings endpoint: {e}")
@@ -3479,6 +3479,12 @@ def test_decision_connection():
         transport = config.get('decision_transport', 'subq')
         key_field = {'subq': 'subq_api_key', 'inception': 'inception_decisions_key'}[transport]
         key = saved_or_supplied(payload.get(key_field, '********'), credential, key_field)
+        if not key or key == '********':
+            from portfolio_algo_models import PortfolioStrategyConfig
+            from services.decision_settings import key_for_transport
+            portfolio = PortfolioStrategyConfig.query.filter_by(user_id=current_user.id).first()
+            key = key_for_transport(credential, transport,
+                                    portfolio.master_ai_config if portfolio else None)
         from services.prompt_catalog import prompt_for
         questions = prompt_for(current_user.id, 'decision.connection_test')
         db.session.commit()

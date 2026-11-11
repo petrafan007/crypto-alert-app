@@ -131,27 +131,30 @@ def _module_claimed_blocked(text, module):
     The claim must be scoped to the module. An audit may describe one
     module as frozen while describing another as a drag; a bare
     "blocked" keyword anywhere in the report is not evidence about this
-    particular module.
+    particular module. Statements about market hours, disabled settings or
+    data warm-up describe when a module may trade, not a risk freeze, and
+    must not fail the evidence check.
     """
     blocked_phrase = (r'(frozen|effectively\s+blocked|risk[- ]blocked|blocked\s+by\s+(?:the\s+)?risk|'
                       r'loss\s+allowance\s+is\s+exhausted|exhausted\s+after\s+reserving\s+open\s+risk|'
                       r'cannot\s+(?:enter|deploy|trade)|unable\s+to\s+deploy)')
-    for line in text.splitlines():
-        if not re.search(blocked_phrase, line, re.I):
-            continue
-        if re.search(r'\b' + re.escape(module) + r'\b', line, re.I):
-            return True
-        # A section heading names the module on its own line.
-        heading = line.strip()
-        if re.match(r'^#+\s', heading) and re.search(r'\b' + re.escape(module) + r'\b', heading, re.I):
-            # The heading alone is not a claim; the body must carry it.
-            continue
-    # A module named in a heading whose section body carries the claim.
+    excused_context = re.compile(
+        r'(market\s+(?:is\s+)?closed|outside\s+(?:regular\s+)?(?:sessions?|market\s+hours)|'
+        r'(?:when|while|if)\s+(?:the\s+)?market|market\s+hours|disabled|not\s+enabled|'
+        r'warm(?:ing[\s-]?up|up)|no\s+qualified|awaiting|insufficient\s+(?:history|observations|data)|'
+        r'subscription|once\s+enabled|if\s+enabled)', re.I)
+    module_pattern = re.compile(r'\b' + re.escape(module) + r'\b', re.I)
     for block in re.split(r'(?=^#+\s)', text, flags=re.M):
-        if not re.search(r'\b' + re.escape(module) + r'\b', block, re.I):
-            continue
-        if re.search(blocked_phrase, block, re.I):
-            return True
+        lines = block.splitlines()
+        heading = lines[0] if lines else ''
+        section_named = bool(re.match(r'^#+\s', heading) and module_pattern.search(heading))
+        for line in lines:
+            if not re.search(blocked_phrase, line, re.I):
+                continue
+            if excused_context.search(line):
+                continue
+            if module_pattern.search(line) or section_named:
+                return True
     return False
 
 

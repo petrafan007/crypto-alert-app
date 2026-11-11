@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from event_algo import _event_model_context, _get_crypto_spot_quote, _market_features, _market_provider_timestamp, _snapshot_model
-from services.event_market_timing import observation_time, quote_freshness, underlying_observation
+from services.event_market_timing import event_symbol_settlement, observation_time, quote_freshness, underlying_observation
 from services.webull_service import _normalise_event_snapshot, _normalise_event_market, get_webull_event_snapshots
 from services import portfolio_event_execution as handoff
 
@@ -149,3 +149,30 @@ class EventMarketTimingTests(unittest.TestCase):
         market = _normalise_event_market({'symbol': 'TEST', 'name': 'Test contract', 'underlying_price': 60000}, {})
         self.assertIsNone(market['reference_price'])
         self.assertEqual(self.normalise(underlying_price=60000, reference_price=59000)['reference_price'], 59000)
+
+
+class EventSymbolSettlementTests(unittest.TestCase):
+    """One shared parser owns every ticker form so copies cannot drift apart."""
+
+    def utc(self, value):
+        return event_symbol_settlement(value).astimezone(timezone.utc)
+
+    def test_current_format(self):
+        self.assertEqual(self.utc('KXBTC15M-26NOV110515-15'), datetime(2026, 11, 11, 10, 15, tzinfo=timezone.utc))
+
+    def test_legacy_est_format(self):
+        self.assertEqual(self.utc('KXETH15M-26NOV010100EST-00'), datetime(2026, 11, 1, 6, 0, tzinfo=timezone.utc))
+        self.assertEqual(self.utc('KXETH15M-26NOV0115EST-15'), datetime(2026, 11, 1, 20, 0, tzinfo=timezone.utc))
+
+    def test_hourly_format(self):
+        self.assertEqual(self.utc('KXINXU-26OCT21H1400-T7614.9999'), datetime(2026, 10, 21, 18, 0, tzinfo=timezone.utc))
+
+    def test_daily_format_keeps_the_evening_hour(self):
+        self.assertEqual(self.utc('KXBTCD-26SEP0323-T68899.99'), datetime(2026, 9, 4, 3, 0, tzinfo=timezone.utc))
+
+    def test_september_legacy_hour_format(self):
+        self.assertEqual(self.utc('KXETH-26SEP0400-B1652'), datetime(2026, 9, 4, 4, 0, tzinfo=timezone.utc))
+
+    def test_unparseable_symbols_return_none(self):
+        for value in (None, '', 'KXBTCD', 'KXBTCD-26SEP03', 'KXBTC15M-26NOV01010EST-00', 'garbage'):
+            self.assertIsNone(event_symbol_settlement(value), value)

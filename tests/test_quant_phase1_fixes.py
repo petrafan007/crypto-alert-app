@@ -30,7 +30,7 @@ SETTINGS = {
 
 
 def option_leg(symbol, strike, bid, ask, expiration='2026-11-05', kind='PUT',
-               delta=-0.30, size=10):
+               delta=-0.18, size=10):
     return {'symbol': symbol, 'strike': strike, 'bid': bid, 'ask': ask,
             'expiration': expiration, 'option_type': kind, 'delta': delta,
             'bid_size': size, 'ask_size': size}

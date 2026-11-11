@@ -100,6 +100,36 @@ The Equities module holds five positions with slight unrealized losses.
     def test_no_evidence_leaves_the_claim_uncheckable(self):
         check_evidence_consistency(FALSE_CLAIM, {})
 
+    def test_market_condition_and_disabled_statements_are_not_freeze_claims(self):
+        """Describing when a module may trade is not a claim of a risk freeze."""
+        text = """
+## 3.2 Options Module
+The options module cannot enter new positions while the market is closed.
+## 3.3 Equities Module
+Equities cannot trade outside regular sessions, and the module is disabled.
+## 3.4 Crypto Module
+Crypto is awaiting sufficient history during warm-up and cannot deploy capital yet.
+"""
+        evidence = evidence_fixture()
+        for module in ('equities', 'crypto'):
+            evidence['modules'][module] = {
+                'status': 'READY', 'entries_paused': False,
+                'risk_policy': {'reason': None, 'remaining_loss_allowance': 10.0,
+                                'aggregate_loss_limits_enforced': False},
+            }
+            evidence['decision_summary_24h'][module] = {
+                'evaluated': 100, 'qualified': 5, 'filled': 1, 'blocked': 0}
+        check_evidence_consistency(text, evidence)
+
+    def test_genuine_inability_claim_without_market_context_is_still_rejected(self):
+        text = ('## 3.2 Options Module\nThe options module cannot deploy capital '
+                'because its loss allowance is exhausted.')
+        evidence = evidence_fixture()
+        evidence['decision_summary_24h']['options'] = {
+            'evaluated': 325, 'qualified': 238, 'filled': 1, 'blocked': 0}
+        with self.assertRaises(IncompleteAuditError):
+            check_evidence_consistency(text, evidence)
+
 
 if __name__ == '__main__':
     unittest.main()

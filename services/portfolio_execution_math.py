@@ -6,9 +6,11 @@ other than one are explicit replay stress assumptions, not broker estimates.
 import math
 
 
-def costs(module, price, quantity, cost_multiplier=1.0):
+def costs(module, price, quantity, cost_multiplier=1.0, legs=2):
     if module == 'options':
-        return 1.30 * quantity * cost_multiplier
+        # Commission is per leg; a two-leg credit spread costs $1.30 per
+        # contract round trip entry or exit.
+        return 0.65 * legs * quantity * cost_multiplier
     if module == 'futures':
         return 1.25 * quantity * cost_multiplier
     if module == 'events':
@@ -25,7 +27,7 @@ def fill_price(module, price, side, closing=False, slippage_multiplier=1.0):
 
 def entry_quantity(module, price, budget, equity, stop=None, *, multiplier=1,
                    unit=None, max_loss=None, cost_multiplier=1.0, max_contracts=50, risk_per_unit=None,
-                   risk_cap_pct=None):
+                   risk_cap_pct=None, legs=2):
     """Quantity after caller's cash/module/position budget and optional loss cap.
 
     ``price`` is the already-slipped execution price. ``max_loss`` is the
@@ -41,7 +43,7 @@ def entry_quantity(module, price, budget, equity, stop=None, *, multiplier=1,
     unit = price * multiplier if unit is None else unit
     if unit <= 0 or budget <= 0:
         return 0
-    fee = costs(module, price, 1, cost_multiplier)
+    fee = costs(module, price, 1, cost_multiplier, legs=legs)
     quantity = budget / (unit + fee)
     if risk_per_unit is not None:
         # The loss cap is applied to the amount actually at risk, not to the

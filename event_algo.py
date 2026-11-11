@@ -24,9 +24,10 @@ from log import logger
 from sqlalchemy import select, func, case, or_
 from core.extensions import db
 from services.provider_resilience import AIRequestDeferred
-from services.event_market_timing import observation_time, quote_freshness, underlying_observation
+from services.event_market_timing import event_symbol_settlement, observation_time, quote_freshness, underlying_observation
 from services.event_settlement_timing import settlement_timing
 from services.event_risk_policy import DEFAULT_RISK_CONFIG, normalize_risk_config
+from services.event_recalibration import calibrate_market, calibration_summary, maybe_refit_calibration
 from credentials import Credential, User, UserSetting
 from event_algo_models import (
     EventContractOutcome,
@@ -44,10 +45,6 @@ from event_algo_models import (
 PAPER_MODE = "PAPER"
 ENGINE_VERSION = "3.8.6"
 MODEL_VERSION = "ai-fallback-v1"
-_EVENT_SYMBOL_MONTHS = {
-    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
-    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
-}
 # The strategy engine is an administrator-only research surface.
 EVENT_STRATEGY_ADMIN_USERNAME = os.getenv("EVENT_STRATEGY_ADMIN_USERNAME", os.getenv("ADMIN_USERNAME", "")).strip()
 
@@ -309,6 +306,11 @@ DEFAULT_SIGNAL_CONFIG = {
     "min_confidence": 0.50,
     "fee_per_contract": 0.015,
     "uncertainty_buffer": 0.01,
+    # Minimum distance between the model probability and the midpoint of the
+    # executable book being bought. A prediction that merely echoes the
+    # market midpoint has no informational edge; the apparent gross edge is
+    # just the spread, and the trade only pays fees to agree with the market.
+    "min_model_divergence": 0.03,
     "scan_interval_seconds": 60,
     # Snapshot collection is deliberately independent from AI utilization.
     "snapshot_interval_seconds": 60,
@@ -392,6 +394,7 @@ NO_TRADE_REASONS = {
     "TOO_FAR_FROM_EXPIRATION",
     "CONFIDENCE_TOO_LOW",
     "EDGE_TOO_SMALL_AFTER_FEES",
+    "MODEL_TOO_CLOSE_TO_MARKET",
     "PAPER_SIGNALS_ONLY",
     "KILL_SWITCH",
     "RISK_LIMIT",
@@ -965,42 +968,8 @@ def _utc_naive(value):
 
 def _cutoff_from_symbol(symbol):
     """Extract explicit Eastern cutoff from Webull event contract symbol and convert to UTC naive."""
-    text = str(symbol or "").strip().upper()
-    # The hourly series encodes the settlement as ``-26OCT21H1400``. Without
-    # this form the cutoff fell back to the end of the trading day, which
-    # overstates the remaining time by about ten hours and lets the engine
-    # hold a contract well past its real settlement.
-    hourly = re.search(
-        r"-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})H(\d{2})(\d{2})(?:-|$)",
-        text,
-    )
-    if hourly:
-        try:
-            year = 2000 + int(hourly.group(1))
-            month = _EVENT_SYMBOL_MONTHS.get(hourly.group(2))
-            day = int(hourly.group(3))
-            hour = int(hourly.group(4))
-            minute = int(hourly.group(5))
-            dt = datetime(year, month, day, hour, minute, tzinfo=ZoneInfo("America/New_York"))
-            return dt.astimezone(timezone.utc).replace(tzinfo=None)
-        except Exception:
-            return None
-    match = re.search(
-        r"-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:-|$)",
-        text,
-    )
-    if not match:
-        return None
-    try:
-        year = 2000 + int(match.group(1))
-        month = _EVENT_SYMBOL_MONTHS.get(match.group(2))
-        day = int(match.group(3))
-        hour = int(match.group(4))
-        minute = int(match.group(5) or 0)
-        dt = datetime(year, month, day, hour, minute, tzinfo=ZoneInfo("America/New_York"))
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
-    except Exception:
-        return None
+    end = event_symbol_settlement(symbol)
+    return end.astimezone(timezone.utc).replace(tzinfo=None) if end else None
 
 
 def _market_cutoff(market):
@@ -1172,7 +1141,7 @@ def normalize_config_payload(payload, *, user_id):
     risk = normalize_risk_config(payload.get("risk_config"))
     signal = json.loads(json.dumps(DEFAULT_SIGNAL_CONFIG))
     signal.update(payload.get("signal_config") if isinstance(payload.get("signal_config"), dict) else {})
-    for key in ("min_net_edge", "min_confidence", "fee_per_contract", "uncertainty_buffer"):
+    for key in ("min_net_edge", "min_confidence", "fee_per_contract", "uncertainty_buffer", "min_model_divergence"):
         parsed = _number(signal.get(key))
         if parsed is not None:
             signal[key] = max(0.0, min(1.0, parsed))
@@ -1223,6 +1192,7 @@ def config_to_dict(config):
         "risk_config": _json_load(config.risk_config, {}),
         "signal_config": _json_load(config.signal_config, {}),
         "ai_config": sanitize_event_ai_config(getattr(config, "ai_config", "{}")),
+        "calibration": calibration_summary(config),
         "kill_switch": bool(config.kill_switch),
         "last_run_at": config.last_run_at.isoformat() if config.last_run_at else None,
         "updated_at": config.updated_at.isoformat() if config.updated_at else None,
@@ -1950,6 +1920,16 @@ def evaluate_market(market, config, *, now=None):
     min_confidence = float(signal.get("min_confidence", DEFAULT_SIGNAL_CONFIG["min_confidence"]))
     if confidence is not None and (confidence <= 0 or confidence < min_confidence):
         reasons.append("CONFIDENCE_TOO_LOW")
+    min_divergence = float(signal.get("min_model_divergence", DEFAULT_SIGNAL_CONFIG["min_model_divergence"]))
+    divergence = None
+    if outcome and probability_yes is not None:
+        bid = yes_bid if outcome == "YES" else no_bid
+        if bid is not None and 0 <= bid < 1:
+            midpoint = (bid + executable_price) / 2
+            model_probability = probability_yes if outcome == "YES" else probability_no
+            divergence = round(abs(model_probability - midpoint), 6)
+            if divergence < min_divergence:
+                reasons.append("MODEL_TOO_CLOSE_TO_MARKET")
 
     # v2.77 is intentionally signals-only.  The future paper execution
     # adapter will consume qualified decisions after the evidence gate; this
@@ -1979,6 +1959,7 @@ def evaluate_market(market, config, *, now=None):
         "executable_price": executable_price,
         "gross_edge": gross_edge,
         "net_edge": net_edge,
+        "model_divergence": divergence,
         "opportunity_score": round(max(0.0, min(100.0, score)), 2),
         "eligible": eligible,
         "mode": PAPER_MODE,
@@ -2457,6 +2438,7 @@ def _run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="ma
                     "next_evaluation_at": evaluation.next_evaluation_at.isoformat() if evaluation and evaluation.next_evaluation_at else None,
                 }
 
+        maybe_refit_calibration(user_id, config, datetime.utcnow())
         published = set()
 
         def publish(selected):
@@ -2525,6 +2507,7 @@ def _run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="ma
                 snapshot = _snapshot_model(user_id, config.id, run.id, market, features, now)
                 db.session.add(snapshot)
                 db.session.flush()
+                calibrate_market(market, config)
                 decision = evaluate_market(market, config, now=now)
                 record = _decision_model(user_id, config.id, run.id, snapshot.id, decision, config.model_version or MODEL_VERSION)
                 db.session.add(record)

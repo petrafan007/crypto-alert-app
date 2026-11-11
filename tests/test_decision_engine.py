@@ -162,3 +162,31 @@ class DecisionEngineTests(TestCase):
                 self.client.evaluate(state={}, questions=self.questions, before_request=before)
         self.assertEqual(before.call_count, 2)
         post.assert_called_once()
+
+
+class DecisionErrorVisibilityTests(TestCase):
+    def test_http_and_network_failures_are_named_not_opaque(self):
+        self.assertIn('429', str(DecisionError('http_429')))
+        self.assertIn('rate limited', str(DecisionError('http_429')))
+        self.assertIn('503', str(DecisionError('http_503')))
+        self.assertIn('server error', str(DecisionError('http_503')))
+        self.assertIn('network', str(DecisionError('network')).lower())
+
+    def test_provider_http_failure_records_the_status_code(self):
+        DecisionClient._failures.clear()
+        client = DecisionClient('never-print-this-key')
+        with patch('services.decision_engine.requests.post', return_value=Mock(status_code=503)), \
+                patch('services.decision_engine.time.sleep'):
+            with self.assertRaises(DecisionError) as caught:
+                client.evaluate(state={}, questions=build_sentiment_questions())
+        self.assertEqual(caught.exception.code, 'http_503')
+
+    def test_fallback_helper_preserves_the_real_error_code(self):
+        from services.decision_engine import evaluate_with_fallback
+        primary = Mock(transport='subq')
+        primary.evaluate.side_effect = DecisionError('http_503')
+        fallback = Mock(transport='inception')
+        fallback.evaluate.side_effect = DecisionError('timeout')
+        with self.assertRaises(DecisionError) as caught:
+            evaluate_with_fallback(primary, fallback, state={}, questions={})
+        self.assertEqual(caught.exception.code, 'timeout')

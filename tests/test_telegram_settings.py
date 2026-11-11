@@ -30,6 +30,9 @@ class TelegramSettingsTests(unittest.TestCase):
         self.stack.enter_context(patch.object(system, 'get_user_ai_settings', return_value={}))
         self.stack.enter_context(patch.object(system, 'is_encryption_available', return_value=True))
         self.stack.enter_context(patch.object(system, 'is_persisted_key_available', return_value=True))
+        strategy_config = Mock()
+        strategy_config.query.filter_by.return_value.first.return_value = None
+        self.stack.enter_context(patch('portfolio_algo_models.PortfolioStrategyConfig', strategy_config))
 
     def call(self, method, payload=None):
         with self.app.test_request_context('/api/settings', method=method, json=payload):

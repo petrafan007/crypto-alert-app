@@ -61,6 +61,11 @@ DEFAULT_MODULE_SETTINGS = {
         "strategy": "Volatility Risk Premium 45-DTE Credit Spreads",
         "min_ivr": 40,
         "target_delta": 18,
+        # Hard ceiling on the short leg's absolute delta. A short leg near the
+        # money carries assignment risk the premium does not compensate for;
+        # ranking alone let 0.40+ delta legs through whenever they were the
+        # only quoted candidates.
+        "max_short_delta": 0.25,
         "target_dte": 45,
         "profit_target_pct": 50,
         # Maximum round-trip bid-ask cost as a fraction of the credit received.

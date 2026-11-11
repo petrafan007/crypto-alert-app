@@ -12,7 +12,7 @@ from uuid import uuid4
 from flask import Flask
 from sqlalchemy.schema import CreateSchema
 from core.extensions import db
-from event_algo_models import EventStrategyConfig as Config, EventStrategyRun as Run, EventStrategyLog as Log, EventStrategyDecision as Decision, EventStrategyAIEvaluation as Evaluation, EventMarketSnapshot as Snapshot, EventStrategyReport as Report
+from event_algo_models import EventStrategyConfig as Config, EventStrategyRun as Run, EventStrategyLog as Log, EventStrategyDecision as Decision, EventStrategyAIEvaluation as Evaluation, EventMarketSnapshot as Snapshot, EventStrategyReport as Report, EventContractOutcome
 from credentials import User, UserSetting
 from portfolio_algo_models import PortfolioStrategyConfig as PortfolioConfig, PortfolioEngineState as State, PortfolioMarketObservation as Observation
 from services.provider_resilience import ProviderState, AIRequestDeferred, AuditCancelled
@@ -33,7 +33,7 @@ class QuantitativeCompletionTests(unittest.TestCase):
         self.ctx=self.app.app_context();self.ctx.push()
         if uri.startswith('postgresql'):
             with db.engine.begin() as con: con.execute(CreateSchema(schema))
-        db.metadata.create_all(db.engine,tables=[m.__table__ for m in (User,UserSetting,Config,Run,Log,Decision,Evaluation,Snapshot,Report,PortfolioConfig,State,ProviderState,Observation)])
+        db.metadata.create_all(db.engine,tables=[m.__table__ for m in (User,UserSetting,Config,Run,Log,Decision,Evaluation,Snapshot,Report,PortfolioConfig,State,ProviderState,Observation,EventContractOutcome)])
         self.config=Config(user_id=1,name='Test',enabled=True,worker_status='RUNNING')
         db.session.add(self.config);db.session.commit()
         self.now=datetime.utcnow()

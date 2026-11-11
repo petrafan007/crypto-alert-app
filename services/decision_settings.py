@@ -8,6 +8,7 @@ The Decision Engine is provider neutral. Two providers are supported:
 Settings live on ``user_settings`` under ``decision_*`` columns and the
 provider API key lives in ``credentials``.
 """
+import json
 import math
 import os
 from urllib.parse import urlsplit
@@ -24,7 +25,7 @@ DEFAULTS = {
     'decision_transport': 'subq',
     'decision_model': SUBQ_MODEL,
     'decision_endpoint': SUBQ_ENDPOINT,
-    'decision_timeout_seconds': 3.0,
+    'decision_timeout_seconds': 8.0,
     'decision_confidence_threshold': 0.8,
     'decision_conflict_threshold': 0.5,
     'decision_sentiment_mode': 'first',
@@ -94,18 +95,53 @@ def validate_settings(data):
     return values
 
 
-def key_for_transport(credential, transport):
+def _inception_tier_key(master_ai_config):
+    """The Inception key saved in the dedicated audit cascade.
+
+    The Mercury audit tiers store their own encrypted keys, so a user who
+    configured Inception only there has no key in the credential columns.
+    Mercury Decide shares that same key.
+    """
+    if isinstance(master_ai_config, str):
+        try:
+            master_ai_config = json.loads(master_ai_config)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(master_ai_config, dict):
+        return None
+    from credential_security import decrypt_secret
+    for name in ('primary', 'secondary', 'tertiary', 'quaternary'):
+        tier = master_ai_config.get(name)
+        if (isinstance(tier, dict)
+                and str(tier.get('provider') or '').strip().lower() == 'inception'
+                and tier.get('api_key')):
+            key = decrypt_secret(tier['api_key'])
+            if key and key != '********':
+                return key
+    return None
+
+
+def key_for_transport(credential, transport, master_ai_config=None):
     """The API key for a decision transport.
 
-    Inception uses one key for both chat completions and Mercury Decide, so a
-    dedicated decisions key is optional: the general Inception key is used
-    when no dedicated one is saved.
+    Inception uses one key for chat completions and Mercury Decide, so a
+    dedicated decisions key is optional. Resolution follows the same sources
+    the Mercury audit cascade uses: the dedicated audit-tier key, then the
+    general credential key and its fallback variants.
     """
     if transport == 'inception':
         dedicated = getattr(credential, 'inception_decisions_key', None) if credential else None
         if dedicated and dedicated != '********':
             return dedicated
-        return getattr(credential, 'inception_key', None) if credential else None
+        tier_key = _inception_tier_key(master_ai_config)
+        if tier_key:
+            return tier_key
+        for field in ('inception_key', 'inception_key_fallback',
+                      'inception_key_tertiary', 'inception_key_quaternary'):
+            value = getattr(credential, field, None) if credential else None
+            if value and value != '********':
+                return value
+        return None
     field = {'subq': 'subq_api_key'}.get(transport)
     return getattr(credential, field, None) if credential and field else None
 

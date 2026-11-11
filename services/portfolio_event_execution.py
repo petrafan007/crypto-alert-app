@@ -7,17 +7,24 @@ scan's lease is deliberately untouched; no Event operation submits a broker orde
 import json
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from core.extensions import db
 from event_algo_models import EventMarketSnapshot, EventStrategyConfig, EventStrategyDecision, EventStrategyRun
 from services import portfolio_engine as engine
-from services.event_market_timing import quote_freshness
+from services.event_market_timing import event_symbol_settlement, quote_freshness
 
 logger = logging.getLogger(__name__)
 _ACTIVE = set()
 _ACTIVE_LOCK = threading.Lock()
 DECISION_TTL_SECONDS = 120
+# A contract whose settlement cannot be confirmed must not hold an entry slot
+# forever: the EST-ticker parser defect once froze the whole Event module for
+# ten days behind three expired lots. Overdue lots raise an alarm; lots still
+# unconfirmed after the timeout close at their last verified mark, flagged so
+# research can separate them from provider-confirmed settlements.
+SETTLEMENT_OVERDUE_SECONDS = 6 * 3600
+SETTLEMENT_TIMEOUT_SECONDS = 72 * 3600
 
 
 def disposition(decision, generation):
@@ -236,9 +243,13 @@ def _consume(user_id, *, decision_ids, quote_loader):
         settings = engine.settings_for(cfg)['events']
         engine.balances(acc, state, user_id)
         held = engine.check_circuit(cfg, acc, state) or not cfg.enabled or not settings['enabled'] or not event_cfg or not event_cfg.enabled or event_cfg.kill_switch or event_cfg.mode != 'PAPER'
+        existing = engine.Lot.query.filter_by(user_id=user_id, generation=generation,
+            signal_key=f'events:{decision.contract_symbol}').first()
         assessment = None
         if held:
             status, reason = 'HELD', 'Controls changed during quote refresh; entry held.'
+        elif existing:
+            status, reason = 'REJECTED', 'Contract already consumed by the paper ledger.'
         elif quote_error:
             status, reason = 'REJECTED', 'Fresh provider quote unavailable: ' + quote_error
         elif (now - quote_started).total_seconds() > DECISION_TTL_SECONDS:
@@ -295,8 +306,9 @@ def _consume(user_id, *, decision_ids, quote_loader):
     for lot in engine.current_lots(user_id, state):
         if lot.module != 'events':
             continue
+        details = engine.loads(lot.details_json, {})
         try:
-            price, reason = engine.mark_event(user_id, engine.loads(lot.details_json, {}), now)
+            price, reason = engine.mark_event(user_id, details, now)
             position = db.session.get(engine.Position, lot.position_id)
             ledger_changed = ledger_changed or position.market_price != price or bool(reason)
             engine.mark_position(position, lot, price)
@@ -304,6 +316,22 @@ def _consume(user_id, *, decision_ids, quote_loader):
                 engine.close_lot(acc, lot, price, reason, now)
         except ValueError as exc:
             messages.append(f'Lot {lot.id}: {exc}')
+            cutoff = event_symbol_settlement(details.get('contract_symbol'))
+            if cutoff is None:
+                continue
+            overdue = (now - cutoff.astimezone(timezone.utc).replace(tzinfo=None)).total_seconds()
+            if overdue > SETTLEMENT_TIMEOUT_SECONDS:
+                position = db.session.get(engine.Position, lot.position_id)
+                details['settlement_timeout'] = True
+                lot.details_json = json.dumps(details)
+                engine.close_lot(acc, lot, position.market_price, 'SETTLEMENT_TIMEOUT', now)
+                ledger_changed = True
+                engine._record_portfolio_log(user_id, 'EVENT_SETTLEMENT_TIMEOUT',
+                    f"{details.get('contract_symbol')}: closed at last mark {int(overdue // 3600)}h after cutoff "
+                    'without provider-confirmed settlement.', module='events', generation=generation)
+                messages.append(f'Lot {lot.id}: SETTLEMENT_TIMEOUT; released at last verified mark, flagged for review.')
+            elif overdue > SETTLEMENT_OVERDUE_SECONDS:
+                messages.append(f'Lot {lot.id}: settlement overdue {int(overdue // 3600)}h past cutoff; awaiting provider confirmation.')
     engine.balances(acc, state, user_id)
     engine.check_circuit(cfg, acc, state)
     event_cfg = EventStrategyConfig.query.filter_by(user_id=user_id).first()
@@ -326,13 +354,27 @@ def _consume(user_id, *, decision_ids, quote_loader):
     # the window are retained only in the lifetime counters, so a reader can
     # never mistake a three-week-old rejection for a current one.
     window_start = now - timedelta(hours=24)
-    history = [row for row in (previous.get('handoff_dispositions', []) + processed)
-               if row.get('recorded_at') and row['recorded_at'] >= window_start.isoformat() + 'Z']
-    counts = previous.get('handoff_counts_24h', {})
+
+    def in_window(row):
+        stamp = row.get('recorded_at')
+        if not stamp:
+            return False
+        try:
+            recorded = datetime.fromisoformat(str(stamp).replace('Z', '+00:00')).replace(tzinfo=None)
+        except ValueError:
+            return False
+        return recorded >= window_start
+
+    history = [row for row in (previous.get('handoff_dispositions', []) + processed) if in_window(row)]
+    # Recomputed from the pruned window every pass. A carried-forward counter
+    # silently becomes a lifetime counter, which is exactly the mislabeling
+    # the audit evidence rules forbid.
+    counts = {}
+    for row in history:
+        counts[row['status']] = counts.get(row['status'], 0) + 1
     lifetime = previous.get('handoff_counts_lifetime', {})
     for item in processed:
         status = item['status']
-        counts[status] = counts.get(status, 0) + 1
         lifetime[status] = lifetime.get(status, 0) + 1
     telemetry['events'] = {**previous, 'status': status, 'messages': [message] + messages,
         'consumer_heartbeat_at': now.isoformat() + 'Z', 'execution_path': 'INDEPENDENT_EVENT_HANDOFF',

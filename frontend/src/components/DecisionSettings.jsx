@@ -20,7 +20,7 @@ const PROVIDERS = {
 export const DECISION_DEFAULTS = {
   subq_api_key: '', inception_decisions_key: '',
   decision_enabled: false, decision_transport: 'subq', decision_model: 'subq-snap-1.1',
-  decision_endpoint: 'https://api.subq.ai/v1/systemone', decision_timeout_seconds: 3,
+  decision_endpoint: 'https://api.subq.ai/v1/systemone', decision_timeout_seconds: 8,
   decision_confidence_threshold: 0.8, decision_conflict_threshold: 0.5,
   decision_sentiment_mode: 'first', decision_quant_enabled: false,
 };
@@ -111,6 +111,7 @@ export default function DecisionSettings({ settings, onChange }) {
     <div className="settings-form-group"><label htmlFor="decision-subq-key">{providerLabel} API key</label>
       <input id="decision-subq-key" type="password" autoComplete="new-password" value={value(keyField)} onChange={e => onChange(keyField, e.target.value)} placeholder={`Enter your ${providerLabel} API key`} />
       <p className="settings-form-help">Encrypted when saved. The mask preserves your saved key; clear the field and save to remove it.</p>
+      {transport === 'inception' && <p className="settings-form-help">A dedicated key is optional: Mercury Decide uses the same Inception key as the Mercury audit cascade when no dedicated Decisions key is saved.</p>}
       <p className="settings-form-help">Decision state and instructions are sent to {provider.label}. Stored decisions follow {provider.label}’s data-retention policy.</p>
     </div>
     <div className="settings-form-group"><label htmlFor="decision-sentiment">Sentiment mode</label>

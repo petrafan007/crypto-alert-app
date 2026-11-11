@@ -4,7 +4,7 @@ import base64
 import hashlib
 import hmac
 import math
-from services.event_market_timing import normalise_quote_times
+from services.event_market_timing import EVENT_SYMBOL_HOURLY, event_symbol_settlement, normalise_quote_times
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -1438,84 +1438,30 @@ def _event_time_sort_value(value, *, end_of_day=False):
         return 0.0
 
 
-_EVENT_SYMBOL_MONTHS = {
-    'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
-    'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12,
-}
-
-
 def _event_symbol_interval(value):
     """Parse a Webull Event symbol into an explicit Eastern interval."""
     symbol = str(value or '').strip().upper()
+    end = event_symbol_settlement(symbol)
+    if end is None:
+        return None
     is_15m = bool(re.search(r'(?:^|-)[A-Z0-9]*15M-', symbol))
-    # The hourly series encodes its settlement as ``-26OCT21H1400``. Without
-    # this form the interval fell back to the end of the trading day.
-    hourly = re.search(
-        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})H(\d{2})(\d{2})(?:-|$)',
-        symbol,
-    )
-    if hourly:
-        try:
-            end = datetime(
-                2000 + int(hourly.group(1)),
-                _EVENT_SYMBOL_MONTHS[hourly.group(2)],
-                int(hourly.group(3)),
-                int(hourly.group(4)),
-                int(hourly.group(5)),
-                tzinfo=ZoneInfo('America/New_York'),
-            )
-            start = end - timedelta(minutes=60)
-            return {'start': start, 'end': end, 'minutes': 60}
-        except (KeyError, ValueError):
-            return None
-    match = re.search(
-        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:-|$)',
-        symbol,
-    )
-    if not match:
-        return None
-    try:
-        end = datetime(
-            2000 + int(match.group(1)),
-            _EVENT_SYMBOL_MONTHS[match.group(2)],
-            int(match.group(3)),
-            int(match.group(4)),
-            int(match.group(5) or 0),
-            tzinfo=ZoneInfo('America/New_York'),
-        )
-        minutes = 15 if is_15m else (60 if bool(re.search(r'(?:^|-)[A-Z0-9]*(?:1H|H)-', symbol)) else 1440)
-        start = end - timedelta(minutes=minutes)
-        return {
-            'start': start,
-            'end': end,
-            'minutes': minutes,
-        }
-    except (KeyError, ValueError):
-        return None
+    if EVENT_SYMBOL_HOURLY.search(symbol):
+        minutes = 60
+    elif is_15m:
+        minutes = 15
+    else:
+        minutes = 60 if bool(re.search(r'(?:^|-)[A-Z0-9]*(?:1H|H)-', symbol)) else 1440
+    return {
+        'start': end - timedelta(minutes=minutes),
+        'end': end,
+        'minutes': minutes,
+    }
 
 
 def _event_symbol_cutoff(value):
     """Parse Webull's explicit Event-symbol cutoff in Eastern time."""
-    interval = _event_symbol_interval(value)
-    if interval:
-        return interval['end'].timestamp()
-    match = re.search(
-        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:-|$)',
-        str(value or '').strip().upper(),
-    )
-    if not match:
-        return 0.0
-    try:
-        return datetime(
-            2000 + int(match.group(1)),
-            _EVENT_SYMBOL_MONTHS[match.group(2)],
-            int(match.group(3)),
-            int(match.group(4)),
-            int(match.group(5) or 0),
-            tzinfo=ZoneInfo('America/New_York'),
-        ).timestamp()
-    except (KeyError, ValueError):
-        return 0.0
+    end = event_symbol_settlement(value)
+    return end.timestamp() if end else 0.0
 
 
 def _event_market_cutoff_value(market):

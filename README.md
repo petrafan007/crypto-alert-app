@@ -1,8 +1,18 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.13.9
+**Version:** 4.14.0
 
 ## Recent Updates
+
+### v4.14.0
+* **Quantitative Strategy Engine: Full Audit Remediation — Entry Quality, Event Calibration, Decision Engine & Review Reliability.** This release implements every finding of the October 2026 engine audit so the paper engine trades with purpose instead of noise. No drawdown circuit or portfolio halt was added; confirmed setups keep full access to capital.
+  * **Entry-Quality Gates Across Modules:** Options credit-spread direction now requires a 20-session underlying trend outside a ±2% confirmation band (flat tapes no longer manufacture a direction), and the short leg's absolute delta is hard-capped (default 0.25, configurable). Crypto Donchian breakouts must also clear a 20-hour trend average and an ATR noise floor (hourly range ≥ 0.25% of price). Equity rotation and pullback setups require the benchmark above its 50-session average. Any non-Event symbol that is stopped out sits out a 24-hour cooldown before that module may re-enter it, and the close reason is archived on the lot.
+  * **Event Quality & Isotonic Calibration:** Event entries require a fee-aware net edge and a model probability that diverges from the executable market midpoint by at least the saved minimum (default 3 points), rejecting trades that merely echo the market. With 50+ resolved outcomes, an isotonic calibration map refits at most every six hours and is applied before evaluation; every decision archives raw and calibrated probabilities with the map version. Stuck settlements now escalate on a visible alarm schedule, and event ticker cutoffs parse EST correctly (historical rows backfilled).
+  * **Decision Engine:** The Inception Decide transport resolves the saved Mercury-3 audit-tier Inception key (the dedicated decisions key stays optional), provider errors are surfaced with detail instead of silent abstains, and the stored decision/JEV timeout default rose from 3s to 8s so a slow tier is not cut off mid-response.
+  * **Daily Strategy Review:** The AI request ceiling defaults to three and accepts one through six requests per day. Review evidence now links each recent decision to the realized P&L and close time of the exact lot it opened, so outcomes are attributable to the features that produced the trade.
+  * **Daily IV Reliability:** A failed close-window IV job gets exactly one bounded retry while its captures survive and the target DTE is unchanged; missed close windows from the last seven sessions with captured option quotes are caught up automatically (one window per minute). Absence of data is still never an importable day.
+  * **Accounting & Validation Fixes:** Options commissions are charged per leg; the audit validator no longer narrows measured evidence; wipeout labeling distinguishes total loss from ordinary loss; event handoff telemetry records sizing and quote revalidation with a TOCTOU-safe handoff.
+  * **Verification:** The shared-capital replay was re-run end-to-end on a live archive slice with the fixed engine (all six stress scenarios, honest held-out losses), and new regression suites cover every gate. Full-archive replay remains bounded by the existing 128 MiB dataset cap.
 
 ### v4.13.9
 * **Pending Orders & Active Triggers: Restore Row Hover Tooltip Box Across Portfolio and Watchlist.**

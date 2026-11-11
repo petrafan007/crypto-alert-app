@@ -14,6 +14,12 @@ def evaluator_for(user_id):
     return 'decision'
 
 
+def _master_ai_config(user_id):
+    from portfolio_algo_models import PortfolioStrategyConfig
+    row = db.session.query(PortfolioStrategyConfig).filter_by(user_id=user_id).first()
+    return row.master_ai_config if row else None
+
+
 def forecast_identity_for(user_id):
     mode = evaluator_for(user_id)
     if mode == 'decision':
@@ -36,15 +42,15 @@ def build_questions(markets, user_id=None):
     return questions
 
 
-def _clients(settings, credential):
+def _clients(settings, credential, master_ai_config=None):
     transport = settings.get('decision_transport', 'subq')
-    key = key_for_transport(credential, transport)
+    key = key_for_transport(credential, transport, master_ai_config)
     clients = []
     if key and key != '********':
         clients.append(DecisionClient(key, settings['decision_endpoint'], settings['decision_model'],
                                       settings['decision_timeout_seconds'], transport=transport))
     other = 'inception' if transport == 'subq' else 'subq'
-    other_key = key_for_transport(credential, other)
+    other_key = key_for_transport(credential, other, master_ai_config)
     if other_key and other_key != '********':
         from services.decision_settings import (
             INCEPTION_DECISIONS_ENDPOINT, INCEPTION_DECISIONS_MODEL, SUBQ_ENDPOINT, SUBQ_MODEL,
@@ -85,7 +91,7 @@ def predict(user_id, markets, config, guard):
         guard()
         reserve_provider_call(user_id)  # charge every actual transport attempt, including retry
 
-    clients = _clients(settings, credential)
+    clients = _clients(settings, credential, _master_ai_config(user_id))
     if not clients:
         return {market['symbol']: {'metadata': {**metadata, 'status': 'error',
             'error_code': 'missing_key',

@@ -30,7 +30,7 @@ def saved_or_supplied(value, credential, field):
     return value
 
 
-def decision_credential_status(credential):
+def decision_credential_status(credential, master_ai_config=None):
     """Confirm usable stored values without returning keys or key fingerprints."""
     values = {}
     for field in ('ai_gateway_key', 'openrouter_api_key', 'subq_api_key', 'inception_decisions_key'):
@@ -38,4 +38,16 @@ def decision_credential_status(credential):
         configured = bool(value and value.strip() and value.strip() != MASK)
         values[field] = MASK if configured else ''
         values[field + '_configured'] = configured
+    if not values['inception_decisions_key_configured']:
+        # Mercury Decide shares the general Inception key, including the one
+        # saved in the dedicated audit cascade, so readiness must reflect it.
+        from services.decision_settings import key_for_transport
+        shared = key_for_transport(credential, 'inception', master_ai_config)
+        values['inception_decisions_key_configured'] = bool(shared and shared != MASK)
     return values
+
+
+def decision_status_for_user(user_id, credential):
+    from portfolio_algo_models import PortfolioStrategyConfig
+    row = PortfolioStrategyConfig.query.filter_by(user_id=user_id).first()
+    return decision_credential_status(credential, row.master_ai_config if row else None)

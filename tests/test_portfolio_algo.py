@@ -338,6 +338,107 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertEqual(row['market_value'], lot.collateral)
         self.assertEqual(row['cost_basis'], lot.collateral)
 
+    def test_zero_quantity_rejection_names_the_risk_cap(self):
+        """A wide spread sized to zero by the per-trade loss cap must say so.
+
+        The opaque 'cannot fund the minimum trade quantity' rejection hid
+        which constraint was binding and made the sizing fault unobservable.
+        """
+        rejections = []
+        lot = self.entry(module='options', price=.55, stop=None, margin=100,
+                         details={'max_loss': 900.0}, rejections=rejections)
+        self.assertIsNone(lot)
+        self.assertTrue(rejections[0].startswith('Per-trade risk cap'), rejections)
+
+    def test_zero_quantity_rejection_names_the_budget(self):
+        rejections = []
+        lot = self.entry(module='equities', price=100000, stop=None, rejections=rejections)
+        self.assertIsNone(lot)
+        self.assertTrue(rejections[0].startswith('Module budget cannot fund one unit'), rejections)
+
+    def test_stop_loss_exit_records_the_close_reason(self):
+        now = datetime.utcnow()
+        lot = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'COOL',
+                          {'side': 'LONG', 'stop': 95}, 100, now)
+        self.assertIsNotNone(lot)
+        e.close_lot(self.acc, lot, 94, 'STOP_LOSS', now)
+        db.session.commit()
+        self.assertEqual(json.loads(lot.details_json)['close_reason'], 'STOP_LOSS')
+
+    def test_a_stopped_symbol_is_on_cooldown_for_24_hours(self):
+        now = datetime.utcnow()
+        lot = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'COOL',
+                          {'side': 'LONG', 'stop': 95}, 100, now)
+        e.close_lot(self.acc, lot, 94, 'STOP_LOSS', now)
+        db.session.commit()
+        rejections = []
+        again = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'COOL',
+                            {'side': 'LONG', 'stop': 95}, 100, now + timedelta(hours=1),
+                            key='equities:COOL:retest', rejections=rejections)
+        self.assertIsNone(again)
+        self.assertIn('cooldown', rejections[0])
+
+    def test_the_cooldown_expires_after_24_hours(self):
+        now = datetime.utcnow()
+        lot = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'COOL',
+                          {'side': 'LONG', 'stop': 95}, 100, now)
+        e.close_lot(self.acc, lot, 94, 'STOP_LOSS', now)
+        db.session.commit()
+        again = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'COOL',
+                            {'side': 'LONG', 'stop': 95}, 100, now + timedelta(hours=25),
+                            key='equities:COOL:next-day')
+        self.assertIsNotNone(again)
+
+    def test_a_profit_target_exit_does_not_start_a_cooldown(self):
+        now = datetime.utcnow()
+        lot = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'COOL',
+                          {'side': 'LONG', 'stop': 95}, 100, now)
+        e.close_lot(self.acc, lot, 110, 'PROFIT_TARGET', now)
+        db.session.commit()
+        again = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'COOL',
+                            {'side': 'LONG', 'stop': 95}, 100, now + timedelta(hours=1),
+                            key='equities:COOL:retest')
+        self.assertIsNotNone(again)
+
+    def test_the_cooldown_is_per_symbol(self):
+        now = datetime.utcnow()
+        lot = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'COOL',
+                          {'side': 'LONG', 'stop': 95}, 100, now)
+        e.close_lot(self.acc, lot, 94, 'STOP_LOSS', now)
+        db.session.commit()
+        other = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'OTHER',
+                            {'side': 'LONG', 'stop': 95}, 100, now + timedelta(hours=1))
+        self.assertIsNotNone(other)
+
+    def test_a_fresh_generation_is_not_haunted_by_old_stops(self):
+        now = datetime.utcnow()
+        lot = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'COOL',
+                          {'side': 'LONG', 'stop': 95}, 100, now)
+        e.close_lot(self.acc, lot, 94, 'STOP_LOSS', now)
+        self.state.generation += 1
+        db.session.commit()
+        again = e.enter_lot(self.cfg, self.acc, self.state, 'equities', 'COOL',
+                            {'side': 'LONG', 'stop': 95}, 100, now + timedelta(hours=1),
+                            key='equities:COOL:new-generation')
+        self.assertIsNotNone(again)
+
+    def test_events_are_exempt_from_the_cooldown(self):
+        from event_algo import get_or_create_config
+        get_or_create_config(self.user_id).enabled = True
+        db.session.flush()
+        now = datetime.utcnow()
+        signal = {'enter': True, 'side': 'LONG'}
+        details = {'contract_symbol': 'EVENT-COOL', 'outcome': 'YES'}
+        lot = e.enter_lot(self.cfg, self.acc, self.state, 'events', 'EVENT-COOL',
+                          signal, .4, now, details=details, key='events:EVENT-COOL')
+        self.assertIsNotNone(lot)
+        e.close_lot(self.acc, lot, .1, 'STOP_LOSS', now)
+        db.session.commit()
+        again = e.enter_lot(self.cfg, self.acc, self.state, 'events', 'EVENT-COOL',
+                            signal, .4, now + timedelta(hours=1),
+                            details=details, key='events:EVENT-COOL:retest')
+        self.assertIsNotNone(again)
+
     def test_start_and_save_with_legacy_specialist_prompts(self):
         settings = e.settings_for(self.cfg)
         for module, values in settings.items():
@@ -755,7 +856,9 @@ class PortfolioLedgerTests(unittest.TestCase):
         db.session.commit()
         closes = [100+i*.4 for i in range(198)]+[168, 163]
         bars = [{'high': c+1, 'low': c-1, 'close': c} for c in closes]
-        benchmark = [{'high': 101, 'low': 99, 'close': 100} for _ in range(200)]
+        # The benchmark must confirm a bullish regime for any long entry, and
+        # it rises faster than NVDA here so the pullback path is the qualifier.
+        benchmark = [{'high': 101+i*.2, 'low': 99+i*.2, 'close': 100+i*.2} for i in range(200)]
         data = MagicMock()
         data.quote.return_value = 164
         data.bars.side_effect = lambda symbol, *args, **kwargs: benchmark if symbol=='SPY' else bars

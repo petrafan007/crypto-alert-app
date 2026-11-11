@@ -296,7 +296,9 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                 <p style={{ marginBottom: '16px', lineHeight: '1.7' }}>
                     The module buys when a stock is above its long-term SMA and showing positive relative momentum
                     against its benchmark, but has temporarily pulled back to an oversold RSI reading and touched
-                    the lower Bollinger Band. It exits when price breaks below the SMA or RSI becomes overbought.
+                    the lower Bollinger Band. Both the rotation and pullback setups also require the benchmark
+                    itself to be above its 50-session average — long entries are blocked in a bear index regime.
+                    It exits when price breaks below the SMA or RSI becomes overbought.
                 </p>
                 <SubHeading>Key Settings</SubHeading>
                 <ul style={{ paddingLeft: '20px', lineHeight: '2.2' }}>
@@ -320,10 +322,13 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                     The module scans live option chains for short legs at a target delta and paired long legs that
                     create a defined-risk spread. It only enters when Implied Volatility Rank (IVR) exceeds a minimum
                     threshold, ensuring premium is elevated. Contracts must have 20–65 days to expiration.
+                    Spread direction follows the underlying's 20-session trend, but only once that trend clears a
+                    ±2% confirmation band; inside the band the trend is treated as noise and no direction is taken.
                 </p>
                 <SubHeading>Key Settings</SubHeading>
                 <ul style={{ paddingLeft: '20px', lineHeight: '2.2' }}>
                     <li><SettingTag>target_delta</SettingTag> — the absolute delta of the short leg (e.g., 16 = 0.16 delta).</li>
+                    <li><SettingTag>max_short_delta</SettingTag> — hard ceiling on the short leg's absolute delta (default 0.25). Higher-delta shorts carry assignment risk and are never selected.</li>
                     <li><SettingTag>target_dte</SettingTag> — ideal days-to-expiration; the engine selects the spread closest to this target.</li>
                     <li><SettingTag>min_ivr</SettingTag> — minimum IV Rank required to enter a new spread position.</li>
                 </ul>
@@ -332,6 +337,8 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                     <em>|delta - target_delta|</em>, and spread width. Only quoted contracts with provider-supplied
                     Greeks are eligible; contracts with a missing or TBD condition are excluded.
                     IV rank also requires 252 compatible measured daily ATM observations with a non-flat range.
+                    A symbol stopped out of any non-Event module sits out a 24-hour cooldown before that module
+                    may re-enter it.
                 </Note>
             </Section>
 
@@ -342,7 +349,9 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                 </p>
                 <p style={{ marginBottom: '16px', lineHeight: '1.7' }}>
                     The module enters a long position when the live price breaks above the highest high of the entry
-                    channel and Bitcoin dominance confirms a risk-on regime. It exits when price breaks below the
+                    channel and Bitcoin dominance confirms a risk-on regime. The breakout must also clear a 20-hour
+                    trend average and an ATR noise floor (hourly range of at least 0.25% of price), so flat-tape
+                    wicks and breakouts against the trend are not traded. It exits when price breaks below the
                     lowest low of the exit channel. An ATR-based trailing stop is calculated on entry.
                 </p>
                 <SubHeading>Key Settings</SubHeading>
@@ -385,13 +394,15 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                 </p>
                 <p style={{ marginBottom: '16px', lineHeight: '1.7' }}>
                     The independent Event consumer revalidates forecast age, cutoff, confidence, net edge after fees,
-                    spread and saved risk limits before entering the shared paper ledger. Missing or stale evidence
-                    blocks entry. Expired positions remain open until an explicit provider settlement is observed.
+                    model-vs-market divergence, spread and saved risk limits before entering the shared paper ledger.
+                    Missing or stale evidence blocks entry. Expired positions raise an alarm after six hours and, if
+                    settlement is still unconfirmed after 72 hours, close at their last verified mark with a flag.
                 </p>
                 <SubHeading>Key Settings</SubHeading>
                 <ul style={{ paddingLeft: '20px', lineHeight: '2.2' }}>
                     <li><SettingTag>min_confidence</SettingTag> — required forecast confidence.</li>
                     <li><SettingTag>min_net_edge</SettingTag> — required modeled edge after fees and uncertainty allowance.</li>
+                    <li><SettingTag>min_model_divergence</SettingTag> — minimum distance between the model probability and the executable book midpoint (default 0.03). A forecast that only echoes the market is not traded.</li>
                 </ul>
             </Section>
 

@@ -28,6 +28,10 @@ NOW = datetime(2026, 11, 2, 15, tzinfo=timezone.utc)
 SETTINGS = {
     'min_ivr': 40, 'target_delta': 18, 'target_dte': 45, 'profit_target_pct': 50,
     'max_friction_ratio': 0.50, 'max_break_even_win_rate': 0.80, 'max_loss_ratio': 0.75,
+    # These tests pin the width and friction geometry, so the delta ceiling
+    # is raised to its configurable maximum to keep it out of the way. The
+    # shipped 0.25 default is exercised by ShortDeltaGateTests below.
+    'max_short_delta': 0.50,
 }
 
 # strike, bid, ask, delta - the live NVDA 2026-11-27 CALL ladder
@@ -160,6 +164,61 @@ class FrictionCeilingTests(unittest.TestCase):
         low, high, _ = LIMITS['options']['max_friction_ratio']
         from portfolio_algo_models import DEFAULT_MODULE_SETTINGS
         self.assertTrue(low <= DEFAULT_MODULE_SETTINGS['options']['max_friction_ratio'] <= high)
+
+
+class ShortDeltaGateTests(unittest.TestCase):
+    """The short leg must sit below the hard delta ceiling.
+
+    A short option above roughly 0.25 delta carries meaningful assignment
+    risk and behaves like a directional bet, not a premium-selling spread.
+    The gate is absolute-delta based, so it binds PUT shorts as well.
+    """
+
+    def _default_settings(self):
+        return {key: value for key, value in SETTINGS.items() if key != 'max_short_delta'}
+
+    def test_the_shipped_default_is_a_quarter_delta(self):
+        from portfolio_algo_models import DEFAULT_MODULE_SETTINGS
+        self.assertEqual(DEFAULT_MODULE_SETTINGS['options']['max_short_delta'], 0.25)
+
+    def test_the_default_is_inside_the_configurable_range(self):
+        from services.portfolio_engine import LIMITS
+        from portfolio_algo_models import DEFAULT_MODULE_SETTINGS
+        low, high, _ = LIMITS['options']['max_short_delta']
+        self.assertTrue(low <= DEFAULT_MODULE_SETTINGS['options']['max_short_delta'] <= high)
+
+    def test_the_profitable_nvda_spreads_all_short_above_the_ceiling(self):
+        """On the live ladder only the 230-short spreads clear break-even.
+
+        Their 0.4165 delta is above the ceiling, and the low-delta spreads
+        (245/250 credit 0.74 on a $5 width) cannot clear the break-even
+        gate. The engine must decline to trade rather than take either.
+        """
+        with self.assertRaises(ValueError):
+            select_credit_spread(ladder(NVDA_CALL_LADDER), 220.0, 50,
+                                 self._default_settings(), NOW,
+                                 allow_warmup=True, preferred_kind='CALL')
+
+    def test_a_low_delta_short_is_preferred_over_a_high_delta_one(self):
+        # 245/250 carries a 1.62 credit (break-even 0.76) at 0.2126 delta;
+        # 230/235 is equally narrow but its short is at 0.4165 delta.
+        rows = [(230.0, 7.10, 7.30, 0.4165), (235.0, 5.30, 5.45, 0.3423),
+                (245.0, 2.72, 2.85, 0.2126), (250.0, 1.00, 1.10, 0.1607)]
+        spread = select_credit_spread(ladder(rows), 220.0, 50,
+                                      self._default_settings(), NOW,
+                                      allow_warmup=True, preferred_kind='CALL')
+        self.assertEqual(spread['short']['strike'], 245.0)
+        self.assertEqual(spread['long']['strike'], 250.0)
+        self.assertLessEqual(abs(spread['short']['delta']), 0.25)
+
+    def test_a_put_short_is_gated_on_absolute_delta(self):
+        # Same geometry as the profitable 230/235 call spread, mirrored as
+        # puts below the price. Without the gate this spread would qualify.
+        rows = [(210.0, 7.10, 7.30, -0.4165), (205.0, 5.30, 5.45, -0.3423)]
+        with self.assertRaises(ValueError):
+            select_credit_spread(ladder(rows, 'PUT'), 220.0, 50,
+                                 self._default_settings(), NOW,
+                                 allow_warmup=True, preferred_kind='PUT')
 
 
 if __name__ == '__main__':

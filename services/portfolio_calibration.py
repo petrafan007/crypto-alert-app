@@ -83,7 +83,7 @@ def _calibration_breakdowns(chosen, groups):
     return breakdowns
 
 
-def summarize_event_calibration(rows):
+def select_calibration_samples(rows):
     """One earliest valid pre-cutoff forecast per contract; never count repeats as trials."""
     exclusions, chosen, groups = Counter(), {}, {}
     for row in sorted(rows, key=lambda r: str(r.get('predicted_at') or '')):
@@ -120,6 +120,12 @@ def summarize_event_calibration(rows):
             pass
         chosen[contract] = (probability, int(row['result'] == 'YES'), market_probability)
         groups[contract] = _forecast_groups(row)
+    return chosen, groups, exclusions
+
+
+def summarize_event_calibration(rows):
+    """One earliest valid pre-cutoff forecast per contract; never count repeats as trials."""
+    chosen, groups, exclusions = select_calibration_samples(rows)
     return {
         **_calibration_metrics(list(chosen.values())), 'exclusions': dict(exclusions),
         'breakdowns': _calibration_breakdowns(chosen, groups),
@@ -129,8 +135,8 @@ def summarize_event_calibration(rows):
     }
 
 
-def event_calibration(user_id, started_at, limit=10000):
-    """Cap distinct eligible contracts, not repeated joined forecast rows."""
+def resolved_forecast_rows(user_id, started_at, limit=10000):
+    """Bounded forecast/outcome rows: earliest valid forecast per resolved contract."""
     from event_algo_models import EventStrategyDecision as Decision, EventMarketSnapshot as Market, EventContractOutcome as Outcome
     from core.extensions import db
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
@@ -183,11 +189,24 @@ def event_calibration(user_id, started_at, limit=10000):
             saved = metadata.get(row['decision_id'])
             row.update(feature_json=saved.feature_json if saved else None,
                        model_version=saved.model_version if saved else None)
-    result = summarize_event_calibration(rows)
     # Aggregate diagnostics in SQL: reporting exclusions must not require loading
     # every repeated forecast or applying the sample cap to the raw evidence.
     counts = (db.session.query(joined.c.exclusion, func.count(), func.count(func.distinct(joined.c.contract)))
               .group_by(joined.c.exclusion).all())
+    return rows, counts, len(entries) > limit
+
+
+def calibration_samples(user_id, started_at, limit=10000):
+    """(probability, outcome) pairs for recalibration, one per resolved contract."""
+    rows, _, _ = resolved_forecast_rows(user_id, started_at, limit)
+    chosen, _, _ = select_calibration_samples(rows)
+    return [(probability, outcome) for probability, outcome, _ in chosen.values()]
+
+
+def event_calibration(user_id, started_at, limit=10000):
+    """Cap distinct eligible contracts, not repeated joined forecast rows."""
+    rows, counts, truncated = resolved_forecast_rows(user_id, started_at, limit)
+    result = summarize_event_calibration(rows)
     exclusions = {reason: count for reason, count, _ in counts if reason is not None}
     eligible_count, resolved_contracts = next(((count, contracts) for reason, count, contracts in counts
                                               if reason is None), (0, 0))
@@ -196,6 +215,6 @@ def event_calibration(user_id, started_at, limit=10000):
     result.update({'forecast_rows_examined': sum(count for _, count, _ in counts),
                    'sampled_forecasts': len(rows), 'eligible_resolved_contracts': resolved_contracts,
                    'exclusions': exclusions, 'contract_limit': limit, 'row_limit': limit,
-                   'truncated': len(entries) > limit, 'scope_start': utc(started_at).isoformat(),
+                   'truncated': truncated, 'scope_start': utc(started_at).isoformat(),
                    'coverage_note': 'Earliest valid forecast per resolved contract in the current run, capped at the displayed contract limit after validation and deduplication. Exclusion counts cover joined forecast/outcome rows across the run, including duplicate outcome records. Unresolved/unproven outcomes are excluded; resolution coverage may bias the sample.'})
     return result

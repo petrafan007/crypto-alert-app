@@ -1,6 +1,59 @@
 """Timestamp provenance for Event quotes and independently observed spot prices."""
 import math
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+_EVENT_SYMBOL_MONTHS = {
+    'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+    'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12,
+}
+EVENT_SYMBOL_HOURLY = re.compile(
+    r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})H(\d{2})(\d{2})(?:-|$)'
+)
+_EVENT_SYMBOL_DATED = re.compile(
+    r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2,6})(EST|EDT)?(?:-|$)'
+)
+
+
+def event_symbol_settlement(value):
+    """Eastern settlement instant encoded in an Event contract ticker, or None.
+
+    Handles the hourly ``-26OCT21H1400`` form, the current ``-26NOV110515``
+    form and the legacy ``-26NOV010100EST`` form. The legacy timezone suffix
+    once defeated the parser, producing end-of-day cutoffs that rejected
+    Kalshi's finalized settlement and froze contracts open indefinitely.
+    Time digits after the two-digit day are HH, HHMM or HHMMSS. An explicit
+    EST/EDT suffix declares a fixed UTC offset (verified against Kalshi
+    close_time during the ambiguous 2026-11-01 fall-back hour); unlabeled
+    tickers use the America/New_York wall clock.
+    """
+    text = str(value or '').strip().upper()
+    hourly = EVENT_SYMBOL_HOURLY.search(text)
+    if hourly:
+        try:
+            return datetime(
+                2000 + int(hourly.group(1)), _EVENT_SYMBOL_MONTHS[hourly.group(2)], int(hourly.group(3)),
+                int(hourly.group(4)), int(hourly.group(5)), tzinfo=ZoneInfo('America/New_York'),
+            )
+        except (KeyError, ValueError):
+            return None
+    match = _EVENT_SYMBOL_DATED.search(text)
+    if not match:
+        return None
+    digits = match.group(4)
+    if len(digits) not in (2, 4, 6):
+        return None
+    suffix = match.group(5)
+    zone = (timezone(timedelta(hours=-5)) if suffix == 'EST' else
+            timezone(timedelta(hours=-4)) if suffix == 'EDT' else ZoneInfo('America/New_York'))
+    try:
+        return datetime(
+            2000 + int(match.group(1)), _EVENT_SYMBOL_MONTHS[match.group(2)], int(match.group(3)),
+            int(digits[:2]), int(digits[2:4] or 0), int(digits[4:6] or 0), tzinfo=zone,
+        )
+    except (KeyError, ValueError):
+        return None
 
 
 def observation_time(value):

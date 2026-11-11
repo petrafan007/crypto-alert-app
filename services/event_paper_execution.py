@@ -142,7 +142,7 @@ def simulate_legacy_fills(user_id, *, config=None, decision_ids=None, limit=25):
         signal = _object(config.signal_config)
         from event_algo import DEFAULT_SIGNAL_CONFIG
         signal = {**DEFAULT_SIGNAL_CONFIG, **signal}
-        for key in ('fee_per_contract', 'min_net_edge', 'min_confidence', 'uncertainty_buffer'):
+        for key in ('fee_per_contract', 'min_net_edge', 'min_confidence', 'uncertainty_buffer', 'min_model_divergence'):
             _number(signal[key], maximum=1)
         fee = float(signal['fee_per_contract'])  # An explicit zero stays zero.
         orders = (EventStrategyOrder.query.filter_by(user_id=user_id, mode='PAPER')

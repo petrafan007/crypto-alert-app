@@ -221,7 +221,12 @@ _last_retry_check=0
 
 
 def schedule_failed_iv_retries():
-    """One safe retry for each oversized legacy IV job with its original captures."""
+    """One safe retry for each recent failed IV job with its original captures.
+
+    A failed job is retried only when no other job covers the same close
+    window, so an original plus one retry is the most a window can produce;
+    a retry that fails again is not retried a second time.
+    """
     import time
     from research_data_models import ResearchCapture
     global _last_retry_check
@@ -229,7 +234,7 @@ def schedule_failed_iv_retries():
         return
     _last_retry_check = time.monotonic()
     failed = Job.query.filter(Job.kind == 'daily_iv', Job.status == 'FAILED',
-                              Job.message.ilike('%100,000 records%')).order_by(Job.id).limit(50).all()
+                              Job.completed_at >= utcnow() - timedelta(hours=24)).order_by(Job.id).limit(50).all()
     for old in failed:
         cfg = db.session.get(Config, old.user_id)
         if not cfg or not cfg.enabled:
@@ -247,15 +252,47 @@ def schedule_failed_iv_retries():
                 ResearchCapture.received_at >= start.replace(tzinfo=None),
                 ResearchCapture.received_at < end.replace(tzinfo=None)).first():
                 continue
-            later = Job.query.filter(Job.user_id == old.user_id, Job.kind == 'daily_iv',
-                Job.id > old.id).order_by(Job.id).limit(100).all()
-            if any(json.loads(job.request_json)['request'] == request for job in later):
+            peers = Job.query.filter(Job.user_id == old.user_id, Job.kind == 'daily_iv',
+                Job.id != old.id).order_by(Job.id.desc()).limit(200).all()
+            if any(json.loads(job.request_json)['request'] == request for job in peers):
                 continue
             enqueue(old.user_id, 'daily_iv', request)
             return  # Bound work to one recovered close window per tick.
         except (ValueError, KeyError, TypeError):
             db.session.rollback()
             continue
+
+
+def _catch_up_missed_iv(now):
+    """Enqueue the oldest missed close window from the last seven sessions.
+
+    A worker outage must not silently drop IV days: any completed session
+    with captured close-window option quotes and no covering job is queued,
+    one window per tick. Absence of captures is still not an importable day.
+    """
+    from services.portfolio_strategy_signals import ET,session_bounds
+    from research_data_models import ResearchCapture
+    from credentials import User
+    from event_algo import is_event_strategy_admin
+    for cfg in Config.query.filter_by(enabled=True).all():
+        if not is_event_strategy_admin(db.session.get(User,cfg.user_id)):continue
+        recent=Job.query.filter(Job.user_id==cfg.user_id,Job.kind=='daily_iv',
+            Job.created_at>=(now-timedelta(days=9)).replace(tzinfo=None)).order_by(Job.id.desc()).limit(200).all()
+        covered=[]
+        for job in recent:
+            try:covered.append(json.loads(job.request_json)['request'])
+            except (ValueError,KeyError,TypeError):continue
+        for offset in range(7,0,-1):
+            bounds=session_bounds((now.astimezone(ET)-timedelta(days=offset)).date())
+            if not bounds:continue
+            left,right=bounds[1]-timedelta(minutes=20),bounds[1]
+            if right>=now:continue
+            request={'start':iso(left),'end':iso(right)}
+            if request in covered:continue
+            if not ResearchCapture.query.filter(ResearchCapture.user_id==cfg.user_id,ResearchCapture.kind=='option_quotes',ResearchCapture.received_at>=left.replace(tzinfo=None),ResearchCapture.received_at<right.replace(tzinfo=None)).first():continue
+            try:enqueue(cfg.user_id,'daily_iv',request)
+            except ValueError:pass
+            break
 
 
 def schedule_daily_iv():
@@ -268,7 +305,9 @@ def schedule_daily_iv():
     global _last_daily_check
     if time.monotonic()-_last_daily_check<60:return
     _last_daily_check=time.monotonic()
-    now=utc(utcnow());bounds=session_bounds(now.astimezone(ET).date())
+    now=utc(utcnow())
+    _catch_up_missed_iv(now)
+    bounds=session_bounds(now.astimezone(ET).date())
     if not bounds or not bounds[1]+timedelta(minutes=5)<=now<=bounds[1]+timedelta(hours=4):return
     left,right=bounds[1]-timedelta(minutes=20),bounds[1]
     for cfg in Config.query.filter_by(enabled=True).all():

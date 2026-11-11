@@ -37,13 +37,24 @@ class DecisionError(Exception):
     def __init__(self, code, latency_ms=0):
         self.code = code
         self.latency_ms = latency_ms
-        super().__init__({
+        messages = {
             'auth': 'The selected decision provider rejected the API key.',
             'timeout': 'The decision request timed out.',
             'cooldown': 'The decision provider is cooling down after repeated failures.',
             'missing_key': 'Save an API key for the selected decision provider first.',
             'invalid_response': 'The decision provider returned an invalid or incomplete evaluation.',
-        }.get(code, 'Decision evaluation unavailable.'))
+            'network': 'The decision provider could not be reached over the network.',
+        }
+        if code in messages:
+            message = messages[code]
+        elif code.startswith('http_'):
+            status = code[len('http_'):]
+            detail = {'429': ' (rate limited)', '408': ' (request timeout)'}.get(
+                status, ' (server error)' if status.startswith('5') else '')
+            message = f'The decision provider returned HTTP {status}{detail}.'
+        else:
+            message = 'Decision evaluation unavailable.'
+        super().__init__(message)
 
 
 @dataclass
@@ -104,7 +115,7 @@ class DecisionClient:
     _lock = threading.Lock()
 
     def __init__(self, api_key, endpoint=DEFAULT_ENDPOINT, model='mercury-decide',
-                 timeout_seconds=3.0, transport='subq'):
+                 timeout_seconds=8.0, transport='subq'):
         self.key = api_key
         config = normalize_transport({'decision_transport': transport,
                                       'decision_endpoint': endpoint,
@@ -224,6 +235,7 @@ def evaluate_with_fallback(primary, fallback, *, state, questions, timeout_secon
     outcome is attributable in the ledger.
     """
     tried = []
+    last_error = None
     for client in (primary, fallback):
         if client is None:
             continue
@@ -233,10 +245,10 @@ def evaluate_with_fallback(primary, fallback, *, state, questions, timeout_secon
                                      timeout_seconds=timeout_seconds)
             return result, tried
         except DecisionError as exc:
-            if exc.code in ('auth', 'missing_key'):
-                # A bad key for one provider is not a reason to skip the other.
-                continue
-            if exc.code == 'timeout' and client is fallback:
-                continue
+            # Keep the real failure code: relabeling a provider outage as an
+            # invalid response hides the fault from the recorded evidence.
+            last_error = exc
             continue
-    raise DecisionError('invalid_response' if tried else 'missing_key')
+    if last_error is not None:
+        raise last_error
+    raise DecisionError('missing_key')

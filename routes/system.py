@@ -1914,8 +1914,8 @@ def api_settings():
             "credentials_encryption_key_persisted": bool(encryption_persisted),
         })
         
-        from services.credential_views import decision_credential_status
-        response.update(decision_credential_status(cred))
+        from services.credential_views import decision_status_for_user
+        response.update(decision_status_for_user(current_user.id, cred))
         result = jsonify(masked_settings(response))
         result.headers["Cache-Control"] = "no-store"
         return result

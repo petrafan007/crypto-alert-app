@@ -75,10 +75,15 @@ MAX_POSITIONS_PER_MODULE = {
     'futures': 4,
     'events': 3,
 }
+# A symbol that was stopped out sits out this long before the same module
+# may re-enter it. Re-entering immediately after a stop turns one bad idea
+# into a series of losses; the cooldown forces the signal to re-qualify on
+# a later day instead. Events settle on their own schedule and are exempt.
+STOP_COOLDOWN_HOURS = 24
 DEFAULT_AUDIT_PROMPT_INTERVAL_SECONDS = 15
 LIMITS = {
     'equities': {'trend_sma_days': (50, 300, int), 'rsi_period': (2, 14, int), 'rsi_entry_threshold': (1, 50, float), 'bollinger_std': (1, 3, float)},
-    'options': {'min_ivr': (0, 100, float), 'target_delta': (10, 35, float), 'target_dte': (20, 60, int), 'profit_target_pct': (25, 75, float),
+    'options': {'min_ivr': (0, 100, float), 'target_delta': (10, 35, float), 'max_short_delta': (0.05, 0.50, float), 'target_dte': (20, 60, int), 'profit_target_pct': (25, 75, float),
                 'max_friction_ratio': (0.10, 1.00, float), 'max_break_even_win_rate': (0.50, 0.95, float), 'max_loss_ratio': (0.25, 1.00, float)},
     'crypto': {'entry_channel_periods': (10, 100, int), 'exit_channel_periods': (5, 50, int), 'atr_stop_multiplier': (1.5, 5, float)},
     'futures': {'opening_range_minutes': (5, 60, int), 'max_intraday_loss': (1, 250, float)},
@@ -221,8 +226,8 @@ def validate_config(payload, cfg):
         if not isinstance(audit, dict) or set(audit)-{'daily_strategy_requests'}:
             raise ValueError('Scheduled reports run at 5 p.m. Eastern on NYSE trading days; only the daily strategy request ceiling is configurable.')
         if 'daily_strategy_requests' in audit and (type(audit['daily_strategy_requests']) is not int or
-                not 1 <= audit['daily_strategy_requests'] <= 3):
-            raise ValueError('Daily strategy AI request ceiling must be 1–3.')
+                not 1 <= audit['daily_strategy_requests'] <= 6):
+            raise ValueError('Daily strategy AI request ceiling must be 1–6.')
         saved = loads(getattr(cfg, 'master_ai_config', None), {})
         saved.pop('cadence', None)  # Retire persisted interval settings on next save.
         result['master_ai_config'] = json.dumps({**saved, **audit})
@@ -312,12 +317,16 @@ def close_lot(acc, lot, price, reason, now):
     pos = db.session.get(Position, lot.position_id)
     price = fill_price(lot.module, price, pos.side, closing=True)
     mark_position(pos, lot, price)
-    fee = 0 if reason == 'SETTLEMENT' else costs(lot.module, price, pos.quantity)
+    details = loads(lot.details_json, {})
+    fee = 0 if reason == 'SETTLEMENT' else costs(lot.module, price, pos.quantity,
+                                                 legs=int(details.get('legs') or 2))
     gross = pos.unrealized_pnl
     pnl = gross - lot.entry_fee - fee
     acc.cash_balance += lot.collateral + gross - fee
     lot.realized_pnl = pnl
     lot.closed_at = now
+    details['close_reason'] = reason
+    lot.details_json = json.dumps(details)
     db.session.add(Order(user_id=pos.user_id, module_name=lot.module.upper(), symbol=pos.symbol,
         instrument_type=pos.instrument_type, side='BUY' if pos.side=='SHORT' else 'SELL',
         quantity=pos.quantity, price=price, pnl=pnl, notes=json.dumps({'lot_id': lot.id, 'reason': reason, 'fee': fee}), created_at=now))
@@ -370,6 +379,14 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
         return reject('Module position limit reached; no further positions may be opened.')
     if any(lot.module == module and db.session.get(Position, lot.position_id).symbol == symbol for lot in current_lots(cfg.user_id, state)):
         return reject('An open position already exists for this symbol.')
+    if module != 'events':
+        cutoff = utc(now).replace(tzinfo=None) - timedelta(hours=STOP_COOLDOWN_HOURS)
+        stopped = (Lot.query.join(Position, Lot.position_id == Position.id)
+                   .filter(Lot.user_id == cfg.user_id, Lot.generation == state.generation,
+                           Lot.module == module, Position.symbol == symbol,
+                           Lot.closed_at.isnot(None), Lot.closed_at >= cutoff).all())
+        if any(loads(lot.details_json, {}).get('close_reason') == 'STOP_LOSS' for lot in stopped):
+            return reject(f'{symbol} stopped out within the last {STOP_COOLDOWN_HOURS} hours; re-entry is on cooldown.')
     side = signal.get('side', 'LONG')
     price = fill_price(module, price, side)
     budget = min(module_budget(cfg, acc, state, module), acc.cash_balance)
@@ -452,13 +469,28 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     # flat fraction of total equity sized every options entry to a single
     # contract and made the module unable to reach its allocation.
     risk_cap_pct = TRADE_RISK_CAP.get(module, 0.005)
+    legs = int((details or {}).get('legs') or 2)
     quantity = entry_quantity(module, price, budget, acc.total_equity, stop,
                               multiplier=multiplier, unit=unit, max_loss=max_loss,
                               max_contracts=max_contracts, risk_per_unit=risk_per_unit,
-                              risk_cap_pct=risk_cap_pct)
+                              risk_cap_pct=risk_cap_pct, legs=legs)
     if quantity <= 0:
+        # Name the binding constraint: an opaque rejection hid the fact that
+        # the per-trade risk cap, not the budget, was sizing trades to zero.
+        fee = costs(module, price, 1, legs=legs)
+        if budget < unit + fee:
+            return reject('Module budget cannot fund one unit at the current price and fees.')
+        risk = (risk_per_unit if risk_per_unit is not None else
+                abs(price - stop) * multiplier if stop is not None else unit)
+        cap = max(0, acc.total_equity) * risk_cap_pct
+        if risk > 0 and cap < risk + 2 * fee:
+            return reject(f'Per-trade risk cap of ${cap:.2f} cannot cover one unit risking '
+                          f'${risk + 2 * fee:.2f} at the current stop distance.')
+        if max_loss is not None and max_loss < risk + 2 * fee:
+            return reject(f'Entry risk allowance of ${max_loss:.2f} cannot cover one unit '
+                          f'risking ${risk + 2 * fee:.2f} including fees.')
         return reject('Risk or margin budget cannot fund the minimum trade quantity.')
-    fee, collateral = costs(module, price, quantity), unit*quantity
+    fee, collateral = costs(module, price, quantity, legs=legs), unit*quantity
     pos = Position(user_id=cfg.user_id, symbol=symbol, instrument_type=TYPES[module], side=side,
                    quantity=quantity, average_cost=price, market_price=price, market_value=collateral, unrealized_pnl=0)
     db.session.add(pos)

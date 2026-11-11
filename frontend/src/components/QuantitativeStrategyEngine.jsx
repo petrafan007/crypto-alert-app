@@ -293,7 +293,7 @@ export default function QuantitativeStrategyEngine({
           watchlists: config.watchlists,
           module_settings: config.module_settings,
           master_ai_prompt: masterAIPromptDraft,
-          master_ai_config: { daily_strategy_requests: config?.master_ai_config?.daily_strategy_requests || 1 },
+          master_ai_config: { daily_strategy_requests: config?.master_ai_config?.daily_strategy_requests || 3 },
         },
         { withCredentials: true }
       );
@@ -1300,9 +1300,10 @@ export default function QuantitativeStrategyEngine({
 
               <p>Scheduled report check: 5:00 p.m. Eastern on NYSE trading days. AI analysis runs only when paper decisions or outcomes materially change.</p>
               <label className="settings-form-group">Daily strategy AI request ceiling
-                <select value={config?.master_ai_config?.daily_strategy_requests || 1}
+                <select value={config?.master_ai_config?.daily_strategy_requests || 3}
                   onChange={(e) => setConfig(prev => ({ ...prev, master_ai_config: { ...prev.master_ai_config, daily_strategy_requests: Number(e.target.value) } }))}>
                   <option value={1}>1 provider request per day</option><option value={2}>2 provider requests per day</option><option value={3}>3 provider requests per day</option>
+                  <option value={4}>4 provider requests per day</option><option value={5}>5 provider requests per day</option><option value={6}>6 provider requests per day</option>
                 </select>
               </label>
               <button className="btn-quant-save" disabled={saving} onClick={handleSavePortfolioConfig}>Save mandate</button>

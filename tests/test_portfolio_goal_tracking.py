@@ -52,6 +52,13 @@ class PortfolioGoalTrackingTests(unittest.TestCase):
         self.assertEqual(result['annualization_status'], 'DESCRIPTIVE_ONLY')
         self.assertIn('not statistical validation', result['annualization_note'])
 
+    def test_total_loss_is_labeled_not_insufficient_history(self):
+        result = self.goal(days=60, current_equity=0, cash_balance=0,
+                           snapshots=[{'time': self.start, 'equity': 50000}])
+        self.assertIsNone(result['annualized_return_pct'])
+        self.assertEqual(result['annualization_status'], 'TOTAL_LOSS')
+        self.assertAlmostEqual(result['total_return_pct'], -100)
+
     def test_rolling_returns_use_real_boundary_and_reveal_gaps(self):
         result = self.goal(days=100, snapshots=[
             {'time': self.start+timedelta(days=69.5), 'equity': 52000},
