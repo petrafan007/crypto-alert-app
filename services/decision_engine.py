@@ -4,8 +4,12 @@ Supports two decision providers that share the same typed question contract:
 
   subq       https://api.subq.ai/v1/systemone            model subq-snap-1.1
   inception  https://api.inceptionlabs.ai/v1/decisions    model mercury-decide
+  gemini     https://generativelanguage.googleapis.com/v1beta/decisions  model gemini-decision-1
 
-Both providers express a positive answer as a ``noul`` probability between 0 and 1.
+All three providers express a positive answer as a ``noul`` probability between 0 and 1.
+Gemini Decisions differs on the wire only: one shared ``input`` instead of
+``state``, an ``x-goog-api-key`` header instead of Bearer auth, no model echo
+in the response, and usage reported as ``total_input_tokens``.
 The internal contract remains ``boolean`` / ``choice`` / ``score`` so every consumer
 of the Decision Engine keeps working unchanged, and both wire formats are
 normalised through the same path.
@@ -15,6 +19,7 @@ The client holds no sentiment, trading, or database dependency.
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import hashlib
+import json
 import math
 import random
 import threading
@@ -24,6 +29,8 @@ import requests
 
 from services.decision_settings import (
     DEFAULT_ENDPOINT,
+    GEMINI_DECISIONS_ENDPOINT,
+    GEMINI_DECISIONS_MODEL,
     INCEPTION_DECISIONS_ENDPOINT,
     INCEPTION_DECISIONS_MODEL,
     SUBQ_ENDPOINT,
@@ -31,6 +38,9 @@ from services.decision_settings import (
     normalize_transport,
     validate_endpoint,
 )
+
+# Documented Gemini Decisions price: $0.10 per 1M input tokens, $0 output.
+GEMINI_DECISIONS_INPUT_USD_PER_MILLION_TOKENS = Decimal('0.10')
 
 
 class DecisionError(Exception):
@@ -121,7 +131,7 @@ class DecisionClient:
                                       'decision_endpoint': endpoint,
                                       'decision_model': model})
         self.transport = config['decision_transport']
-        if self.transport not in ('subq', 'inception'):
+        if self.transport not in ('subq', 'inception', 'gemini'):
             raise ValueError('Unsupported decision transport.')
         self.endpoint = validate_endpoint(config['decision_endpoint'])
         self.model = config['decision_model']
@@ -154,6 +164,24 @@ class DecisionClient:
                 answers[key] = answer
         return validate_answers({'answers': answers}, questions), confidence
 
+    def _gemini_input(self, state):
+        """Gemini Decisions takes one shared ``input``; the internal state is JSON text."""
+        if isinstance(state, str):
+            return state
+        return json.dumps(state, sort_keys=True, default=str)
+
+    @staticmethod
+    def _gemini_cost(usage):
+        """Estimated cost from the documented input price; None when usage is unusable."""
+        try:
+            tokens = usage.get('total_input_tokens')
+        except AttributeError:
+            return None
+        if isinstance(tokens, bool) or not isinstance(tokens, (int, float)):
+            return None
+        return (Decimal(str(tokens)) * GEMINI_DECISIONS_INPUT_USD_PER_MILLION_TOKENS
+                / Decimal(1000000))
+
     # --------------------------------------------------------------- request
     def evaluate(self, *, state, questions, model=None, timeout_seconds=None, before_request=None):
         request_model = model or self.model
@@ -161,6 +189,8 @@ class DecisionClient:
             raise ValueError(f'SubQ supports only the {SUBQ_MODEL} decision model.')
         if self.transport == 'inception' and request_model != INCEPTION_DECISIONS_MODEL:
             raise ValueError(f'Inception supports only the {INCEPTION_DECISIONS_MODEL} decision model.')
+        if self.transport == 'gemini' and request_model != GEMINI_DECISIONS_MODEL:
+            raise ValueError(f'Gemini supports only the {GEMINI_DECISIONS_MODEL} decision model.')
         started = time.monotonic()
         latency = lambda: int((time.monotonic()-started)*1000)
         if not self.key or self.key == '********':
@@ -179,9 +209,16 @@ class DecisionClient:
                 code = 'timeout'
                 break
             try:
-                request_json = {'model': request_model, 'state': state,
-                                'questions': self._wire_questions(questions)}
-                headers = {'Authorization': f'Bearer {self.key}', 'Content-Type': 'application/json'}
+                if self.transport == 'gemini':
+                    # Gemini Decisions: one shared ``input`` (not ``state``) and an
+                    # ``x-goog-api-key`` header (not Bearer) on POST /v1beta/decisions.
+                    request_json = {'model': request_model, 'input': self._gemini_input(state),
+                                    'questions': self._wire_questions(questions)}
+                    headers = {'x-goog-api-key': self.key, 'Content-Type': 'application/json'}
+                else:
+                    request_json = {'model': request_model, 'state': state,
+                                    'questions': self._wire_questions(questions)}
+                    headers = {'Authorization': f'Bearer {self.key}', 'Content-Type': 'application/json'}
                 if before_request:
                     before_request()
                 response = requests.post(self.endpoint, headers=headers, json=request_json,
@@ -192,19 +229,26 @@ class DecisionClient:
                         payload = response.json()
                         answers, confidence = self._normalize(payload, questions)
                         usage = payload.get('usage') or {}
-                        cost = None
-                        actual_model = payload.get('model', request_model)
-                        if not isinstance(actual_model, str) or len(actual_model) > 100:
-                            raise DecisionError('invalid_response')
-                        if payload.get('model') != request_model:
-                            raise DecisionError('invalid_response')
                         if not isinstance(usage, dict):
                             raise DecisionError('invalid_response')
+                        if self.transport == 'gemini':
+                            # Gemini Decisions responses carry no model echo
+                            # (answers + usage only); cost is estimated from
+                            # the documented input price and reported usage.
+                            actual_model = request_model
+                            cost = self._gemini_cost(usage)
+                        else:
+                            cost = None
+                            actual_model = payload.get('model', request_model)
+                            if not isinstance(actual_model, str) or len(actual_model) > 100:
+                                raise DecisionError('invalid_response')
+                            if payload.get('model') != request_model:
+                                raise DecisionError('invalid_response')
                     except (KeyError, ValueError, TypeError, AttributeError, InvalidOperation):
                         raise DecisionError('invalid_response') from None
                     with self._lock:
                         type(self)._failures.pop(bucket, None)
-                    provider = 'SubQ' if self.transport == 'subq' else 'Inception'
+                    provider = {'subq': 'SubQ', 'inception': 'Inception', 'gemini': 'Gemini'}[self.transport]
                     return DecisionResult(answers, payload, actual_model, provider,
                                           self.transport, latency(), usage, cost, confidence)
                 code = 'auth' if status in (401, 403) else f'http_{status}'

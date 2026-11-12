@@ -33,7 +33,8 @@ def saved_or_supplied(value, credential, field):
 def decision_credential_status(credential, master_ai_config=None):
     """Confirm usable stored values without returning keys or key fingerprints."""
     values = {}
-    for field in ('ai_gateway_key', 'openrouter_api_key', 'subq_api_key', 'inception_decisions_key'):
+    for field in ('ai_gateway_key', 'openrouter_api_key', 'subq_api_key', 'inception_decisions_key',
+                'gemini_key'):
         value = getattr(credential, field, None) if credential else None
         configured = bool(value and value.strip() and value.strip() != MASK)
         values[field] = MASK if configured else ''
@@ -44,6 +45,13 @@ def decision_credential_status(credential, master_ai_config=None):
         from services.decision_settings import key_for_transport
         shared = key_for_transport(credential, 'inception', master_ai_config)
         values['inception_decisions_key_configured'] = bool(shared and shared != MASK)
+    if not values['gemini_key_configured']:
+        # Gemini Decisions reuses the stored Gemini key (primary, then the
+        # same fallback tiers the chat models use), so readiness must
+        # reflect any of them.
+        from services.decision_settings import key_for_transport
+        shared = key_for_transport(credential, 'gemini', master_ai_config)
+        values['gemini_key_configured'] = bool(shared and shared != MASK)
     return values
 
 

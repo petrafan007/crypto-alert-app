@@ -4,6 +4,7 @@ The Decision Engine is provider neutral. Two providers are supported:
 
   subq       https://api.subq.ai/v1/systemone          model subq-snap-1.1
   inception  https://api.inceptionlabs.ai/v1/decisions  model mercury-decide
+  gemini     https://generativelanguage.googleapis.com/v1beta/decisions  model gemini-decision-1
 
 Settings live on ``user_settings`` under ``decision_*`` columns and the
 provider API key lives in ``credentials``.
@@ -17,8 +18,10 @@ DEFAULT_ENDPOINT = SUBQ_ENDPOINT = 'https://api.subq.ai/v1/systemone'
 SUBQ_MODEL = 'subq-snap-1.1'
 INCEPTION_DECISIONS_ENDPOINT = 'https://api.inceptionlabs.ai/v1/decisions'
 INCEPTION_DECISIONS_MODEL = 'mercury-decide'
+GEMINI_DECISIONS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/decisions'
+GEMINI_DECISIONS_MODEL = 'gemini-decision-1'
 
-TRANSPORTS = ('subq', 'inception')
+TRANSPORTS = ('subq', 'inception', 'gemini')
 
 DEFAULTS = {
     'decision_enabled': False,
@@ -47,7 +50,7 @@ LEGACY_COLUMN_MAP = {
 
 def validate_endpoint(endpoint):
     """Only an operator-approved HTTPS decision endpoint may receive a key."""
-    allowed = {DEFAULT_ENDPOINT, INCEPTION_DECISIONS_ENDPOINT,
+    allowed = {DEFAULT_ENDPOINT, INCEPTION_DECISIONS_ENDPOINT, GEMINI_DECISIONS_ENDPOINT,
                *filter(None, os.getenv('DECISION_ALLOWED_ENDPOINTS', '').split(','))}
     parsed = urlsplit(endpoint)
     if (endpoint not in allowed or parsed.scheme != 'https' or parsed.username
@@ -76,7 +79,7 @@ def validate_settings(data):
             if not math.isfinite(value) or not low <= value <= high:
                 raise ValueError(f'{key} must be between {low} and {high}.')
         elif key == 'decision_transport' and value not in TRANSPORTS:
-            raise ValueError('Select SubQ or Inception Mercury Decide.')
+            raise ValueError('Select SubQ, Inception Mercury Decide, or Google Gemini Decisions.')
         elif key == 'decision_sentiment_mode' and value not in ('off', 'first'):
             raise ValueError('The decision sentiment mode must be off or first.')
         elif key == 'decision_endpoint':
@@ -87,11 +90,15 @@ def validate_settings(data):
                 raise ValueError(f'SubQ supports only the {SUBQ_MODEL} decision model.')
             if transport == 'inception' and value != INCEPTION_DECISIONS_MODEL:
                 raise ValueError(f'Inception supports only the {INCEPTION_DECISIONS_MODEL} decision model.')
+            if transport == 'gemini' and value != GEMINI_DECISIONS_MODEL:
+                raise ValueError(f'Gemini supports only the {GEMINI_DECISIONS_MODEL} decision model.')
         values[key] = value
     if 'subq_api_key' in data and (not isinstance(data['subq_api_key'], str) or len(data['subq_api_key']) > 4096):
         raise ValueError('SubQ API key must be text of at most 4096 characters.')
     if 'inception_decisions_key' in data and (not isinstance(data['inception_decisions_key'], str) or len(data['inception_decisions_key']) > 4096):
         raise ValueError('Inception API key must be text of at most 4096 characters.')
+    if 'gemini_key' in data and (not isinstance(data['gemini_key'], str) or len(data['gemini_key']) > 4096):
+        raise ValueError('Gemini API key must be text of at most 4096 characters.')
     return values
 
 
@@ -142,6 +149,17 @@ def key_for_transport(credential, transport, master_ai_config=None):
             if value and value != '********':
                 return value
         return None
+    if transport == 'gemini':
+        # Gemini Decisions reuses the Gemini key already stored for the
+        # Gemini chat models (primary, then the same fallback tiers).
+        if credential is None:
+            return None
+        for field in ('gemini_key', 'gemini_key_fallback',
+                      'gemini_key_tertiary', 'gemini_key_quaternary'):
+            value = getattr(credential, field, None)
+            if value and value != '********':
+                return value
+        return None
     field = {'subq': 'subq_api_key'}.get(transport)
     return getattr(credential, field, None) if credential and field else None
 
@@ -156,6 +174,9 @@ def normalize_transport(config):
     elif transport == 'inception':
         config['decision_endpoint'] = INCEPTION_DECISIONS_ENDPOINT
         config['decision_model'] = INCEPTION_DECISIONS_MODEL
+    elif transport == 'gemini':
+        config['decision_endpoint'] = GEMINI_DECISIONS_ENDPOINT
+        config['decision_model'] = GEMINI_DECISIONS_MODEL
     return config
 
 

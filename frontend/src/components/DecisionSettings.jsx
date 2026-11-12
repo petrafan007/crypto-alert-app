@@ -15,10 +15,16 @@ const PROVIDERS = {
     model: 'mercury-decide',
     endpoint: 'https://api.inceptionlabs.ai/v1/decisions',
   },
+  gemini: {
+    label: 'Google Gemini Decisions',
+    keyField: 'gemini_key',
+    model: 'gemini-decision-1',
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/decisions',
+  },
 };
 
 export const DECISION_DEFAULTS = {
-  subq_api_key: '', inception_decisions_key: '',
+  subq_api_key: '', inception_decisions_key: '', gemini_key: '',
   decision_enabled: false, decision_transport: 'subq', decision_model: 'subq-snap-1.1',
   decision_endpoint: 'https://api.subq.ai/v1/systemone', decision_timeout_seconds: 8,
   decision_confidence_threshold: 0.8, decision_conflict_threshold: 0.5,
@@ -46,7 +52,7 @@ export default function DecisionSettings({ settings, onChange }) {
     try {
       const { data } = await axios.post(action === 'save' ? '/api/settings' : '/api/decision/test-connection', payload());
       if (action === 'save') {
-        for (const field of ['subq_api_key', 'inception_decisions_key']) {
+        for (const field of ['subq_api_key', 'inception_decisions_key', 'gemini_key']) {
           if (data[field] !== undefined) onChange(field, data[field] || '');
           if (data[`${field}_configured`] !== undefined) onChange(`${field}_configured`, data[`${field}_configured`]);
         }
@@ -89,6 +95,7 @@ export default function DecisionSettings({ settings, onChange }) {
       <div style={{ fontSize: '12px', opacity: .8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>
         <span>SubQ: {credentialStatus('subq_api_key')}</span>
         <span>Inception Mercury Decide: {credentialStatus('inception_decisions_key')}</span>
+        <span>Google Gemini Decisions: {credentialStatus('gemini_key')}</span>
       </div>
     </div>
     {toggle('decision_enabled', 'Enable Decision Engine')}
@@ -101,6 +108,7 @@ export default function DecisionSettings({ settings, onChange }) {
       }}>
         <option value="subq">SubQ — subq-snap-1.1</option>
         <option value="inception">Inception Mercury Decide — mercury-decide</option>
+        <option value="gemini">Google Gemini Decisions — gemini-decision-1</option>
       </select>
     </div>
     <div className="settings-form-group"><label htmlFor="decision-model">Decision model</label>
@@ -112,6 +120,7 @@ export default function DecisionSettings({ settings, onChange }) {
       <input id="decision-subq-key" type="password" autoComplete="new-password" value={value(keyField)} onChange={e => onChange(keyField, e.target.value)} placeholder={`Enter your ${providerLabel} API key`} />
       <p className="settings-form-help">Encrypted when saved. The mask preserves your saved key; clear the field and save to remove it.</p>
       {transport === 'inception' && <p className="settings-form-help">A dedicated key is optional: Mercury Decide uses the same Inception key as the Mercury audit cascade when no dedicated Decisions key is saved.</p>}
+      {transport === 'gemini' && <p className="settings-form-help">Shared with the Gemini chat models: Gemini Decisions uses the Gemini API key already saved in the AI provider settings.</p>}
       <p className="settings-form-help">Decision state and instructions are sent to {provider.label}. Stored decisions follow {provider.label}’s data-retention policy.</p>
     </div>
     <div className="settings-form-group"><label htmlFor="decision-sentiment">Sentiment mode</label>

@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import requests
 from services.decision_contracts import build_sentiment_questions
 from services.decision_engine import DecisionClient, DecisionError, validate_answers
-from services.decision_settings import INCEPTION_DECISIONS_ENDPOINT, INCEPTION_DECISIONS_MODEL, SUBQ_ENDPOINT, SUBQ_MODEL
+from services.decision_settings import GEMINI_DECISIONS_ENDPOINT, GEMINI_DECISIONS_MODEL, INCEPTION_DECISIONS_ENDPOINT, INCEPTION_DECISIONS_MODEL, SUBQ_ENDPOINT, SUBQ_MODEL
 from tests.decision_helpers import noul_payload, response_for
 
 
@@ -190,3 +190,62 @@ class DecisionErrorVisibilityTests(TestCase):
         with self.assertRaises(DecisionError) as caught:
             evaluate_with_fallback(primary, fallback, state={}, questions={})
         self.assertEqual(caught.exception.code, 'timeout')
+
+
+class GeminiDecisionsTests(TestCase):
+    def setUp(self):
+        DecisionClient._failures.clear()
+        self.questions = build_sentiment_questions()
+        self.payload = noul_payload(self.questions)
+        # Gemini Decisions responses carry answers + usage only: no model echo.
+        del self.payload['model']
+        self.payload['usage'] = {
+            'total_input_tokens': 324,
+            'input_tokens_by_modality': [{'modality': 'text', 'tokens': 324}],
+            'total_output_tokens': 0,
+            'total_tokens': 324,
+        }
+        self.client = DecisionClient('gemini-test-key', transport='gemini')
+
+    def test_gemini_posts_input_with_api_key_header(self):
+        with patch('services.decision_engine.requests.post',
+                   return_value=Mock(status_code=200, json=lambda: self.payload)) as post:
+            result = self.client.evaluate(state={'asset': 'BTC'}, questions=self.questions)
+        self.assertEqual(post.call_args.args[0], GEMINI_DECISIONS_ENDPOINT)
+        headers = post.call_args.kwargs['headers']
+        self.assertEqual(headers['x-goog-api-key'], 'gemini-test-key')
+        self.assertNotIn('Authorization', headers)
+        request = post.call_args.kwargs['json']
+        self.assertEqual(request['model'], GEMINI_DECISIONS_MODEL)
+        self.assertEqual(request['input'], '{"asset": "BTC"}')
+        self.assertNotIn('state', request)
+        self.assertEqual(request['questions']['bullish']['type'], 'noul')
+        self.assertEqual(result.answers['bullish']['probability'], .85)
+        self.assertEqual(result.answers['direction']['choice'], 'bullish')
+        self.assertEqual(result.answers['materiality']['score'], 3)
+        self.assertEqual(result.confidence['direction'], .95)
+        self.assertEqual(result.provider, 'Gemini')
+        self.assertEqual(result.transport, 'gemini')
+        self.assertEqual(result.model, GEMINI_DECISIONS_MODEL)
+        self.assertEqual(result.usage['total_input_tokens'], 324)
+        self.assertEqual(result.estimated_cost_usd, Decimal('0.0000324'))
+
+    def test_gemini_cost_is_none_without_reported_input_tokens(self):
+        payload = copy.deepcopy(self.payload)
+        payload['usage'] = {}
+        with patch('services.decision_engine.requests.post',
+                   return_value=Mock(status_code=200, json=lambda: payload)):
+            result = self.client.evaluate(state={'asset': 'BTC'}, questions=self.questions)
+        self.assertIsNone(result.estimated_cost_usd)
+
+    def test_gemini_rejects_model_override_before_network_request(self):
+        with patch('services.decision_engine.requests.post') as post:
+            with self.assertRaises(ValueError):
+                self.client.evaluate(state={}, questions=self.questions, model='mercury-decide')
+        post.assert_not_called()
+
+    def test_gemini_client_pins_endpoint_and_model(self):
+        client = DecisionClient('gemini-test-key', endpoint='https://attacker.example/decisions',
+                                model='other-model', transport='gemini')
+        self.assertEqual(client.endpoint, GEMINI_DECISIONS_ENDPOINT)
+        self.assertEqual(client.model, GEMINI_DECISIONS_MODEL)

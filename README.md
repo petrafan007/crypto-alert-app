@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.0
+**Version:** 4.14.1
 
 ## Recent Updates
+
+### v4.14.1
+* **Decision Engine: Google Gemini Decisions added as a selectable provider (add-as-option only).** Gemini Decision 1 (`gemini-decision-1`) joins SubQ and Inception Mercury Decide in the Decision provider dropdown, using the dedicated `POST /v1beta/decisions` endpoint (not `generateContent`) with the stored Gemini API key — the same key the Gemini chat models use. No defaults changed: SubQ stays selected and Mercury Decide stays available; Mercury remains in use until Dec 27, 2026. The client sends the shared state as the Decisions `input`, authenticates with `x-goog-api-key`, normalizes `noul`/`choice`/`score` answers through the existing contract, tolerates the missing model echo in Decisions responses, and estimates cost from the documented $0.10 per 1M input tokens (output is always zero). Free tier: 200 RPM / 50,000 TPM / 10,000 requests per day.
 
 ### v4.14.0
 * **Quantitative Strategy Engine: Full Audit Remediation — Entry Quality, Event Calibration, Decision Engine & Review Reliability.** This release implements every finding of the October 2026 engine audit so the paper engine trades with purpose instead of noise. No drawdown circuit or portfolio halt was added; confirmed setups keep full access to capital.

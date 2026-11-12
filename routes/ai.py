@@ -3477,7 +3477,8 @@ def test_decision_connection():
         config = normalize_transport(config)
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         transport = config.get('decision_transport', 'subq')
-        key_field = {'subq': 'subq_api_key', 'inception': 'inception_decisions_key'}[transport]
+        key_field = {'subq': 'subq_api_key', 'inception': 'inception_decisions_key',
+                     'gemini': 'gemini_key'}[transport]
         key = saved_or_supplied(payload.get(key_field, '********'), credential, key_field)
         if not key or key == '********':
             from portfolio_algo_models import PortfolioStrategyConfig

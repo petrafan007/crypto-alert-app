@@ -279,6 +279,60 @@ class DecisionSettingsTests(DecisionTestCase):
         self.assertEqual(reply.get_json()['code'], 'missing_key')
         evaluate.assert_called_once()
 
+    def test_gemini_selection_saves_through_both_settings_apis(self):
+        from services.decision_settings import GEMINI_DECISIONS_ENDPOINT, GEMINI_DECISIONS_MODEL
+        for route in ('/api/settings', '/api/ai/settings'):
+            with self.subTest(route=route):
+                response, status = self.request('POST', {
+                    'decision_transport': 'gemini', 'decision_model': GEMINI_DECISIONS_MODEL,
+                    'decision_endpoint': GEMINI_DECISIONS_ENDPOINT,
+                }, route=route)
+                self.assertEqual(status, 200, response.json)
+                settings = db.session.get(UserSetting, 1)
+                self.assertEqual(settings.decision_transport, 'gemini')
+                self.assertEqual(settings.decision_model, GEMINI_DECISIONS_MODEL)
+                self.assertEqual(settings.decision_endpoint, GEMINI_DECISIONS_ENDPOINT)
+
+    def test_gemini_key_round_trips_and_readiness_follows_the_stored_key(self):
+        from services.decision_settings import GEMINI_DECISIONS_ENDPOINT, GEMINI_DECISIONS_MODEL
+        response, status = self.request('POST', {
+            'gemini_key': 'synthetic-gemini-key', 'decision_transport': 'gemini',
+            'decision_model': GEMINI_DECISIONS_MODEL, 'decision_endpoint': GEMINI_DECISIONS_ENDPOINT,
+        })
+        self.assertEqual(status, 200, response.json)
+        self.assertNotIn('synthetic-gemini-key', str(response.json))
+        credential = Credential.query.filter_by(user_id=1).one()
+        self.assertEqual(credential.gemini_key, 'synthetic-gemini-key')
+        reply, status = self.request('GET')
+        self.assertEqual(status, 200)
+        self.assertTrue(reply.json['gemini_key_configured'])
+        response, status = self.request('POST', {'gemini_key': '********'})
+        self.assertEqual(status, 200, response.json)
+        self.assertEqual(credential.gemini_key, 'synthetic-gemini-key')
+
+    def test_gemini_connection_test_uses_saved_gemini_key_and_model(self):
+        from services.decision_settings import GEMINI_DECISIONS_ENDPOINT, GEMINI_DECISIONS_MODEL
+        credential = Credential.query.filter_by(user_id=1).one()
+        credential.gemini_key = 'synthetic-gemini-secret'
+        db.session.commit()
+        payload = {
+            'decision_transport': 'gemini', 'decision_model': GEMINI_DECISIONS_MODEL,
+            'decision_endpoint': GEMINI_DECISIONS_ENDPOINT, 'gemini_key': '********',
+        }
+        with self.app.test_request_context('/api/decision/test-connection', method='POST', json=payload), \
+             patch.object(ai, 'current_user', SimpleNamespace(id=1)), \
+             patch('services.decision_engine.DecisionClient') as client:
+            client.return_value.evaluate.return_value = SimpleNamespace(
+                model=GEMINI_DECISIONS_MODEL, provider='Gemini', latency_ms=11,
+            )
+            reply = ai.test_decision_connection.__wrapped__()
+        self.assertEqual(reply.status_code, 200)
+        self.assertEqual(reply.get_json()['provider'], 'Gemini')
+        client.assert_called_once_with(
+            'synthetic-gemini-secret', GEMINI_DECISIONS_ENDPOINT, GEMINI_DECISIONS_MODEL, 8.0,
+            transport='gemini',
+        )
+
 
 
 
@@ -358,3 +412,36 @@ class DecisionKeyResolutionTests(unittest.TestCase):
         self.assertIsNotNone(fallback)
         self.assertEqual(client.call_args.args[0], 'shared-inception-key')
         self.assertEqual(client.call_args.kwargs['transport'], 'inception')
+
+    def test_gemini_model_and_endpoint_are_pinned_to_the_decisions_api(self):
+        from services.decision_settings import GEMINI_DECISIONS_ENDPOINT, GEMINI_DECISIONS_MODEL
+        self.assertEqual(validate_settings({
+            'decision_transport': 'gemini', 'decision_model': GEMINI_DECISIONS_MODEL,
+            'decision_endpoint': GEMINI_DECISIONS_ENDPOINT,
+        })['decision_model'], GEMINI_DECISIONS_MODEL)
+        normalized = normalize_transport({
+            'decision_transport': 'gemini', 'decision_model': 'other-model',
+            'decision_endpoint': SUBQ_ENDPOINT,
+        })
+        self.assertEqual(normalized['decision_model'], GEMINI_DECISIONS_MODEL)
+        self.assertEqual(normalized['decision_endpoint'], GEMINI_DECISIONS_ENDPOINT)
+        with self.assertRaises(ValueError):
+            validate_settings({'decision_transport': 'gemini', 'decision_model': 'other-model'})
+
+    def test_defaults_still_select_subq(self):
+        # Add-as-option only: the shipped defaults must not move to Gemini.
+        from services.decision_settings import DEFAULTS
+        self.assertEqual(DEFAULTS['decision_transport'], 'subq')
+        self.assertEqual(DEFAULTS['decision_model'], SUBQ_MODEL)
+
+    def test_gemini_key_resolves_from_the_stored_gemini_key(self):
+        from services.decision_settings import key_for_transport
+        credential = SimpleNamespace(gemini_key='primary-gemini-key',
+                                    gemini_key_fallback='fallback-gemini-key')
+        self.assertEqual(key_for_transport(credential, 'gemini'), 'primary-gemini-key')
+        credential = SimpleNamespace(gemini_key='', gemini_key_fallback='fallback-gemini-key',
+                                    gemini_key_tertiary='', gemini_key_quaternary='')
+        self.assertEqual(key_for_transport(credential, 'gemini'), 'fallback-gemini-key')
+        self.assertIsNone(key_for_transport(SimpleNamespace(), 'gemini'))
+        self.assertIsNone(key_for_transport(None, 'gemini', None))
+
