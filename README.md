@@ -1,8 +1,17 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.1
+**Version:** 4.14.2
 
 ## Recent Updates
+
+### v4.14.2
+* **Webull Securities: Near-Instant Transaction Visibility, Portfolio Highlights & Rate-Limit Fix.** Placing, filling, or cancelling a Webull stock/ETF order now surfaces everywhere within seconds instead of minutes.
+  * **Instant Portfolio Highlights:** Pending Webull orders now highlight the securities position row (e.g. NVDA) in yellow on the Portfolio table, exactly like crypto orders. The USD cash row for the same account also highlights when a BUY locks buying power, with the locked amount scoped to that account. Order tooltips now quote USD for securities instead of USDT.
+  * **Immediate Async Refresh on Every Transaction:** Order placement and cancellation trigger a background refresh of the durable order ledger and the portfolio snapshot right away, so Order History, Open Orders, and the Portfolio converge within seconds without blocking the response.
+  * **Open-Order Watcher:** A new background watcher polls accounts that have open orders every ~10 seconds and detects fills, partial fills, cancels, and new orders, refreshing the ledger and portfolio the moment the provider's open set changes. The full order-history reconciliation also tightened from 5 minutes to 1 minute.
+  * **Near-Real-Time Pages:** The consolidated Orders page now auto-refreshes Open Orders and Order History every 15 seconds while those tabs are visible (no loading flashes). The Webull page polls Open Orders every 10 seconds and Order History every 15 seconds, and jumps to Open Orders (pending) or History (filled) right after a live placement.
+  * **HTTP 429 "Too Many Requests" Fixed:** Webull order API calls are now paced by a host-wide cross-process lock shared by all gunicorn workers and the background scheduler, so they can no longer jointly exceed Webull's rate limit. Open-order cache TTL dropped from 30s to 15s for fresher reads.
+  * **Readable Timestamps:** Open Orders and History date/time columns now correctly render Webull epoch timestamps (previously shown as raw millisecond numbers) in Eastern Time.
 
 ### v4.14.1
 * **Decision Engine: Google Gemini Decisions added as a selectable provider (add-as-option only).** Gemini Decision 1 (`gemini-decision-1`) joins SubQ and Inception Mercury Decide in the Decision provider dropdown, using the dedicated `POST /v1beta/decisions` endpoint (not `generateContent`) with the stored Gemini API key — the same key the Gemini chat models use. No defaults changed: SubQ stays selected and Mercury Decide stays available; Mercury remains in use until Dec 27, 2026. The client sends the shared state as the Decisions `input`, authenticates with `x-goog-api-key`, normalizes `noul`/`choice`/`score` answers through the existing contract, tolerates the missing model echo in Decisions responses, and estimates cost from the documented $0.10 per 1M input tokens (output is always zero). Free tier: 200 RPM / 50,000 TPM / 10,000 requests per day.

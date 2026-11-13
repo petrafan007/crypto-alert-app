@@ -890,13 +890,17 @@ function Dashboard({ isLightMode }) {
     return Math.max(0, rawBal - lockedInBuyOrders - lockedInSyntheticBuyOrders - reservedInAutoBuys);
   };
 
-  const getRawWebullCashBalance = () => {
-    const webullCashHoldings = (portfolio || []).filter(c =>
+  const getRawWebullCashBalance = (accountId = null) => {
+    let webullCashHoldings = (portfolio || []).filter(c =>
       isWebullAsset(c) && ((c.symbol || '').toUpperCase() === 'USD' || isNonTradableWebullCashAsset(c))
     );
+    if (accountId) {
+      webullCashHoldings = webullCashHoldings.filter(c => String(c.account_id || '') === String(accountId));
+    }
     if (webullCashHoldings.length > 0) {
       return webullCashHoldings.reduce((sum, c) => sum + Math.max(0, Number(c.amount ?? c.current_value ?? 0)), 0);
     }
+    if (accountId) return 0.0;
     const hasWebullAssets = (portfolio || []).some(c => isWebullAsset(c));
     if (!hasWebullAssets && Number(accountTotals?.webull ?? 0) > 0) {
       return Number(accountTotals.webull);
@@ -904,13 +908,14 @@ function Dashboard({ isLightMode }) {
     return 0.0;
   };
 
-  const getWebullCashBalance = () => {
-    const rawCash = getRawWebullCashBalance();
+  const getWebullCashBalance = (accountId = null) => {
+    const rawCash = getRawWebullCashBalance(accountId);
     if (rawCash <= 0) return 0.0;
     let lockedInWebullBuy = 0.0;
     if (Array.isArray(pendingOrders)) {
       pendingOrders.forEach(order => {
         if (orderProvider(order) !== 'webull') return;
+        if (accountId && String(order.account_id || '') !== String(accountId)) return;
         const orderSide = (order.side || '').toUpperCase();
         if (orderSide === 'BUY') {
           const orderQty = Number(order.quantity ?? 0);
@@ -2098,11 +2103,12 @@ function Dashboard({ isLightMode }) {
             ? Number(order.quantity_usdt)
             : orderQuantity * priceReference;
           const usdText = formatOrderUsd(quoteValue);
+          const quoteLabel = orderProvider(order) === 'webull' ? 'USD' : 'USDT';
           const sizeDescription = quantityText
-            ? `${quantityText} ${assetSymbol}${usdText ? ` (~${usdText} USDT)` : ''}`
+            ? `${quantityText} ${assetSymbol}${usdText ? ` (~${usdText} ${quoteLabel})` : ''}`
             : assetSymbol || 'this asset';
 
-          return `Pending ${orderTypeName} ${side} for ${sizeDescription} when price ${order.direction || ''} ${trigger} USDT`;
+          return `Pending ${orderTypeName} ${side} for ${sizeDescription} when price ${order.direction || ''} ${trigger} ${quoteLabel}`;
         };
         lines.push(...orders.map(describeOrder));
       }
@@ -5624,8 +5630,10 @@ function Dashboard({ isLightMode }) {
                     let availableQuote = null;
                     if (isStableQuote && !isExternal) {
                       availableQuote = getQuoteBalance(sym);
+                    } else if (isStableQuote && isExternal && sym === 'USD') {
+                      availableQuote = getWebullCashBalance(coin.account_id);
                     }
-                    const hasLockedQuote = isStableQuote && !isExternal && availableQuote !== null && availableQuote < (coin.amount || 0) - 0.0001;
+                    const hasLockedQuote = isStableQuote && availableQuote !== null && availableQuote < (coin.amount || 0) - 0.0001;
                     const hasExchangeOrder = getPendingOrdersForCoin(coin).length > 0 || hasLockedQuote;
                     const isAutoBuy = !!coin.auto_buy_enabled;
                     const isAutoSell = !!coin.auto_sell_enabled;

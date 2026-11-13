@@ -26,6 +26,11 @@ from services.binance_service import get_cached_exchange_info
 BINANCE_ORDER_HISTORY_OVERLAP = timedelta(minutes=5)
 BINANCE_ORDER_HISTORY_PAGE_SIZE = 1000
 
+WEBULL_OPEN_ORDER_STATUSES = {
+    'ACTIVE', 'OPEN', 'NEW', 'WORKING', 'PENDING', 'SUBMITTED',
+    'PARTIAL_FILLED', 'PARTIALLY_FILLED', 'PARTIALLY FILLED',
+}
+
 
 def _number(value, default=0.0):
     try:
@@ -382,6 +387,33 @@ def sync_webull_order_history_for_user(user_id, credential=None, setting=None):
             db.session.commit()
             logger.warning('Webull order-history sync failed for user %s, %s: %s', user_id, account_id, exc)
     return {'accounts': synced_accounts, 'orders': imported_total}
+
+
+def sync_webull_account_orders(user_id, account_id, credential=None, setting=None):
+    """Import the newest open + historical orders for one account immediately.
+
+    Used right after a placement/cancellation and by the open-order watcher so
+    the durable ledger reflects a transaction without waiting for the periodic
+    full sync. Returns the provider's current open orders for the account.
+    """
+    credential = credential or Credential.query.filter_by(user_id=user_id).first()
+    setting = setting or UserSetting.query.filter_by(user_id=user_id).first()
+    environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+    if (
+        not credential or credential.webull_token_status != 'NORMAL'
+        or credential.webull_token_environment != environment or not credential.webull_access_token
+    ):
+        return []
+    open_orders = get_webull_open_orders(
+        credential.webull_app_key, credential.webull_app_secret, environment,
+        credential.webull_access_token, page_size=100, account_id=account_id,
+    )
+    historical_orders = get_webull_order_history(
+        credential.webull_app_key, credential.webull_app_secret, environment,
+        credential.webull_access_token, page_size=100, account_id=account_id,
+    )
+    import_webull_orders(user_id, [*historical_orders, *open_orders])
+    return open_orders
 
 
 def sync_order_history_for_all_users():

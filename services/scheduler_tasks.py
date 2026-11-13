@@ -280,7 +280,88 @@ def order_history_sync_loop(app):
                     logger.info("Completed background order-history sync for %s user(s)", len(results))
 
             iteration()
-            time.sleep(300)
+            time.sleep(60)
+
+
+def webull_open_order_watch_loop(app):
+    """Detect Webull order changes (fills, cancels, new orders) within seconds.
+
+    Only accounts that currently have open orders are polled. When the
+    provider's open set changes, the durable order ledger and the portfolio
+    snapshot refresh immediately instead of waiting for the periodic full sync.
+    """
+    from models import WebullOrder
+    from services.order_history_sync_service import (
+        WEBULL_OPEN_ORDER_STATUSES,
+        sync_webull_account_orders,
+    )
+    from services.webull_service import get_webull_open_orders, normalize_webull_environment
+
+    logger.info("Starting Webull open-order watch job")
+    last_seen = {}
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def iteration():
+                open_pairs = db.session.query(WebullOrder.user_id, WebullOrder.account_id)\
+                    .filter(WebullOrder.status.in_(tuple(WEBULL_OPEN_ORDER_STATUSES)))\
+                    .distinct().all()
+                targets = {(int(user_id), str(account_id)) for user_id, account_id in open_pairs}
+                targets.update(key for key, seen in last_seen.items() if seen)
+                for user_id, account_id in sorted(targets):
+                    setting = UserSetting.query.filter_by(user_id=user_id).first()
+                    if bool(getattr(setting, 'webull_test_mode_enabled', False)):
+                        continue
+                    credential = Credential.query.filter_by(user_id=user_id).first()
+                    environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+                    if (
+                        not credential or credential.webull_token_status != 'NORMAL'
+                        or credential.webull_token_environment != environment or not credential.webull_access_token
+                    ):
+                        continue
+                    try:
+                        provider_open = get_webull_open_orders(
+                            credential.webull_app_key, credential.webull_app_secret, environment,
+                            credential.webull_access_token, account_id=account_id,
+                        )
+                    except Exception as exc:
+                        logger.warning('Webull open-order watch failed for user %s account %s: %s', user_id, account_id, exc)
+                        continue
+                    current = {}
+                    for order in provider_open:
+                        if not isinstance(order, dict):
+                            continue
+                        order_id = str(order.get('order_id') or order.get('orderId') or order.get('id') or '')
+                        if not order_id:
+                            continue
+                        try:
+                            filled = float(order.get('filled_quantity') or order.get('executed_quantity') or 0.0)
+                        except (TypeError, ValueError):
+                            filled = 0.0
+                        current[order_id] = (
+                            str(order.get('status') or order.get('order_status') or '').upper(),
+                            filled,
+                        )
+                    key = (user_id, account_id)
+                    previous = last_seen.get(key)
+                    last_seen[key] = current
+                    if previous is None or previous == current:
+                        continue
+                    try:
+                        sync_webull_account_orders(user_id, account_id, credential, setting)
+                        refresh_webull_portfolio_snapshot(user_id, credential=credential, setting=setting)
+                        logger.info(
+                            'Webull open-order change detected for user %s account %s; ledger and portfolio refreshed',
+                            user_id, account_id,
+                        )
+                    except Exception as exc:
+                        db.session.rollback()
+                        logger.warning('Webull open-order change refresh failed for user %s account %s: %s', user_id, account_id, exc)
+                for key in [key for key, seen in last_seen.items() if not seen]:
+                    del last_seen[key]
+
+            iteration()
+            time.sleep(10)
 
 
 def webull_portfolio_sync_loop(app):
@@ -1537,6 +1618,14 @@ def start_background_jobs(app=None):
 
     order_history_thread = threading.Thread(target=order_history_sync_loop, args=(app,), daemon=True)
     order_history_thread.start()
+
+    webull_order_watch_thread = threading.Thread(
+        target=webull_open_order_watch_loop,
+        args=(app,),
+        daemon=True,
+        name="webull-open-order-watch",
+    )
+    webull_order_watch_thread.start()
 
     webull_portfolio_thread = threading.Thread(
         target=webull_portfolio_sync_loop,

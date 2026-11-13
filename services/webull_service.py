@@ -1,9 +1,12 @@
 """Read-only Webull OpenAPI connection and 2FA-token helpers."""
 
 import base64
+import fcntl
 import hashlib
 import hmac
 import math
+import os
+import tempfile
 from services.event_market_timing import EVENT_SYMBOL_HOURLY, event_symbol_settlement, normalise_quote_times
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta, timezone
@@ -33,11 +36,12 @@ _WEBULL_EVENT_MARKET_RESULT_CACHE = {}  # (...principal, category, query, limit)
 _WEBULL_MARKET_PACING_LOCK = threading.Lock()
 _WEBULL_MARKET_REQUEST_SLOTS = {}
 _WEBULL_ORDER_LOCK = threading.Lock()
+_WEBULL_ORDER_RATE_LOCK_PATH = os.path.join(tempfile.gettempdir(), 'csd_webull_order_rate.lock')
+_WEBULL_ORDER_MIN_INTERVAL_SECONDS = 2.05
 _WEBULL_EVENT_CACHE_LOCK = threading.Lock()
 _WEBULL_EVENT_DISCOVERY_LOCK = threading.Lock()
 _WEBULL_EVENT_RATE_LOCK = threading.Lock()
 _WEBULL_EVENT_SNAPSHOT_FETCH_LOCK = threading.Lock()
-_WEBULL_LAST_ORDER_REQUEST_TIME = 0.0
 _WEBULL_LAST_EVENT_DISCOVERY_REQUEST_TIME = 0.0
 
 WEBULL_EVENT_CATALOG_TTL_SECONDS = 1800
@@ -113,16 +117,33 @@ def _webull_cache_principal(access_token):
 
 
 def _rate_limited_order_request(*args, **kwargs):
-    """Serialize Webull order API requests to stay within rate limits (max 1 req/2.05s)."""
-    global _WEBULL_LAST_ORDER_REQUEST_TIME
+    """Serialize Webull order API requests to stay within rate limits (max 1 req/2.05s).
+
+    Gunicorn workers and the background scheduler run in separate processes, so
+    an in-process lock alone lets them jointly exceed Webull's limit (HTTP 429).
+    The pacing timestamp therefore lives behind a host-wide file lock.
+    """
     with _WEBULL_ORDER_LOCK:
-        now = time.time()
-        elapsed = now - _WEBULL_LAST_ORDER_REQUEST_TIME
-        if elapsed < 2.05:
-            time.sleep(2.05 - elapsed)
-        resp = _webull_request(*args, **kwargs)
-        _WEBULL_LAST_ORDER_REQUEST_TIME = time.time()
-        return resp
+        with open(_WEBULL_ORDER_RATE_LOCK_PATH, 'a+') as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                lock_file.seek(0)
+                raw = lock_file.read().strip()
+                try:
+                    last_request = float(raw) if raw else 0.0
+                except ValueError:
+                    last_request = 0.0
+                elapsed = time.time() - last_request
+                if elapsed < _WEBULL_ORDER_MIN_INTERVAL_SECONDS:
+                    time.sleep(_WEBULL_ORDER_MIN_INTERVAL_SECONDS - elapsed)
+                resp = _webull_request(*args, **kwargs)
+                lock_file.seek(0)
+                lock_file.truncate()
+                lock_file.write(str(time.time()))
+                lock_file.flush()
+                return resp
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 WEBULL_ENVIRONMENTS = {
@@ -3244,7 +3265,7 @@ def get_webull_open_orders(app_key, app_secret, environment='production', access
     now = time.time()
     if cache_key in _WEBULL_OPEN_ORDERS_CACHE:
         cached_time, cached_records = _WEBULL_OPEN_ORDERS_CACHE[cache_key]
-        if now - cached_time < 30:
+        if now - cached_time < 15:
             return [dict(r) for r in cached_records]
 
     if safe_account_id:
@@ -3900,7 +3921,7 @@ def place_webull_order(
         if order_payload.get('combo_type') and order_payload['combo_type'] != 'NORMAL':
             request_body['client_combo_order_id'] = str(client_combo_order_id or uuid4().hex[:24]).strip()
 
-    response = _webull_request(
+    response = _rate_limited_order_request(
         app_key, app_secret, environment, 'POST', '/trading/orders/place',
         body=request_body, access_token=access_token, api_version='v3',
         additional_headers=_webull_order_headers(request_body['new_orders']),
@@ -3912,7 +3933,7 @@ def place_webull_order(
         }
         if 'client_combo_order_id' in request_body:
             legacy_request_body['client_combo_order_id'] = request_body['client_combo_order_id']
-        response = _webull_request(
+        response = _rate_limited_order_request(
             app_key, app_secret, environment, 'POST', '/openapi/account/orders/place',
             body=legacy_request_body, access_token=access_token,
         )
@@ -3974,12 +3995,12 @@ def cancel_webull_order(
     if order_id:
         body['order_id'] = str(order_id)
 
-    response = _webull_request(
+    response = _rate_limited_order_request(
         app_key, app_secret, environment, 'POST', '/trading/orders/cancel',
         body=body, access_token=access_token,
     )
     if getattr(response, 'status_code', None) in {404, 405}:
-        response = _webull_request(
+        response = _rate_limited_order_request(
             app_key, app_secret, environment, 'POST', '/openapi/account/orders/cancel',
             body=body, access_token=access_token,
         )

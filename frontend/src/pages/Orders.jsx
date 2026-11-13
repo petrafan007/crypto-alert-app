@@ -461,7 +461,7 @@ export default function Orders() {
     });
   };
 
-  const loadOpenOrders = async () => {
+  const loadOpenOrders = async ({ silent = false } = {}) => {
     const requestId = ++openOrdersRequestId.current;
     
     // Fetch synthetic order count
@@ -473,9 +473,11 @@ export default function Orders() {
       }).catch(() => {});
     }).catch(() => {});
     loadScheduledOrders();
-    setWebullOpenLoading(true);
-    setWebullOpenProgress({ complete: 0, total: 0 });
-    replaceOpenOrdersForSource('webull', []);
+    if (!silent) {
+      setWebullOpenLoading(true);
+      setWebullOpenProgress({ complete: 0, total: 0 });
+      replaceOpenOrdersForSource('webull', []);
+    }
 
     // Webull limits order reads globally, so its all-accounts endpoint used to
     // withhold every result until the final account completed. Request known
@@ -508,7 +510,7 @@ export default function Orders() {
             ordersByAccount.set(accountId, (response.data?.orders || []).map((order) => normalize(order, 'webull')));
             replaceOpenOrdersForSource('webull', [...ordersByAccount.values()].flat());
           } catch (error) {
-            if (requestId === openOrdersRequestId.current) {
+            if (!silent && requestId === openOrdersRequestId.current) {
               setNotice(error.response?.data?.message || error.message || 'Some Webull open orders could not be refreshed.');
             }
           } finally {
@@ -520,7 +522,7 @@ export default function Orders() {
           if (requestId !== openOrdersRequestId.current) return;
         }
       } catch (error) {
-        if (requestId === openOrdersRequestId.current) {
+        if (!silent && requestId === openOrdersRequestId.current) {
           setNotice(error.response?.data?.message || 'Webull open orders could not be refreshed.');
         }
       } finally {
@@ -537,14 +539,14 @@ export default function Orders() {
       const binanceOpen = (binanceOpenResponse.data?.orders || binanceOpenResponse.data?.pending_orders || []).map((order) => normalize(order, 'binance'));
       replaceOpenOrdersForSource('binance', binanceOpen);
     } catch (error) {
-      if (requestId === openOrdersRequestId.current) {
+      if (!silent && requestId === openOrdersRequestId.current) {
         setNotice(error.response?.data?.message || 'Unable to load Binance.US open orders.');
       }
     }
   };
 
-  const loadHistory = async () => {
-    setHistoryLoading(true);
+  const loadHistory = async ({ silent = false } = {}) => {
+    if (!silent) setHistoryLoading(true);
     try {
       const historyResponse = await axios.get(
         `/api/trading/real-orders?page=${historyPage}&page_size=${historyPageSize}`,
@@ -557,9 +559,9 @@ export default function Orders() {
       setHistory(allHistory);
       setHistoryTotal(Number(historyResponse.data?.total ?? allHistory.length));
     } catch (error) {
-      setNotice(error.response?.data?.message || 'Unable to load order history.');
+      if (!silent) setNotice(error.response?.data?.message || 'Unable to load order history.');
     } finally {
-      setHistoryLoading(false);
+      if (!silent) setHistoryLoading(false);
     }
   };
 
@@ -711,6 +713,19 @@ export default function Orders() {
 
   useEffect(() => {
     if (activeTab === 'history') loadHistory();
+  }, [activeTab, historyPage, historyPageSize]);
+
+  // Keep open orders and history near-real-time without full loading flashes.
+  useEffect(() => {
+    if (activeTab !== 'open') return undefined;
+    const timer = window.setInterval(() => loadOpenOrders({ silent: true }), 15000);
+    return () => window.clearInterval(timer);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'history') return undefined;
+    const timer = window.setInterval(() => loadHistory({ silent: true }), 15000);
+    return () => window.clearInterval(timer);
   }, [activeTab, historyPage, historyPageSize]);
 
   const openCancelModalForOrder = (order) => {

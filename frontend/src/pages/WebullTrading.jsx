@@ -4165,8 +4165,8 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         if (orderId && !String(feedbackMsg).includes(String(orderId))) {
           feedbackMsg += `\n\nOrder ID: ${orderId}`;
         }
-        if (!isTestMode && !String(feedbackMsg).includes('portfolio will be updated')) {
-          feedbackMsg += '\n\nYour portfolio will be updated once the order is filled.';
+        if (!isTestMode && !String(feedbackMsg).includes('portfolio and order history')) {
+          feedbackMsg += '\n\nYour portfolio and order history are being refreshed now.';
         }
         setOrderFeedback({ type: 'success', message: feedbackMsg });
         setShowConfirmModal(false);
@@ -4194,6 +4194,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
             loadOpenOrders(selectedAccountId),
             refreshLiveWebullHoldings(true),
           ]);
+          setActiveTab(isWorking ? 'open_orders' : 'history');
           // For Event Contracts: aggressively re-poll holdings every 3 s (up to 10×)
           // so the new position surfaces with correct cutoff_at and Active status immediately.
           if (selectedInstrumentType === 'EVENT') {
@@ -4763,9 +4764,16 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     if (activeTab !== 'open_orders' || !selectedAccountId) return undefined;
     const refresh = () => loadOpenOrders(selectedAccountId, isTestMode);
     refresh();
-    const timer = window.setInterval(refresh, 30000);
+    const timer = window.setInterval(refresh, 10000);
     return () => window.clearInterval(timer);
   }, [activeTab, selectedAccountId, isTestMode, isQuantMode]);
+
+  useEffect(() => {
+    if (!['history', 'trade_chart'].includes(activeTab)) return undefined;
+    if (!isTestMode && !isQuantMode && !selectedAccountId) return undefined;
+    const timer = window.setInterval(() => loadHistory(selectedAccountId), 15000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, selectedAccountId, isTestMode, isQuantMode, historyPage, historyPageSize]);
 
   useEffect(() => {
     if (activeTab !== 'open_orders') return undefined;

@@ -2776,6 +2776,32 @@ def api_webull_test_status():
     return jsonify({'success': True, 'enabled': enabled})
 
 
+def _schedule_webull_transaction_refresh(user_id, account_id):
+    """Refresh the order ledger and portfolio snapshot right after a transaction.
+
+    Runs asynchronously so the placement/cancel response stays instant while
+    Order History, Open Orders, and the Portfolio table converge within seconds.
+    """
+    app = current_app._get_current_object()
+
+    def worker():
+        with app.app_context():
+            try:
+                from services.order_history_sync_service import sync_webull_account_orders
+                sync_webull_account_orders(user_id, account_id)
+            except Exception as exc:
+                db.session.rollback()
+                logger.warning('Post-transaction Webull order refresh failed for user %s: %s', user_id, exc)
+            try:
+                from services.webull_import_service import refresh_webull_portfolio_snapshot
+                refresh_webull_portfolio_snapshot(user_id)
+            except Exception as exc:
+                db.session.rollback()
+                logger.warning('Post-transaction Webull portfolio refresh failed for user %s: %s', user_id, exc)
+
+    threading.Thread(target=worker, daemon=True, name=f'webull-txn-refresh-{user_id}').start()
+
+
 @system_bp.route('/api/webull/orders/place', methods=['POST'])
 @login_required
 def api_webull_place_order():
@@ -3207,6 +3233,7 @@ def api_webull_place_order():
             event_market=event_market,
         )
         logger.info(f"Webull order placed successfully: user={current_user.id} account={account_id} symbol={symbol} side={side} order_id={result.get('order_id')}")
+        _schedule_webull_transaction_refresh(current_user.id, account_id)
         order_msg = (
             f"Webull combo order ({result.get('legs_count', 2)} legs) submitted successfully."
             if result.get('client_combo_order_id')
@@ -3474,6 +3501,7 @@ def api_webull_cancel_order():
             order_id=order_id,
         )
         logger.info(f"Webull order cancelled: user={current_user.id} account={account_id} order={order_id or client_order_id}")
+        _schedule_webull_transaction_refresh(current_user.id, account_id)
         return jsonify({
             'success': True,
             'result': result,

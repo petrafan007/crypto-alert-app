@@ -12,6 +12,13 @@ export const parseAppTimestamp = (value) => {
     return Number.isNaN(parsedNumber.getTime()) ? null : parsedNumber;
   }
   const text = String(value).trim();
+  // Providers such as Webull send epoch timestamps as numeric strings.
+  if (/^\d{10,13}$/.test(text)) {
+    const numeric = Number(text);
+    const milliseconds = Math.abs(numeric) < 1e12 ? numeric * 1000 : numeric;
+    const parsedNumber = new Date(milliseconds);
+    return Number.isNaN(parsedNumber.getTime()) ? null : parsedNumber;
+  }
   // The backend stores database timestamps as naive UTC ISO strings. Browsers
   // otherwise interpret those strings as local time, producing a four-hour
   // shift for Eastern users during daylight saving time.
