@@ -2264,16 +2264,6 @@ function Dashboard({ isLightMode }) {
             setNeedsLogin(true);
             return;
           }
-          // Also check for network errors that might indicate redirects
-          if (error.code === 'ERR_NETWORK' || error.message.includes('redirect')) {
-            setNeedsLogin(true);
-            return;
-          }
-          // Check for any error that might indicate authentication issues
-          if (error.message && (error.message.includes('login') || error.message.includes('auth'))) {
-            setNeedsLogin(true);
-            return;
-          }
         }
 
         // Then fetch other data in parallel (background refresh) - don't wait for this
@@ -2327,13 +2317,7 @@ function Dashboard({ isLightMode }) {
               (response.reason.response.status === 302 || response.reason.response.status === 401)
           );
 
-          // Also check for network errors that might indicate redirects
-          const hasNetworkError = [watchlistResponse, portfolioValueResponse, livePortfolioResponse, ordersResponse].some(
-            response => response.status === 'rejected' &&
-              (response.reason.code === 'ERR_NETWORK' || response.reason.message.includes('redirect'))
-          );
-
-          if (hasAuthError || hasNetworkError) {
+          if (hasAuthError) {
             setNeedsLogin(true);
             return;
           }
@@ -3141,6 +3125,54 @@ function Dashboard({ isLightMode }) {
           return { success: true };
         } else {
           setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel auto-sell trigger' }));
+          return response.data;
+        }
+      } else if (orderProvider(order) === 'webull' || order.source === 'webull' || order.provider === 'webull') {
+        const orderId = order.order_id || order.orderId || order.id;
+        const accountId = order.account_id || order._webull_account_id || order.webull_account_id;
+        const payload = {
+          account_id: accountId,
+          order_id: orderId,
+          client_order_id: order.client_order_id,
+          symbol,
+        };
+        if (twoFactorCode) {
+          payload.two_factor_code = twoFactorCode;
+        }
+        const response = await axios.post('/api/webull/orders/cancel', payload, { withCredentials: true });
+
+        if (response.data?.success || response.status === 200) {
+          setPendingOrders(prev => prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId));
+          setPortfolio(prev => {
+            const remainingOrders = pendingOrders.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
+            return prev.map(c => {
+              const cSym = (c.symbol || '').toUpperCase();
+              if (pendingOrderProvider(c) === 'webull' && cSym === symbol) {
+                return { ...c, hasPendingOrder: getPendingOrdersForCoin(c, remainingOrders).length > 0 };
+              }
+              return c;
+            });
+          });
+          setWatchlist(prev => {
+            const remainingOrders = pendingOrders.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
+            return prev.map(w => {
+              const wSym = (w.symbol || '').toUpperCase();
+              if (pendingOrderProvider(w) === 'webull' && wSym === symbol) {
+                return { ...w, hasPendingOrder: getPendingOrdersForCoin(w, remainingOrders).length > 0 };
+              }
+              return w;
+            });
+          });
+
+          setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
+
+          // Background refresh
+          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
+          axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => { });
+
+          return { success: true };
+        } else {
+          setCancelModalState(prev => ({ ...prev, loading: false, error: response.data?.message || response.data?.error || 'Failed to cancel Webull order' }));
           return response.data;
         }
       } else {
@@ -5706,9 +5738,10 @@ function Dashboard({ isLightMode }) {
                                       {isExternal ? <WebullLogo size={18} /> : <SiBinance />}
                                     </span>
                                     <span
+                                      className={`asset-class-icon ${!isCryptoAsset ? 'traditional-asset-icon' : 'crypto-asset-icon'}`}
                                       title={isCryptoAsset ? 'Crypto asset' : 'Traditional asset'}
                                       aria-label={isCryptoAsset ? 'Crypto asset' : 'Traditional asset'}
-                                      style={{ display: 'inline-flex', alignItems: 'center', color: isCryptoAsset ? '#f7931a' : 'var(--text-secondary, #64748b)', fontSize: '0.92rem' }}
+                                      style={{ display: 'inline-flex', alignItems: 'center', color: isCryptoAsset ? '#f7931a' : (hasExchangeOrder ? '#000000' : 'var(--text-secondary, #64748b)'), fontSize: '0.92rem' }}
                                     >
                                       {isCryptoAsset ? <FaBitcoin /> : <FaDollarSign />}
                                     </span>
@@ -6264,9 +6297,10 @@ function Dashboard({ isLightMode }) {
                                     <CryptoIcon symbol={item.symbol} size={20} isStock={isTraditionalAsset(item)} />
                                     <span>{item.symbol}</span>
                                     <span
+                                      className={`asset-class-icon ${isTraditionalAsset(item) ? 'traditional-asset-icon' : 'crypto-asset-icon'}`}
                                       title={isTraditionalAsset(item) ? 'Traditional asset' : 'Crypto asset'}
                                       aria-label={isTraditionalAsset(item) ? 'Traditional asset' : 'Crypto asset'}
-                                      style={{ display: 'inline-flex', alignItems: 'center', color: isTraditionalAsset(item) ? 'var(--text-secondary, #64748b)' : '#f7931a', fontSize: '0.92rem' }}
+                                      style={{ display: 'inline-flex', alignItems: 'center', color: isTraditionalAsset(item) ? (hasExchangeOrder ? '#000000' : 'var(--text-secondary, #64748b)') : '#f7931a', fontSize: '0.92rem' }}
                                     >
                                       {isTraditionalAsset(item) ? <FaDollarSign /> : <FaBitcoin />}
                                     </span>

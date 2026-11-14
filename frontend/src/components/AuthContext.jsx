@@ -27,8 +27,27 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+        return null;
+      }
+      const cached = sessionStorage.getItem('cda_user_session');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+        return false;
+      }
+      return !sessionStorage.getItem('cda_user_session');
+    } catch {
+      return true;
+    }
+  });
   const [authError, setAuthError] = useState('');
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -44,6 +63,9 @@ export function AuthProvider({ children }) {
 
     // Check if we're on the login page - if so, don't auto-check auth
     if (window.location.pathname === '/login') {
+      try {
+        sessionStorage.removeItem('cda_user_session');
+      } catch {}
       setUser(null);
       setLoading(false);
       return;
@@ -53,9 +75,11 @@ export function AuthProvider({ children }) {
     checkAuthStatus();
   }, []);
 
-  const checkAuthStatus = async (force = false) => {
+  const checkAuthStatus = async (force = false, retryCount = 0) => {
     setAuthError('');
-    setLoading(true);
+    if (!user || force) {
+      setLoading(true);
+    }
     try {
       if (isLoggingOut || window.globalIsLoggingOut) {
         setLoading(false);
@@ -63,29 +87,46 @@ export function AuthProvider({ children }) {
       }
       if (!force && user && user.id) {
         setLoading(false);
-        return;
       }
-      const response = await axios.get('/api/session', { withCredentials: true, timeout: 15000 });
+      const response = await axios.get('/api/session', { withCredentials: true, timeout: 30000 });
       if (response.data?.user?.id) {
-        setUser({
+        const userData = {
           id: response.data.user.id,
           username: response.data.user.username,
           is_admin: Boolean(response.data.user.is_admin || response.data.user.id === 1),
           isAuthenticated: true,
           onboardingRequired: Boolean(response.data.onboarding_required)
-        });
+        };
+        try {
+          sessionStorage.setItem('cda_user_session', JSON.stringify(userData));
+        } catch {}
+        setUser(userData);
       } else {
         setUser({ isAuthenticated: true });
       }
+      setAuthError('');
     } catch (error) {
       // Only log error if not 401 (unauthenticated)
       if (error.response && error.response.status !== 401) {
         console.error('Auth check error:', error);
       }
       if (error.response?.status === 401) {
+        try {
+          sessionStorage.removeItem('cda_user_session');
+        } catch {}
         setUser(null);
       } else {
-        setAuthError('The server is taking too long to verify your session. Please retry.');
+        // Auto-retry once on transient network/timeout error before displaying error screen
+        if (retryCount < 1 && !isLoggingOut && !window.globalIsLoggingOut) {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          return checkAuthStatus(force, retryCount + 1);
+        }
+        // If we already have a valid session in state or session storage, don't trap the user
+        if (user && user.id) {
+          console.warn('Session verification delayed, retaining existing session.');
+        } else {
+          setAuthError('The server is taking too long to verify your session. Please retry.');
+        }
       }
     } finally {
       setLoading(false);
@@ -116,13 +157,17 @@ export function AuthProvider({ children }) {
 
       // If login successful, set user from response
       if (response.data?.user?.id) {
-        setUser({
+        const userData = {
           id: response.data.user.id,
           username: response.data.user.username,
           is_admin: Boolean(response.data.user.is_admin || response.data.user.id === 1),
           isAuthenticated: true,
           onboardingRequired: Boolean(response.data.onboarding_required)
-        });
+        };
+        try {
+          sessionStorage.setItem('cda_user_session', JSON.stringify(userData));
+        } catch {}
+        setUser(userData);
       } else {
         await checkAuthStatus();
       }

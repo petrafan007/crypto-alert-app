@@ -1267,6 +1267,69 @@ def api_cancel_order(order_id):
                     'status': 'CANCELED'
                 })
 
+        # Intercept Webull orders (stocks/options/crypto on Webull)
+        is_webull = (
+            data.get('source') == 'webull'
+            or data.get('provider') == 'webull'
+            or (not str_order_id.isdigit() and not str_order_id.startswith(('ladder_', 'trail_')))
+        )
+        if is_webull:
+            account_id = data.get('account_id') or data.get('_webull_account_id')
+            client_order_id = data.get('client_order_id')
+            setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+            paper_mode_enabled = bool(getattr(setting, 'webull_test_mode_enabled', False))
+            paper_requested = str_order_id.startswith('SIM_') or account_id == 'TEST_PAPER_ACCOUNT' or data.get('test_mode')
+            if paper_requested and not paper_mode_enabled:
+                return jsonify({'error': 'Paper orders cannot be changed while Webull Test Mode is disabled.'}), 409
+            if paper_mode_enabled:
+                if not str_order_id.startswith('SIM_'):
+                    return jsonify({'error': 'Live Webull orders are hidden and cannot be changed while Test Mode is active.'}), 409
+                from services.webull_paper_trading_service import cancel_webull_test_order
+                res = cancel_webull_test_order(current_user.id, str_order_id)
+                if not res.get('success'):
+                    return jsonify({'error': res.get('message', 'Failed to cancel paper order')}), 400
+                return jsonify({'success': True, 'message': res.get('message', 'Paper order cancelled successfully'), 'order_id': str_order_id, 'status': 'CANCELED'})
+
+            credential = Credential.query.filter_by(user_id=current_user.id).first()
+            from services.webull_service import normalize_webull_environment, cancel_webull_order, WebullConnectionError
+            environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+            if (
+                not credential or credential.webull_token_status != 'NORMAL'
+                or credential.webull_token_environment != environment or not credential.webull_access_token
+            ):
+                return jsonify({'error': 'Webull is not connected or token has expired.'}), 400
+
+            from routes.system import _require_webull_account_access, _schedule_webull_transaction_refresh
+            try:
+                account_id = _require_webull_account_access(setting, account_id)
+            except WebullConnectionError as exc:
+                return jsonify({'error': str(exc)}), 400
+
+            try:
+                result = cancel_webull_order(
+                    credential.webull_app_key, credential.webull_app_secret,
+                    environment, credential.webull_access_token,
+                    account_id=account_id,
+                    client_order_id=client_order_id,
+                    order_id=str_order_id,
+                )
+                logger.info(f"Webull order cancelled via portfolio endpoint: user={current_user.id} account={account_id} order={str_order_id}")
+                _schedule_webull_transaction_refresh(current_user.id, account_id)
+                return jsonify({
+                    'success': True,
+                    'message': 'Webull order cancelled successfully.',
+                    'order_id': str_order_id,
+                    'symbol': symbol,
+                    'status': 'CANCELED',
+                    'result': result
+                })
+            except WebullConnectionError as exc:
+                logger.warning('Webull order cancellation failed: %s', exc)
+                return jsonify({'error': str(exc)}), 400
+            except Exception as exc:
+                logger.error('Webull order cancellation error: %s', exc, exc_info=True)
+                return jsonify({'error': f'Order cancellation failed: {exc}'}), 500
+
         # Use SQLAlchemy ORM instead of direct SQLite
         creds = Credential.query.filter_by(user_id=current_user.id).first()
 
@@ -1300,12 +1363,13 @@ def api_cancel_order(order_id):
         )
 
         try:
-            result = client.cancel_order(symbol=symbol, orderId=int(order_id))
+            order_num_id = int(order_id) if str_order_id.isdigit() else order_id
+            result = client.cancel_order(symbol=symbol, orderId=order_num_id)
 
             try:
                 order_record = RealOrder.query.filter(
                     RealOrder.user_id == current_user.id,
-                    RealOrder.binance_order_id == int(order_id)
+                    RealOrder.binance_order_id == (int(order_id) if str_order_id.isdigit() else -1)
                 ).first()
 
                 if order_record:

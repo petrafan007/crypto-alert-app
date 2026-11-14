@@ -213,3 +213,5 @@ backups/
 # Private environment variants must never be published.
 .env.*
 !.env.example
+.gemini/
+*Handoff*.md

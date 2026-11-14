@@ -857,6 +857,14 @@ body.light-mode .action-icon-btn.note-btn:hover {
   color: #000000 !important;
 }
 
+.light-mode .table-container tr.pending-order .traditional-asset-icon,
+.light-mode .table-container tbody tr.pending-order .traditional-asset-icon,
+.light-mode .table-container tr.pending-order .traditional-asset-icon svg,
+.light-mode .table-container tbody tr.pending-order .traditional-asset-icon svg {
+  color: #000000 !important;
+  fill: #000000 !important;
+}
+
 .light-mode .table-container tr.auto-buy-active,
 .light-mode .table-container tbody tr.auto-buy-active,
 .light-mode .table-container tr.auto-buy-active td,

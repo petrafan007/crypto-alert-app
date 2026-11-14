@@ -18,3 +18,11 @@ The personal instance is a separate checkout from this source repository. Do not
 3. **Execution Transparency & Stop-on-Query:** When the user asks for status, an update, or what is happening, immediately stop running commands and report the exact current state and findings in text first before taking further automated actions.
 4. **Zero Workspace Clutter & Mandatory Artifact Cleanup:** Never leave temporary scripts (e.g. `patch_*.py`, `update_*.py`), one-off test scripts, ad-hoc SQL dumps (`delete_*.sql`), AI context bundles (`*-context.md`), or scratchpad notes in the workspace. All temporary files must be cleaned up immediately, and unneeded artifacts must never be committed to version control.
 
+## Execution Environment & Remote SSH Execution
+When working on this project from a Windows host or Antigravity desktop session:
+- **File System**: Read, write, and edit files directly via the mapped network drive (`Z:\crypto_alert_app_source`).
+- **Command Execution**: All terminal commands, builds, tests, migrations, git commands, and service restarts MUST execute remotely on the thin client via SSH:
+  ```bash
+  ssh jcavallarojr@thinclient.local "cd ~/crypto_alert_app_source && <command>"
+  ```
+- **Sudo Access**: `jcavallarojr` has passwordless sudo configured on `thinclient.local` for system services (e.g. `systemctl restart crypto-dashboard.service`).

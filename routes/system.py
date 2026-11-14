@@ -359,9 +359,16 @@ def _webull_allowed_account_ids(setting):
 
 def _require_webull_account_access(setting, account_id):
     clean_account_id = str(account_id or '').strip()
-    if not clean_account_id:
-        raise WebullConnectionError('Choose a Webull account.')
     allowed = _webull_allowed_account_ids(setting)
+    if not clean_account_id:
+        if len(allowed) == 1:
+            return next(iter(allowed))
+        default_account = getattr(setting, 'webull_default_account_id', None)
+        if default_account and default_account in allowed:
+            return default_account
+        if allowed:
+            return next(iter(allowed))
+        raise WebullConnectionError('Choose a Webull account.')
     if not allowed:
         raise WebullConnectionError('Refresh and enable a connected Webull account before trading or managing its orders.')
     if clean_account_id not in allowed:

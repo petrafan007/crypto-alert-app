@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.2
+**Version:** 4.14.3
 
 ## Recent Updates
+
+### v4.14.3
+* **Webull Order Cancellation, Table Icon Contrast & Session Verification Resilience.**
+  * **Webull Pending Order Cancellation Fix:** Resolved an unhandled `ValueError: invalid literal for int() with base 10` when attempting to cancel Webull limit orders (e.g. NVDA alphanumeric order IDs like `'41J8ML5FEQK9AHHSQ6I1RSQET8'`). On the backend, `routes/portfolio.py` now intercepts Webull order cancellations before Binance routing and cancels via Webull trading services, safely validating numeric types before Binance calls. On the frontend, `Dashboard.jsx`'s `handleConfirmCancelOrder` now correctly routes Webull orders to `/api/webull/orders/cancel`.
+  * **Yellow Highlight Contrast on Traditional Assets:** Fixed the dollar sign icon (`<FaDollarSign />`) for traditional securities rows (e.g. NVDA) when highlighted with a pending order. It now renders with crisp black `#000000` text and SVG fill across light and dark themes instead of washed-out light gray.
+  * **Session Verification & Settings Navigation Resilience:** Eliminated the `"The server is taking too long to verify your session. Please retry."` blocker when opening Settings or navigating during peak server activity. Increased `/api/session` timeout from 15s to 30s, added automatic retry on transient network/timeout errors, cached verified session state optimistically in `sessionStorage` across page reloads, and removed aggressive `ERR_NETWORK` logouts on the Dashboard that prematurely cleared active sessions.
 
 ### v4.14.2
 * **Webull Securities: Near-Instant Transaction Visibility, Portfolio Highlights & Rate-Limit Fix.** Placing, filling, or cancelling a Webull stock/ETF order now surfaces everywhere within seconds instead of minutes.

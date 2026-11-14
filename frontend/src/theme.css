@@ -3577,6 +3577,23 @@ body.light-mode *[style*="color:'#666'"] {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6) !important;
 }
 
+/* Traditional asset class icon contrast on pending-order highlighted rows */
+.table-container tr.pending-order .traditional-asset-icon,
+.table-container tbody tr.pending-order .traditional-asset-icon,
+.table-container tr.pending-order .traditional-asset-icon svg,
+.table-container tbody tr.pending-order .traditional-asset-icon svg,
+body.dark-mode .table-container tr.pending-order .traditional-asset-icon,
+body.dark-mode .table-container tbody tr.pending-order .traditional-asset-icon,
+body.dark-mode .table-container tr.pending-order .traditional-asset-icon svg,
+body.dark-mode .table-container tbody tr.pending-order .traditional-asset-icon svg,
+body.light-mode .table-container tr.pending-order .traditional-asset-icon,
+body.light-mode .table-container tbody tr.pending-order .traditional-asset-icon,
+body.light-mode .table-container tr.pending-order .traditional-asset-icon svg,
+body.light-mode .table-container tbody tr.pending-order .traditional-asset-icon svg {
+  color: #000000 !important;
+  fill: #000000 !important;
+}
+
 
 .table-container.portfolio-table table {
   display: table !important;
