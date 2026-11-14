@@ -3257,7 +3257,7 @@ def get_webull_open_orders(app_key, app_secret, environment='production', access
     """Return open orders for Webull accounts, read-only.
 
     If account_id is provided, fetches only for that specific account.
-    Caches results in memory for 15 seconds to prevent rate-limit thrashing.
+    Caches results in memory for 45 seconds to prevent rate-limit thrashing.
     """
     normalized_env = normalize_webull_environment(environment)
     safe_account_id = str(account_id or '').strip() or None
@@ -3265,7 +3265,7 @@ def get_webull_open_orders(app_key, app_secret, environment='production', access
     now = time.time()
     if cache_key in _WEBULL_OPEN_ORDERS_CACHE:
         cached_time, cached_records = _WEBULL_OPEN_ORDERS_CACHE[cache_key]
-        if now - cached_time < 15:
+        if now - cached_time < 45:
             return [dict(r) for r in cached_records]
 
     if safe_account_id:

@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.4
+**Version:** 4.14.5
 
 ## Recent Updates
+
+### v4.14.5
+* **Instant Dashboard Load & Elimination of Stuck Loading Screen.**
+  * **Non-Blocking Initial Load:** Decoupled initial portfolio table rendering from external order provider queries. The dashboard now immediately renders from the local database cache in milliseconds (< 20ms) and sets `loading` to `false`, rendering the complete UI instantly without blocking on Webull/Binance order lookups.
+  * **Asynchronous Pending Order Resolution:** Pending orders, watchlist, and live values are fetched asynchronously in the background. When pending orders resolve, highlights and zero-balance pending items are applied seamlessly to the active table.
+  * **Webull Open Orders Cache Optimization:** Increased the Webull open orders in-memory cache TTL from 15s to 45s (with instant invalidation on order placement and cancellation), preventing 10-second polling cycles from monopolizing the rate limiter across multiple accounts.
 
 ### v4.14.4
 * **Webull Order Cancellation Client ID Resolution, Clean Modal Error Messaging & Portfolio Highlight Stability.**

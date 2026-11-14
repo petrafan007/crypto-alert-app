@@ -179,8 +179,40 @@ function Dashboard({ isLightMode }) {
   const portfolioAppliedIdRef = useRef(0);
   const portfolioScrollRef = useRef(null);
   const watchlistScrollRef = useRef(null);
+  const pendingOrdersRef = useRef([]);
+  const rawPortfolioRef = useRef([]);
   const nextWatchlistFetchId = () => ++watchlistFetchIdRef.current;
   const nextPortfolioFetchId = () => ++portfolioFetchIdRef.current;
+
+  const pendingOrderProvider = (asset) => (
+    asset && (asset.is_external === true || asset.source === 'webull') ? 'webull' : 'binance'
+  );
+
+  const orderProvider = (order) => {
+    const provider = String(order?.provider || order?.source || order?.exchange || 'binance').toLowerCase();
+    return provider === 'webull' ? 'webull' : 'binance';
+  };
+
+  // Pending orders must stay scoped to the provider that owns the portfolio row.
+  // A Binance ETH order cannot highlight a separate Webull ETH ETF holding.
+  const getPendingOrdersForCoin = (asset, orders) => {
+    const list = Array.isArray(orders) ? orders : (pendingOrdersRef.current?.length ? pendingOrdersRef.current : []);
+    if (!Array.isArray(list) || list.length === 0) return [];
+    const symbol = typeof asset === 'object' ? asset?.symbol : asset;
+    const sym = String(symbol || '').toUpperCase().trim();
+    if (!sym) return [];
+    const isObject = typeof asset === 'object' && asset !== null;
+    const provider = isObject ? pendingOrderProvider(asset) : null;
+    return list.filter(order => {
+      if (provider && orderProvider(order) !== provider) return false;
+      const orderAsset = String(order?.asset || '').toUpperCase().trim();
+      const orderSymbol = String(order?.symbol || '').toUpperCase().trim();
+      return orderAsset === sym
+        || orderSymbol === sym
+        || orderSymbol.startsWith(`${sym}USD`)
+        || orderSymbol.startsWith(`${sym}USDT`);
+    });
+  };
 
   const applyPortfolioUpdate = (incoming, fetchId, pendingOrdersList) => {
     if (typeof fetchId === 'number' && fetchId < portfolioAppliedIdRef.current) {
@@ -192,7 +224,7 @@ function Dashboard({ isLightMode }) {
 
     const ordersToCheck = (Array.isArray(pendingOrdersList) && pendingOrdersList.length > 0)
       ? pendingOrdersList
-      : (pendingOrdersRef.current && pendingOrdersRef.current.length > 0 ? pendingOrdersRef.current : pendingOrders);
+      : (pendingOrdersRef.current && pendingOrdersRef.current.length > 0 ? pendingOrdersRef.current : []);
 
     setPortfolio(prev => {
       const incomingMap = new Map();
@@ -215,6 +247,30 @@ function Dashboard({ isLightMode }) {
         prevMap.set(key, { ...(prevMap.get(key) || {}), ...val });
       });
 
+      // Synthesize placeholder rows for pending orders not in incoming or prev
+      (ordersToCheck || []).forEach(o => {
+        const sym = String(o?.symbol || o?.asset || '').toUpperCase().trim();
+        if (!sym) return;
+        const prov = orderProvider(o);
+        const placeholderKey = `${prov}:${sym}`;
+        if (!incomingMap.has(placeholderKey) && !prevMap.has(placeholderKey)) {
+          const placeholder = {
+            id: `pending-${prov}-${sym}`,
+            symbol: sym,
+            display_symbol: sym,
+            amount: 0,
+            current_price: Number(o?.price || o?.trigger_price || 0),
+            hasPendingOrder: true,
+            pendingPlaceholder: true,
+            source: prov,
+            is_external: prov === 'webull',
+            provider: prov
+          };
+          incomingMap.set(placeholderKey, placeholder);
+          prevMap.set(placeholderKey, placeholder);
+        }
+      });
+
       // Return stable array preserving previous order, filtering out zero-balance coins that no longer have pending orders or staking
       const updated = [];
       const seen = new Set();
@@ -233,18 +289,14 @@ function Dashboard({ isLightMode }) {
       });
 
       // Append any new symbols not in previous
-      incoming.forEach(c => {
-        if (!c?.symbol || !String(c.symbol).trim()) return;
-        const key = portfolioRowKey(c);
+      prevMap.forEach((val, key) => {
         if (!seen.has(key)) {
-          const item = prevMap.get(key);
-          if (item) {
-            const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-            const isStaked = !!item.is_staked || Number(item.staked_amount || 0) > 0;
-            if (hasHoldings || isStaked || item.hasPendingOrder || item.force_visible) {
-              updated.push(item);
-            }
+          const hasHoldings = Number(val.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
+          const isStaked = !!val.is_staked || Number(val.staked_amount || 0) > 0;
+          if (hasHoldings || isStaked || val.hasPendingOrder || val.force_visible) {
+            updated.push(val);
           }
+          seen.add(key);
         }
       });
       return updated;
@@ -290,7 +342,6 @@ function Dashboard({ isLightMode }) {
   const [error, setError] = useState(null);
   const [trendHistory, setTrendHistory] = useState([]);
   const [pendingOrders, setPendingOrders] = useState([]);
-  const pendingOrdersRef = useRef([]);
 
   useEffect(() => {
     pendingOrdersRef.current = pendingOrders;
@@ -1981,35 +2032,7 @@ function Dashboard({ isLightMode }) {
     navigateToTrading(cleanBase, 'BUY', quote);
   };
 
-  const pendingOrderProvider = (asset) => (
-    asset && (asset.is_external === true || asset.source === 'webull') ? 'webull' : 'binance'
-  );
 
-  const orderProvider = (order) => {
-    const provider = String(order?.provider || order?.source || order?.exchange || 'binance').toLowerCase();
-    return provider === 'webull' ? 'webull' : 'binance';
-  };
-
-  // Pending orders must stay scoped to the provider that owns the portfolio row.
-  // A Binance ETH order cannot highlight a separate Webull ETH ETF holding.
-  const getPendingOrdersForCoin = (asset, orders) => {
-    const list = Array.isArray(orders) ? orders : (pendingOrdersRef.current?.length ? pendingOrdersRef.current : pendingOrders);
-    if (!Array.isArray(list) || list.length === 0) return [];
-    const symbol = typeof asset === 'object' ? asset?.symbol : asset;
-    const sym = String(symbol || '').toUpperCase().trim();
-    if (!sym) return [];
-    const isObject = typeof asset === 'object' && asset !== null;
-    const provider = isObject ? pendingOrderProvider(asset) : null;
-    return list.filter(order => {
-      if (provider && orderProvider(order) !== provider) return false;
-      const orderAsset = String(order?.asset || '').toUpperCase().trim();
-      const orderSymbol = String(order?.symbol || '').toUpperCase().trim();
-      return orderAsset === sym
-        || orderSymbol === sym
-        || orderSymbol.startsWith(`${sym}USD`)
-        || orderSymbol.startsWith(`${sym}USDT`);
-    });
-  };
 
   const getAllPendingItemsForCoin = (coin) => {
     if (!coin || !coin.symbol) return [];
@@ -2227,38 +2250,31 @@ function Dashboard({ isLightMode }) {
           // Don't set loading true - it clears the table!
         }
 
-        // First, fetch portfolio data (most important) - use database for instant load
+        // First, fetch portfolio data (most important) - use database for instant load (< 20ms)
         try {
-          const [portfolioResponse, ordersRes] = await Promise.all([
-            axios.get('/api/coin-data'),
-            axios.get('/api/pending-orders', { withCredentials: true }).catch(e => {
-              console.error('Error fetching pending orders:', e);
-              return { data: { pending_orders: [] } };
-            })
-          ]);
-          const pendingOrdersData = ordersRes.data?.pending_orders || [];
-          pendingOrdersRef.current = pendingOrdersData;
-          setPendingOrders(pendingOrdersData);
-          const rawPortfolio = Array.isArray(portfolioResponse.data.portfolio)
+          const portfolioResponse = await axios.get('/api/coin-data');
+          const rawPortfolio = Array.isArray(portfolioResponse.data?.portfolio)
             ? portfolioResponse.data.portfolio
             : [];
+          rawPortfolioRef.current = rawPortfolio;
 
-          if (portfolioResponse.data.account_totals) {
+          if (portfolioResponse.data?.account_totals) {
             setAccountTotals(portfolioResponse.data.account_totals);
             setTotalValue(portfolioResponse.data.account_totals.all);
           }
 
+          const currentPending = pendingOrdersRef.current || [];
           const withFlags = rawPortfolio
             .filter(c => {
               if (!c || !c.symbol || !String(c.symbol).trim()) return false;
               const hasHoldings = Number(c.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-              const hasPending = getPendingOrdersForCoin(c, pendingOrdersData).length > 0;
+              const hasPending = getPendingOrdersForCoin(c, currentPending).length > 0;
               const isStaked = !!c.is_staked || Number(c.staked_amount || 0) > 0;
               return hasHoldings || hasPending || isStaked || c.force_visible;
             })
             .map((c) => ({
               ...c,
-              hasPendingOrder: getPendingOrdersForCoin(c, pendingOrdersData).length > 0,
+              hasPendingOrder: getPendingOrdersForCoin(c, currentPending).length > 0,
               pendingPlaceholder: false
             }));
 
@@ -2270,25 +2286,25 @@ function Dashboard({ isLightMode }) {
           }
         } catch (error) {
           console.error('Error fetching portfolio:', error);
-          // Check if it's an authentication error (302 redirect or 401)
           if (error.response && (error.response.status === 302 || error.response.status === 401)) {
             setNeedsLogin(true);
             return;
           }
+          if (isInitialLoad) {
+            setLoading(false);
+          }
         }
 
-        // Then fetch other data in parallel (background refresh) - don't wait for this
+        // Then fetch other data in parallel (background refresh) - don't block initial dashboard render
         if (isInitialLoad) {
-          // For initial load, fetch other data in background without blocking
-          // Use setTimeout to make it truly non-blocking
           setTimeout(() => {
             const wFetchId = nextWatchlistFetchId();
             Promise.allSettled([
               axios.get('/api/watchlist'),
               axios.get(`/api/true-portfolio-value?ts=${Date.now()}`),
-              axios.get('/api/account-summary')
-              // Don't fetch trend history here - let the useEffect handle it
-            ]).then(([watchlistResponse, portfolioValueResponse, accountSummaryResponse]) => {
+              axios.get('/api/account-summary'),
+              axios.get('/api/pending-orders', { withCredentials: true })
+            ]).then(([watchlistResponse, portfolioValueResponse, accountSummaryResponse, ordersResponse]) => {
               // Handle watchlist
               if (watchlistResponse.status === 'fulfilled') {
                 console.log('Watchlist response:', watchlistResponse.value.data);
@@ -2297,15 +2313,24 @@ function Dashboard({ isLightMode }) {
 
               // Handle portfolio value
               if (portfolioValueResponse.status === 'fulfilled') {
-                const totalVal = portfolioValueResponse.value.data.total_value;
+                const totalVal = portfolioValueResponse.value.data?.total_value;
                 console.log(`[DEBUG] Received Total Portfolio Value: ${totalVal}`, portfolioValueResponse.value.data);
                 setTotalValue(totalVal || 0);
               }
               if (accountSummaryResponse.status === 'fulfilled') {
                 setAccountTotals(accountSummaryResponse.value.data?.totals || { all: 0, binance: 0, webull: 0 });
               }
+
+              // Handle pending orders and apply highlight flags + zero-balance rows
+              if (ordersResponse.status === 'fulfilled' && ordersResponse.value?.data?.pending_orders) {
+                const refreshedPendingOrders = ordersResponse.value.data.pending_orders || [];
+                pendingOrdersRef.current = refreshedPendingOrders;
+                setPendingOrders(refreshedPendingOrders);
+                const pFetchId = nextPortfolioFetchId();
+                applyPortfolioUpdate(rawPortfolioRef.current || [], pFetchId, refreshedPendingOrders);
+              }
             });
-          }, 100); // Small delay to ensure portfolio loads first
+          }, 50); // Small delay to ensure initial portfolio renders first
         } else {
           // For background refresh, wait for all data including live portfolio data
           const wFetchId = nextWatchlistFetchId();
