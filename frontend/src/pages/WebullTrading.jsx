@@ -4293,6 +4293,25 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       }
     }
 
+    // Webull rejects linked OCO legs that share the same side and price. Catch
+    // it here so a replacement never cancels the original order first.
+    const linkedLegKeys = new Map();
+    for (let i = 0; i < comboForm.legs.length; i++) {
+      const leg = comboForm.legs[i];
+      if (!['OCO', 'OTOCO'].includes(leg.role)) continue;
+      const usesLimit = ['LIMIT', 'STOP_LOSS_LIMIT', 'LIMIT_ON_OPEN'].includes(leg.order_type);
+      const legPrice = usesLimit ? parseFloat(leg.price) : parseFloat(leg.stopPrice);
+      const key = `${leg.side}|${Number.isFinite(legPrice) ? legPrice.toFixed(4) : ''}`;
+      if (linkedLegKeys.has(key)) {
+        setOrderFeedback({
+          type: 'error',
+          message: `Legs #${linkedLegKeys.get(key)} and #${i + 1} are identical. Webull requires linked OCO legs to differ in price or side. Change one leg and try again.`,
+        });
+        return;
+      }
+      linkedLegKeys.set(key, i + 1);
+    }
+
     if (!isTestMode && !twofaToken) {
       setTwoFactorModal({
         isVisible: true,

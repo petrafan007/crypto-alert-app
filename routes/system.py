@@ -2809,11 +2809,73 @@ def _schedule_webull_transaction_refresh(user_id, account_id):
     threading.Thread(target=worker, daemon=True, name=f'webull-txn-refresh-{user_id}').start()
 
 
+def _restore_cancelled_webull_order(credential, environment, account_id, order):
+    """Re-submit an order that was cancelled for a replacement that then failed.
+
+    A replacement is all-or-nothing: when the new order is rejected after the
+    original was cancelled, the original is placed again with its own terms.
+    Only an unfilled, single-leg stock/ETF order can be rebuilt faithfully.
+    """
+    if not isinstance(order, dict):
+        raise WebullConnectionError('its details were not available.')
+    order_type = str(order.get('order_type') or '').strip().upper()
+    if str(order.get('combo_type') or 'NORMAL').strip().upper() != 'NORMAL':
+        raise WebullConnectionError('it was part of a conditional (combo) order.')
+    if str(order.get('instrument_type') or '').strip().upper() not in {'EQUITY', 'STOCK', 'ETF'}:
+        raise WebullConnectionError('only stock and ETF orders can be restored automatically.')
+    if order_type not in {'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
+        raise WebullConnectionError(f'{order_type or "this"} orders cannot be restored automatically.')
+    try:
+        filled = float(order.get('filled_quantity') or 0)
+        quantity = float(order.get('total_quantity') or order.get('quantity') or 0)
+    except (TypeError, ValueError):
+        raise WebullConnectionError('its quantity could not be read.')
+    if filled > 0:
+        raise WebullConnectionError('it was already partly filled.')
+    if quantity <= 0:
+        raise WebullConnectionError('its quantity could not be read.')
+    result = place_webull_order(
+        credential.webull_app_key, credential.webull_app_secret,
+        environment, credential.webull_access_token,
+        account_id=account_id,
+        symbol=order.get('symbol'),
+        instrument_type='EQUITY',
+        side=order.get('side'),
+        order_type=order_type,
+        quantity=order.get('total_quantity') or order.get('quantity'),
+        limit_price=order.get('limit_price'),
+        stop_price=order.get('stop_price'),
+        time_in_force=order.get('time_in_force') or 'DAY',
+        support_trading_session=order.get('support_trading_session') or 'CORE',
+        entrust_type='QTY',
+    )
+    return str(result.get('order_id') or '')
+
+
+def _failed_replacement_note(credential, environment, account_id, cancelled_id, cancelled_order):
+    """Restore the cancelled original and describe what is working now."""
+    try:
+        restored_id = _restore_cancelled_webull_order(credential, environment, account_id, cancelled_order)
+        logger.info('Restored Webull order %s as %s after a failed replacement', cancelled_id, restored_id)
+        return (
+            ' Your original order was restored with the same terms'
+            + (f' (new order ID {restored_id})' if restored_id else '')
+            + ', so nothing has changed.'
+        ), True
+    except Exception as restore_err:
+        logger.error('Could not restore Webull order %s after a failed replacement: %s', cancelled_id, restore_err)
+        return (
+            f' IMPORTANT: the original order {cancelled_id} had already been cancelled and could not be '
+            f'restored automatically: {restore_err} No order is working now; re-enter it manually.'
+        ), False
+
+
 @system_bp.route('/api/webull/orders/place', methods=['POST'])
 @login_required
 def api_webull_place_order():
     """Place an order through Webull OpenAPI or simulated paper engine."""
     cancelled_for_replace = None
+    cancelled_original = None
     try:
         data = request.get_json(silent=True) or {}
         requested_instrument_type = str(data.get('instrument_type') or 'EQUITY').strip().upper()
@@ -3183,6 +3245,12 @@ def api_webull_place_order():
                     ),
                 }), 400
 
+        if is_combo:
+            # Refuse a ticket Webull is known to reject before a 2FA token is
+            # consumed and, for a replacement, before the original is cancelled.
+            from services.webull_service import validate_webull_combo_orders
+            validate_webull_combo_orders(combo_orders, symbol)
+
         from services.trading_2fa_service import require_live_trading_2fa
         two_factor_error = require_live_trading_2fa(current_user.id, data, 'place or replace this live Webull order')
         if two_factor_error:
@@ -3213,6 +3281,7 @@ def api_webull_place_order():
                     ).strip(),
                 }), 409
             cancelled_for_replace = str(replacing_order_id)
+            cancelled_original = cancel_result.get('cancelled_order')
             time.sleep(1.0)
 
         result = place_webull_order(
@@ -3269,25 +3338,38 @@ def api_webull_place_order():
         return jsonify(res_payload)
     except WebullConnectionError as exc:
         logger.warning('Webull order rejected: user=%s error_code=%s message=%s', current_user.id, getattr(exc, 'error_code', None), exc)
+        try:
+            rejected_legs = (request.get_json(silent=True) or {}).get('combo_orders')
+            if isinstance(rejected_legs, list):
+                logger.warning('Rejected Webull combo legs: %s', [
+                    {key: leg.get(key) for key in ('combo_type', 'side', 'order_type', 'quantity', 'limit_price', 'stop_price')}
+                    for leg in rejected_legs if isinstance(leg, dict)
+                ])
+        except Exception:
+            pass
         message = str(exc)
+        original_restored = False
         if cancelled_for_replace:
-            message += (
-                f' Note: the original order {cancelled_for_replace} was already cancelled '
-                'and the replacement was not placed, so no order is working now.'
-            )
+            note, original_restored = _failed_replacement_note(
+                credential, environment, account_id, cancelled_for_replace, cancelled_original)
+            message += note
+            _schedule_webull_transaction_refresh(current_user.id, account_id)
         return jsonify({
             'success': False,
             'message': message,
             'error_code': getattr(exc, 'error_code', None),
             'agreement_url': getattr(exc, 'agreement_url', None),
             'request_id': getattr(exc, 'request_id', None),
-            'replaced_order_cancelled': bool(cancelled_for_replace),
+            'replaced_order_cancelled': bool(cancelled_for_replace) and not original_restored,
+            'original_order_restored': original_restored,
         }), 400
     except Exception as exc:
         logger.error('Webull order placement failed: %s', exc, exc_info=True)
         message = 'Unable to place this Webull order. Try again.'
         if cancelled_for_replace:
-            message += f' Note: the original order {cancelled_for_replace} was already cancelled; check Open Orders before retrying.'
+            note, _restored = _failed_replacement_note(
+                credential, environment, account_id, cancelled_for_replace, cancelled_original)
+            message += note
         return jsonify({'success': False, 'message': message}), 500
 
 

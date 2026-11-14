@@ -5460,14 +5460,14 @@ function Dashboard({ isLightMode }) {
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', margin: '4px 0 14px', padding: '0 2px' }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary, #94a3b8)', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-          Accounts
+          Platforms
           <select
             value={accountScope}
             onChange={(event) => changeAccountScope(event.target.value)}
-            aria-label="Dashboard account scope"
+            aria-label="Dashboard platform scope"
             style={{ minWidth: '170px', padding: '8px 30px 8px 10px', borderRadius: '7px', border: '1px solid rgba(56, 189, 248, 0.35)', background: 'var(--panel-bg, #172033)', color: 'var(--text-primary, #e2e8f0)', fontWeight: 700, cursor: 'pointer' }}
           >
-            <option value="all">All Accounts</option>
+            <option value="all">All Platforms</option>
             <option value="binance">Binance.US</option>
             <option value="webull">Webull</option>
           </select>

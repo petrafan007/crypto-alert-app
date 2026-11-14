@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.9
+**Version:** 4.14.10
 
 ## Recent Updates
+
+### v4.14.10
+* **All-or-Nothing Webull Order Replacement and Dashboard Platform Wording.**
+  * **Identical OCO Legs Are Caught Before Anything Is Sent:** Webull rejects linked OCO / OTOCO legs that share the same symbol, side and price (`OPENAPI_ORDER_OCO_PARAM_NO_SAME`). The ticket is now checked in the browser and on the server before 2FA and, for a replacement, before the original order is cancelled, so a rejected ticket no longer leaves you with no working order.
+  * **Replacements Are All-or-Nothing:** Every local validation and the 2FA check run before the original order is touched. If Webull still rejects the replacement after the original was cancelled, the original stock/ETF order is automatically re-submitted with its own terms (side, type, quantity, prices, time in force, session) and the error says so. If it cannot be restored (for example it was partly filled or part of a combo), the error states plainly that no order is working.
+  * **Rejected Combo Legs Are Logged:** When Webull rejects a conditional order, the submitted legs (side, type, quantity, prices) are written to the service log for diagnosis.
+  * **Dashboard Selector Renamed:** The Dashboard scope selector is now labelled **Platforms**, and its first option reads **All Platforms** (previously Accounts / All Accounts).
 
 ### v4.14.9
 * **Fix Webull Order Replacement Targeting the Wrong Account.**

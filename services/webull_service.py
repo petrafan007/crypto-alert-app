@@ -3406,6 +3406,7 @@ def place_webull_order(
     if combo_orders and isinstance(combo_orders, list):
         if len(combo_orders) < 2:
             raise WebullConnectionError('Webull combo orders require at least 2 legs.')
+        validate_webull_combo_orders(combo_orders, symbol)
         clean_combo_id = str(client_combo_order_id or uuid4().hex[:24]).strip()
         leg_payloads = []
         for i, leg in enumerate(combo_orders):
@@ -3977,6 +3978,40 @@ def get_webull_order_detail(app_key, app_secret, environment='production', acces
     if not isinstance(data, dict):
         raise WebullConnectionError('Webull returned no order detail.')
     return data
+
+
+def validate_webull_combo_orders(combo_orders, symbol=None):
+    """Reject combo tickets Webull is known to refuse, before anything is sent.
+
+    Webull requires the linked (OCO / OTOCO) legs to differ in symbol, price
+    or side. Checking locally lets a replacement be refused while the original
+    order is still working, instead of after it has been cancelled.
+    """
+    def _price(value):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return round(number, 4) if number > 0 else None
+
+    seen = {}
+    for index, leg in enumerate(combo_orders or [], start=1):
+        if not isinstance(leg, dict):
+            continue
+        if str(leg.get('combo_type') or '').strip().upper() not in {'OCO', 'OTOCO'}:
+            continue
+        limit_price = _price(leg.get('limit_price'))
+        key = (
+            str(leg.get('symbol') or symbol or '').strip().upper(),
+            str(leg.get('side') or '').strip().upper(),
+            limit_price if limit_price is not None else _price(leg.get('stop_price')),
+        )
+        if key in seen:
+            raise WebullConnectionError(
+                f'Legs #{seen[key]} and #{index} are identical. Webull requires linked OCO legs to differ '
+                'in price or side. Change one leg and try again.'
+            )
+        seen[key] = index
 
 
 def cancel_webull_order(

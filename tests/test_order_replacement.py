@@ -199,6 +199,53 @@ class OrderReplacementTests(unittest.TestCase):
         self.assertFalse(res['success'])
         self.assertIn('order already filled', res['error'])
 
+    def test_identical_oco_legs_are_refused_before_submission(self):
+        """Webull refuses linked OCO legs with the same side and price; catch it locally."""
+        from services.webull_service import validate_webull_combo_orders, WebullConnectionError
+        same = [
+            {'combo_type': 'OCO', 'side': 'BUY', 'order_type': 'LIMIT', 'limit_price': 160},
+            {'combo_type': 'OCO', 'side': 'BUY', 'order_type': 'LIMIT', 'limit_price': '160.00'},
+        ]
+        with self.assertRaises(WebullConnectionError):
+            validate_webull_combo_orders(same, 'NVDA')
+        validate_webull_combo_orders([same[0], {**same[1], 'limit_price': 165}], 'NVDA')
+        validate_webull_combo_orders([same[0], {**same[1], 'side': 'SELL'}], 'NVDA')
+        # The triggering (MASTER) leg may share a price with a linked leg.
+        validate_webull_combo_orders([{**same[0], 'combo_type': 'MASTER'}, same[1]], 'NVDA')
+
+    def test_failed_replacement_restores_original_order(self):
+        """A rejected replacement re-submits the cancelled original with its own terms."""
+        from routes import system
+        cred = Mock(webull_app_key='k', webull_app_secret='s', webull_access_token='t')
+        original = {
+            'symbol': 'NVDA', 'side': 'BUY', 'order_type': 'LIMIT', 'instrument_type': 'EQUITY',
+            'combo_type': 'NORMAL', 'total_quantity': '1', 'filled_quantity': '0', 'limit_price': '160.00',
+            'time_in_force': 'GTC', 'support_trading_session': 'ALL',
+        }
+        with patch.object(system, 'place_webull_order', return_value={'order_id': 'NEW1'}) as mock_place:
+            note, restored = system._failed_replacement_note(cred, 'production', 'ROTH', 'OLD1', original)
+        self.assertTrue(restored)
+        self.assertIn('NEW1', note)
+        kwargs = mock_place.call_args.kwargs
+        self.assertEqual(
+            (kwargs['account_id'], kwargs['symbol'], kwargs['side'], kwargs['order_type'], kwargs['quantity'],
+             kwargs['limit_price'], kwargs['time_in_force'], kwargs['support_trading_session']),
+            ('ROTH', 'NVDA', 'BUY', 'LIMIT', '1', '160.00', 'GTC', 'ALL'))
+
+    def test_failed_replacement_reports_when_original_cannot_be_restored(self):
+        """A partly filled or combo original is never re-submitted; the user is told plainly."""
+        from routes import system
+        cred = Mock(webull_app_key='k', webull_app_secret='s', webull_access_token='t')
+        partly_filled = {
+            'symbol': 'NVDA', 'side': 'BUY', 'order_type': 'LIMIT', 'instrument_type': 'EQUITY',
+            'combo_type': 'NORMAL', 'total_quantity': '2', 'filled_quantity': '1', 'limit_price': '160.00',
+        }
+        with patch.object(system, 'place_webull_order') as mock_place:
+            note, restored = system._failed_replacement_note(cred, 'production', 'ROTH', 'OLD1', partly_filled)
+        self.assertFalse(restored)
+        self.assertIn('No order is working now', note)
+        mock_place.assert_not_called()
+
     def test_cancel_any_order_unprefixed_ladder_numeric_id(self):
         """Verify numeric ID for an active ladder order resolves to cancelling that ladder order."""
         ladder = LadderOrder(

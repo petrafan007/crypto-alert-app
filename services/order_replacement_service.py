@@ -96,6 +96,7 @@ def cancel_any_order(replacing_order_id, user_id, symbol=None, test_mode=None, b
     # 3. Webull Order (prefix webull- or broker is webull)
     if str_id.startswith('webull-') or (broker and str(broker).lower() == 'webull'):
         clean_webull_id = str_id.replace('webull-', '').strip()
+        cancelled_order = None
         is_test = test_mode is True or str(account_id or '').startswith('TEST_')
         if is_test:
             try:
@@ -145,11 +146,15 @@ def cancel_any_order(replacing_order_id, user_id, symbol=None, test_mode=None, b
                     client_order_id=str(open_order.get('client_order_id') or '').strip() or None,
                     order_id=str(open_order.get('order_id') or clean_webull_id).strip(),
                 )
+                cancelled_order = dict(open_order)
             except Exception as e:
                 logger.warning(f"Error cancelling Webull live order {clean_webull_id} during replacement: {e}")
                 return {'success': False, 'order_id': str_id, 'order_type': 'webull',
                         'error': f'Webull could not cancel order {clean_webull_id}: {e}'}
-        return {'success': True, 'order_id': str_id, 'order_type': 'webull', 'message': f'Webull order {clean_webull_id} cancelled'}
+        # The cancelled order's details let the caller restore it if the
+        # replacement is then rejected.
+        return {'success': True, 'order_id': str_id, 'order_type': 'webull',
+                'message': f'Webull order {clean_webull_id} cancelled', 'cancelled_order': cancelled_order}
 
     # 4. Numeric order ID (could be TestOrder, RealOrder, or unprefixed synthetic order)
     if str_id.isdigit():
