@@ -232,6 +232,7 @@ function Dashboard({ isLightMode }) {
 
       incoming.forEach(c => {
         if (!c?.symbol || !String(c.symbol).trim()) return;
+        if (c.pendingPlaceholder || String(c.id || '').startsWith('pending-')) return;
         incomingMap.set(portfolioRowKey(c), {
           ...c,
           hasPendingOrder: getPendingOrdersForCoin(c, ordersToCheck || []).length > 0,
@@ -240,48 +241,29 @@ function Dashboard({ isLightMode }) {
       });
 
       const prevMap = new Map();
-      prev.forEach(p => prevMap.set(portfolioRowKey(p), p));
+      prev.forEach(p => {
+        if (!p?.symbol || !String(p.symbol).trim()) return;
+        if (p.pendingPlaceholder || String(p.id || '').startsWith('pending-')) return;
+        prevMap.set(portfolioRowKey(p), p);
+      });
 
       // Update or add incoming coins
       incomingMap.forEach((val, key) => {
         prevMap.set(key, { ...(prevMap.get(key) || {}), ...val });
       });
 
-      // Synthesize placeholder rows for pending orders not in incoming or prev
-      (ordersToCheck || []).forEach(o => {
-        const sym = String(o?.symbol || o?.asset || '').toUpperCase().trim();
-        if (!sym) return;
-        const prov = orderProvider(o);
-        const placeholderKey = `${prov}:${sym}`;
-        if (!incomingMap.has(placeholderKey) && !prevMap.has(placeholderKey)) {
-          const placeholder = {
-            id: `pending-${prov}-${sym}`,
-            symbol: sym,
-            display_symbol: sym,
-            amount: 0,
-            current_price: Number(o?.price || o?.trigger_price || 0),
-            hasPendingOrder: true,
-            pendingPlaceholder: true,
-            source: prov,
-            is_external: prov === 'webull',
-            provider: prov
-          };
-          incomingMap.set(placeholderKey, placeholder);
-          prevMap.set(placeholderKey, placeholder);
-        }
-      });
-
-      // Return stable array preserving previous order, filtering out zero-balance coins that no longer have pending orders or staking
+      // Return stable array preserving previous order, filtering out zero-balance coins that are not staked or force-visible
       const updated = [];
       const seen = new Set();
       prev.forEach(p => {
         if (!p?.symbol || !String(p.symbol).trim()) return;
+        if (p.pendingPlaceholder || String(p.id || '').startsWith('pending-')) return;
         const key = portfolioRowKey(p);
         const item = prevMap.get(key);
         if (item) {
           const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-          const isStaked = !!item.is_staked || Number(item.staked_amount || 0) > 0;
-          if (hasHoldings || isStaked || item.hasPendingOrder || item.force_visible) {
+          const isStaked = !item.is_external && (!!item.is_staked || Number(item.staked_amount || 0) > 0);
+          if (hasHoldings || isStaked || item.force_visible) {
             updated.push(item);
           }
           seen.add(key);
@@ -291,9 +273,10 @@ function Dashboard({ isLightMode }) {
       // Append any new symbols not in previous
       prevMap.forEach((val, key) => {
         if (!seen.has(key)) {
+          if (val.pendingPlaceholder || String(val.id || '').startsWith('pending-')) return;
           const hasHoldings = Number(val.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-          const isStaked = !!val.is_staked || Number(val.staked_amount || 0) > 0;
-          if (hasHoldings || isStaked || val.hasPendingOrder || val.force_visible) {
+          const isStaked = !val.is_external && (!!val.is_staked || Number(val.staked_amount || 0) > 0);
+          if (hasHoldings || isStaked || val.force_visible) {
             updated.push(val);
           }
           seen.add(key);
@@ -2264,14 +2247,23 @@ function Dashboard({ isLightMode }) {
             setTotalValue(portfolioResponse.data.account_totals.all);
           }
 
+          // If backend sent fast pending_orders with coin-data, initialize pending orders immediately for instant highlights
+          const incomingPending = Array.isArray(portfolioResponse.data?.pending_orders)
+            ? portfolioResponse.data.pending_orders
+            : (pendingOrdersRef.current && pendingOrdersRef.current.length > 0 ? pendingOrdersRef.current : []);
+          if (incomingPending.length > 0) {
+            pendingOrdersRef.current = incomingPending;
+            setPendingOrders(incomingPending);
+          }
+
           const currentPending = pendingOrdersRef.current || [];
           const withFlags = rawPortfolio
             .filter(c => {
               if (!c || !c.symbol || !String(c.symbol).trim()) return false;
+              if (c.pendingPlaceholder || String(c.id || '').startsWith('pending-')) return false;
               const hasHoldings = Number(c.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-              const hasPending = getPendingOrdersForCoin(c, currentPending).length > 0;
-              const isStaked = !!c.is_staked || Number(c.staked_amount || 0) > 0;
-              return hasHoldings || hasPending || isStaked || c.force_visible;
+              const isStaked = !c.is_external && (!!c.is_staked || Number(c.staked_amount || 0) > 0);
+              return hasHoldings || isStaked || c.force_visible;
             })
             .map((c) => ({
               ...c,
@@ -2383,7 +2375,9 @@ function Dashboard({ isLightMode }) {
           if (livePortfolioResponse.status === 'fulfilled' && livePortfolioResponse.value.data.portfolio) {
             const pendingOrdersList = (ordersResponse.status === 'fulfilled' && ordersResponse.value?.data?.pending_orders)
               ? ordersResponse.value.data.pending_orders
-              : pendingOrdersRef.current;
+              : (Array.isArray(livePortfolioResponse.value.data?.pending_orders) && livePortfolioResponse.value.data.pending_orders.length > 0
+                ? livePortfolioResponse.value.data.pending_orders
+                : pendingOrdersRef.current);
             const pFetchId = nextPortfolioFetchId();
             applyPortfolioUpdate(livePortfolioResponse.value.data.portfolio, pFetchId, pendingOrdersList);
             

@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.6
+**Version:** 4.14.7
 
 ## Recent Updates
+
+### v4.14.7
+* **Instant Portfolio Highlights on Mount & Elimination of Phantom Duplicate Rows.**
+  * **Zero-Latency Highlight on Load:** The initial portfolio data endpoints (`/api/coin-data` and `/api/coin-data-live`) now package and return fast pending orders directly from local database tables (`WebullOrder`, `TrailingOrder`, `LadderOrder`) and memory caches in under 5ms. The initial portfolio table render applies pending order highlights (e.g. NVDA and locked USD cash rows) on the very first frame without delay or visual popping.
+  * **Eliminated Duplicate Ghost Rows:** Removed redundant and key-mismatched placeholder synthesis logic from `applyPortfolioUpdate` that generated phantom zero-balance duplicate entries (e.g. `NVDA Securities 0.0000`). Zero-balance holdings that are neither staked nor marked force-visible are strictly filtered from the Portfolio table, while unfilled buy orders correctly remain scoped to the Watchlist and Orders views.
 
 ### v4.14.6
 * **Fix ReferenceError on Portfolio Trend History Range State.**

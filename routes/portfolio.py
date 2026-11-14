@@ -924,6 +924,12 @@ def api_pending_orders():
                         'orderListId': order.get('orderListId', -1)
                     })
 
+                try:
+                    from services.portfolio_service import cache_binance_open_orders
+                    cache_binance_open_orders(current_user.id, [p for p in pending_orders if p.get('provider') == 'binance'])
+                except Exception as cache_err:
+                    logger.debug(f"Could not cache Binance open orders: {cache_err}")
+
                 coin_updates = False
                 # An unfilled BUY is a watch target, not a portfolio position. This
                 # also captures BUY orders created directly on Binance.US.

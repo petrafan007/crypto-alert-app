@@ -404,7 +404,7 @@ def api_coin_data_live():
         portfolio.extend(get_webull_portfolio_rows(current_user.id))
         
         # Calculate authoritative totals directly in coin-data-live
-        from services.portfolio_service import compute_portfolio_total_value
+        from services.portfolio_service import compute_portfolio_total_value, get_fast_pending_orders
         from services.webull_import_service import get_webull_total_value
         try:
             all_accounts = float(compute_portfolio_total_value(
@@ -421,7 +421,13 @@ def api_coin_data_live():
             logger.error(f"Error calculating account totals in coin-data-live: {e}")
             account_totals = None
 
-        return jsonify({"portfolio": portfolio, "account_totals": account_totals})
+        fast_pending = []
+        try:
+            fast_pending = get_fast_pending_orders(current_user.id)
+        except Exception as fast_err:
+            logger.warning(f"Error getting fast pending orders in coin-data-live: {fast_err}")
+
+        return jsonify({"portfolio": portfolio, "account_totals": account_totals, "pending_orders": fast_pending})
 
     except Exception as e:
         logger.error(f"Error in api_coin_data_live: {e}")
@@ -594,7 +600,7 @@ def api_coin_data():
         portfolio.extend(get_webull_portfolio_rows(current_user.id))
         
         # Calculate authoritative totals directly in coin-data to prevent UI flicker
-        from services.portfolio_service import compute_portfolio_total_value
+        from services.portfolio_service import compute_portfolio_total_value, get_fast_pending_orders
         from services.webull_import_service import get_webull_total_value
         try:
             all_accounts = float(compute_portfolio_total_value(
@@ -611,7 +617,13 @@ def api_coin_data():
             logger.error(f"Error calculating account totals in coin-data: {e}")
             account_totals = None
 
-        return jsonify({"portfolio": portfolio, "account_totals": account_totals})
+        fast_pending = []
+        try:
+            fast_pending = get_fast_pending_orders(current_user.id)
+        except Exception as fast_err:
+            logger.warning(f"Error getting fast pending orders in coin-data: {fast_err}")
+
+        return jsonify({"portfolio": portfolio, "account_totals": account_totals, "pending_orders": fast_pending})
     except Exception as e:
         logger.error(f"api_coin_data error: {str(e)}")
         logger.error(f"Exception type: {type(e)}")
