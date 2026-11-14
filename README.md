@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.8
+**Version:** 4.14.9
 
 ## Recent Updates
+
+### v4.14.9
+* **Fix Webull Order Replacement Targeting the Wrong Account.**
+  * **Replacement Uses the Original Order's Account:** The Replace Pending Order dialog submitted against the default Webull account instead of the account holding the order being replaced. For an order in another account (for example an IRA) Webull could not find it and the cancellation failed with `invalid client_order_id`. The dialog now selects and submits against the original order's account for both Single and Conditional orders, so the replacement stays in that account.
+  * **Order Is Located Before It Is Cancelled:** The server now finds the working order and its client order ID at Webull before cancelling. If the order belongs to a different account than the one submitted, or is no longer open (filled or already cancelled), the replacement is refused with a clear reason and nothing is cancelled.
 
 ### v4.14.8
 * **Fix Silent Failure When Replacing a Webull Order with a Conditional (OTO / OCO / OTOCO) Order.**

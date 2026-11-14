@@ -109,7 +109,7 @@ def cancel_any_order(replacing_order_id, user_id, symbol=None, test_mode=None, b
             # working would leave both the old and the new order live.
             try:
                 from credentials import Credential, UserSetting
-                from services.webull_service import cancel_webull_order, normalize_webull_environment
+                from services.webull_service import cancel_webull_order, get_webull_open_orders, normalize_webull_environment
                 if not account_id:
                     raise ValueError('A Webull account is required to cancel the order being replaced.')
                 setting = UserSetting.query.filter_by(user_id=user_id).first()
@@ -117,10 +117,33 @@ def cancel_any_order(replacing_order_id, user_id, symbol=None, test_mode=None, b
                 environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
                 if not credential or not credential.webull_access_token:
                     raise ValueError('Webull is not connected or token has expired.')
+                # Webull cancels by client_order_id within one account, so
+                # locate the working order first. Looking across accounts
+                # catches a replacement submitted against the wrong account
+                # before anything is cancelled.
+                def _find_open(orders):
+                    for o in orders or []:
+                        ids = {str(o.get(k) or '').strip() for k in ('order_id', 'orderId', 'combo_order_id', 'client_order_id', 'id')}
+                        if clean_webull_id in ids:
+                            return o
+                    return None
+
+                creds = (credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token)
+                open_order = _find_open(get_webull_open_orders(*creds, account_id=account_id))
+                if open_order is None:
+                    elsewhere = _find_open(get_webull_open_orders(*creds))
+                    if elsewhere is not None and str(elsewhere.get('_webull_account_id') or '') != str(account_id):
+                        raise ValueError(
+                            'the order belongs to a different Webull account than the one selected for the replacement. '
+                            'Select the account that holds the original order and try again.'
+                        )
+                    open_order = elsewhere
+                if open_order is None:
+                    raise ValueError('the order is no longer open at Webull (it may have filled or already been cancelled).')
                 cancel_webull_order(
-                    credential.webull_app_key, credential.webull_app_secret,
-                    environment, credential.webull_access_token,
-                    account_id=account_id, order_id=clean_webull_id,
+                    *creds, account_id=account_id,
+                    client_order_id=str(open_order.get('client_order_id') or '').strip() or None,
+                    order_id=str(open_order.get('order_id') or clean_webull_id).strip(),
                 )
             except Exception as e:
                 logger.warning(f"Error cancelling Webull live order {clean_webull_id} during replacement: {e}")

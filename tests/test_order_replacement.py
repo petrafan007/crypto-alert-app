@@ -153,16 +153,47 @@ class OrderReplacementTests(unittest.TestCase):
     def test_cancel_any_order_webull_live_order_calls_broker(self):
         """A live Webull replacement cancels the original order at the broker."""
         self._add_webull_credential()
+        open_orders = [{'order_id': '41J8ML5FEQK9', 'client_order_id': 'cid-1', '_webull_account_id': 'ACC1'}]
         with patch('credential_security._get_fernet', return_value=self._fernet), \
+                patch('services.webull_service.get_webull_open_orders', return_value=open_orders), \
                 patch('services.webull_service.cancel_webull_order', return_value={'success': True}) as mock_cancel:
             res = cancel_any_order('41J8ML5FEQK9', user_id=1, test_mode=False, broker='webull', account_id='ACC1')
         self.assertTrue(res['success'])
-        mock_cancel.assert_called_once_with('k', 's', 'production', 't', account_id='ACC1', order_id='41J8ML5FEQK9')
+        mock_cancel.assert_called_once_with(
+            'k', 's', 'production', 't', account_id='ACC1', client_order_id='cid-1', order_id='41J8ML5FEQK9')
+
+    def test_cancel_any_order_webull_live_wrong_account_is_refused(self):
+        """An order held in another account is not cancelled and the mismatch is reported."""
+        self._add_webull_credential()
+        other = [{'order_id': '41J8ML5FEQK9', 'client_order_id': 'cid-1', '_webull_account_id': 'ROTH'}]
+
+        def fake_open_orders(*args, account_id=None, **kwargs):
+            return [] if account_id == 'ACC1' else other
+
+        with patch('credential_security._get_fernet', return_value=self._fernet), \
+                patch('services.webull_service.get_webull_open_orders', side_effect=fake_open_orders), \
+                patch('services.webull_service.cancel_webull_order') as mock_cancel:
+            res = cancel_any_order('41J8ML5FEQK9', user_id=1, test_mode=False, broker='webull', account_id='ACC1')
+        self.assertFalse(res['success'])
+        self.assertIn('different Webull account', res['error'])
+        mock_cancel.assert_not_called()
+
+    def test_cancel_any_order_webull_live_order_not_open_is_refused(self):
+        """An order that is no longer open cannot be replaced."""
+        self._add_webull_credential()
+        with patch('credential_security._get_fernet', return_value=self._fernet), \
+                patch('services.webull_service.get_webull_open_orders', return_value=[]), \
+                patch('services.webull_service.cancel_webull_order') as mock_cancel:
+            res = cancel_any_order('41J8ML5FEQK9', user_id=1, test_mode=False, broker='webull', account_id='ACC1')
+        self.assertFalse(res['success'])
+        self.assertIn('no longer open', res['error'])
+        mock_cancel.assert_not_called()
 
     def test_cancel_any_order_webull_live_failure_is_reported(self):
         """A failed live Webull cancellation must not be reported as success."""
         self._add_webull_credential()
         with patch('credential_security._get_fernet', return_value=self._fernet), \
+                patch('services.webull_service.get_webull_open_orders', return_value=[{'order_id': '41J8ML5FEQK9', 'client_order_id': 'cid-1', '_webull_account_id': 'ACC1'}]), \
                 patch('services.webull_service.cancel_webull_order', side_effect=RuntimeError('order already filled')):
             res = cancel_any_order('41J8ML5FEQK9', user_id=1, test_mode=False, broker='webull', account_id='ACC1')
         self.assertFalse(res['success'])

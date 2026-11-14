@@ -1227,6 +1227,19 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
   const [eventUnderlyingPriceHistory, setEventUnderlyingPriceHistory] = useState([]);
   const [eventUnderlyingHistorySource, setEventUnderlyingHistorySource] = useState('');
 
+  // A replacement must be submitted against the account that holds the
+  // original order, not the default trading account.
+  const embeddedAccountId = isEmbeddedReplaceMode
+    ? String(embeddedOrder?.account_id || embeddedOrder?._webull_account_id || embeddedOrder?.webull_account_id || '')
+    : '';
+  useEffect(() => {
+    if (!embeddedAccountId || !accounts.length) return;
+    if (String(selectedAccountId) === embeddedAccountId) return;
+    if (accounts.some((a) => String(a.account_id) === embeddedAccountId)) {
+      setSelectedAccountId(embeddedAccountId);
+    }
+  }, [embeddedAccountId, accounts, selectedAccountId]);
+
   // Embedded mode initialization
   const initializedEmbeddedOrderIdRef = useRef(null);
   useEffect(() => {
@@ -4023,8 +4036,9 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     setOrderSubmitting(true);
     try {
       const isCashAmountMode = selectedInstrumentType === 'EQUITY' && orderForm.entrustType === 'AMOUNT';
-      let effectiveAccountId = selectedAccountId;
-      if (!isTestMode && !isQuantMode) {
+      let effectiveAccountId = embeddedAccountId || selectedAccountId;
+      // In replace mode the replacement stays in the original order's account.
+      if (!embeddedAccountId && !isTestMode && !isQuantMode) {
         if (selectedInstrumentType === 'EVENT') {
           const eventAccount = preferredEventAccount(accounts);
           if (eventAccount) effectiveAccountId = eventAccount.account_id;
@@ -4301,7 +4315,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     try {
       const payload = {
         test_mode: isTestMode,
-        account_id: selectedAccountId,
+        account_id: embeddedAccountId || selectedAccountId,
         combo_type: comboForm.comboType,
         twofa_token: twofaToken || undefined,
         combo_orders: comboForm.legs.map((leg) => ({
