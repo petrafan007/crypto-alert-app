@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.10
+**Version:** 4.14.11
 
 ## Recent Updates
+
+### v4.14.11
+* **Single / Conditional Orders Switch Moved Next to the Order Ticket.**
+  * The **Single Order / Conditional Orders** switch for Webull stock orders was rendered at the very top of the trading page, above the chart, where it scrolled out of view while filling in an order. It now sits directly above **Order Side** inside the order ticket (and directly above the combo builder in Conditional Orders mode), including in the Replace Pending Order dialog.
 
 ### v4.14.10
 * **All-or-Nothing Webull Order Replacement and Dashboard Platform Wording.**

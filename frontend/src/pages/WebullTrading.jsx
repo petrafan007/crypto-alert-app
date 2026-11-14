@@ -5075,6 +5075,19 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     } finally { setSignalBusy(false); }
   };
 
+  // Single / Conditional switch for stock orders. Rendered directly above the
+  // order ticket so it stays in view next to the fields it changes.
+  const equityOrderModeSwitch = activeTab === 'order' && selectedInstrumentType === 'EQUITY' ? (
+    <div className="equity-order-mode-tabs" role="group" aria-label="Equities order workflow">
+      <button type="button" className={equityOrderMode === 'single' ? 'active' : ''} onClick={() => handleEquityOrderModeChange('single')}>
+        Single Order
+      </button>
+      <button type="button" className={equityOrderMode === 'combo' ? 'active' : ''} onClick={() => handleEquityOrderModeChange('combo')}>
+        Conditional Orders
+      </button>
+    </div>
+  ) : null;
+
   return (
     <div className="trading-page webull-trading-page">
       {!isEmbeddedReplaceMode && (
@@ -5394,17 +5407,6 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
           <div className="empty-state"><p>Loading Webull data…</p></div>
         ) : (
           <>
-            {activeTab === 'order' && selectedInstrumentType === 'EQUITY' && (
-              <div className="equity-order-mode-tabs" role="group" aria-label="Equities order workflow">
-                <button type="button" className={equityOrderMode === 'single' ? 'active' : ''} onClick={() => handleEquityOrderModeChange('single')}>
-                  Single Order
-                </button>
-                <button type="button" className={equityOrderMode === 'combo' ? 'active' : ''} onClick={() => handleEquityOrderModeChange('combo')}>
-                  Conditional Orders
-                </button>
-              </div>
-            )}
-
             {/* ASSET ORDER WORKSPACE */}
             {activeTab === 'order' && !(selectedInstrumentType === 'EQUITY' && equityOrderMode === 'combo') && (
               <div className="order-form-container">
@@ -5971,6 +5973,8 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                         </button>
                       </div>
                     )}
+
+                    {equityOrderModeSwitch}
 
                     {/* Row 1: Order Side & Order Types (Stacked with Order Types underneath Order Side) */}
                     <div className="order-control-row">
@@ -7141,6 +7145,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
             {/* EQUITY CONDITIONAL ORDERS (OTO / OCO / OTOCO) */}
             {activeTab === 'order' && selectedInstrumentType === 'EQUITY' && equityOrderMode === 'combo' && (
               <div className="order-form-container">
+                {equityOrderModeSwitch}
                 <div className="combo-builder-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
                     <div>
