@@ -2,6 +2,7 @@
 import unittest
 from decimal import Decimal
 from unittest.mock import Mock, patch
+from cryptography.fernet import Fernet
 from flask import Flask
 from core.extensions import db
 from credentials import User, Credential, UserSetting
@@ -15,6 +16,7 @@ from services.order_replacement_service import cancel_any_order
 
 class OrderReplacementTests(unittest.TestCase):
     def setUp(self):
+        self._fernet = Fernet(Fernet.generate_key())
         self.app = Flask(__name__)
         self.app.config.update(
             SQLALCHEMY_DATABASE_URI='sqlite:///:memory:',
@@ -142,6 +144,29 @@ class OrderReplacementTests(unittest.TestCase):
             self.assertTrue(res['success'])
             self.assertEqual(res['order_type'], 'webull')
             mock_cancel.assert_called_once_with(1, '7001')
+
+    def _add_webull_credential(self):
+        with patch('credential_security._get_fernet', return_value=self._fernet):
+            db.session.add(Credential(user_id=1, username='testuser', webull_app_key='k', webull_app_secret='s', webull_access_token='t'))
+            db.session.commit()
+
+    def test_cancel_any_order_webull_live_order_calls_broker(self):
+        """A live Webull replacement cancels the original order at the broker."""
+        self._add_webull_credential()
+        with patch('credential_security._get_fernet', return_value=self._fernet), \
+                patch('services.webull_service.cancel_webull_order', return_value={'success': True}) as mock_cancel:
+            res = cancel_any_order('41J8ML5FEQK9', user_id=1, test_mode=False, broker='webull', account_id='ACC1')
+        self.assertTrue(res['success'])
+        mock_cancel.assert_called_once_with('k', 's', 'production', 't', account_id='ACC1', order_id='41J8ML5FEQK9')
+
+    def test_cancel_any_order_webull_live_failure_is_reported(self):
+        """A failed live Webull cancellation must not be reported as success."""
+        self._add_webull_credential()
+        with patch('credential_security._get_fernet', return_value=self._fernet), \
+                patch('services.webull_service.cancel_webull_order', side_effect=RuntimeError('order already filled')):
+            res = cancel_any_order('41J8ML5FEQK9', user_id=1, test_mode=False, broker='webull', account_id='ACC1')
+        self.assertFalse(res['success'])
+        self.assertIn('order already filled', res['error'])
 
     def test_cancel_any_order_unprefixed_ladder_numeric_id(self):
         """Verify numeric ID for an active ladder order resolves to cancelling that ladder order."""

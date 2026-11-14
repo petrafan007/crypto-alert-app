@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.7
+**Version:** 4.14.8
 
 ## Recent Updates
+
+### v4.14.8
+* **Fix Silent Failure When Replacing a Webull Order with a Conditional (OTO / OCO / OTOCO) Order.**
+  * **Errors Are Now Shown on Conditional Orders:** The order error dialog was only rendered inside the Single Order form, so any failure on the Conditional Orders tab (broker rejections and validation messages alike) was invisible. The dialog now renders at page level for every order tab.
+  * **Original Order Is Actually Cancelled on Replace:** Live Webull replacements called a cancellation helper that did not exist; the failure was swallowed and reported as success, leaving the original order working. Replacements now cancel through the real Webull cancel request. If the original order cannot be cancelled, no replacement is placed and the reason is shown.
+  * **Clear Outcome When the Replacement Is Rejected:** If Webull rejects the new order after the original was cancelled, the error states that the original is already cancelled and no order is working. Webull rejections are also written to the service log.
+  * **Replace Dialog Closes on Combo Success:** A successful conditional-order replacement now closes the Replace Pending Order dialog and refreshes the dashboard, matching single orders.
 
 ### v4.14.7
 * **Instant Portfolio Highlights on Mount & Elimination of Phantom Duplicate Rows.**

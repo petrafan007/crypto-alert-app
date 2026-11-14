@@ -104,11 +104,28 @@ def cancel_any_order(replacing_order_id, user_id, symbol=None, test_mode=None, b
             except Exception as e:
                 logger.warning(f"Error cancelling Webull test order {clean_webull_id} during replacement: {e}")
         else:
+            # A live replacement may only proceed once Webull accepts the
+            # cancellation. Reporting success for an order that is still
+            # working would leave both the old and the new order live.
             try:
-                from services.webull_service import cancel_webull_order_sync
-                cancel_webull_order_sync(user_id=user_id, account_id=account_id, order_id=clean_webull_id, combo_type='NORMAL')
+                from credentials import Credential, UserSetting
+                from services.webull_service import cancel_webull_order, normalize_webull_environment
+                if not account_id:
+                    raise ValueError('A Webull account is required to cancel the order being replaced.')
+                setting = UserSetting.query.filter_by(user_id=user_id).first()
+                credential = Credential.query.filter_by(user_id=user_id).first()
+                environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+                if not credential or not credential.webull_access_token:
+                    raise ValueError('Webull is not connected or token has expired.')
+                cancel_webull_order(
+                    credential.webull_app_key, credential.webull_app_secret,
+                    environment, credential.webull_access_token,
+                    account_id=account_id, order_id=clean_webull_id,
+                )
             except Exception as e:
                 logger.warning(f"Error cancelling Webull live order {clean_webull_id} during replacement: {e}")
+                return {'success': False, 'order_id': str_id, 'order_type': 'webull',
+                        'error': f'Webull could not cancel order {clean_webull_id}: {e}'}
         return {'success': True, 'order_id': str_id, 'order_type': 'webull', 'message': f'Webull order {clean_webull_id} cancelled'}
 
     # 4. Numeric order ID (could be TestOrder, RealOrder, or unprefixed synthetic order)

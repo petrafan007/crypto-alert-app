@@ -2813,6 +2813,7 @@ def _schedule_webull_transaction_refresh(user_id, account_id):
 @login_required
 def api_webull_place_order():
     """Place an order through Webull OpenAPI or simulated paper engine."""
+    cancelled_for_replace = None
     try:
         data = request.get_json(silent=True) or {}
         requested_instrument_type = str(data.get('instrument_type') or 'EQUITY').strip().upper()
@@ -3188,9 +3189,11 @@ def api_webull_place_order():
             return jsonify(success=False, message=two_factor_error, requires_2fa=True), 403
 
         if replacing_order_id:
+            # Never place the replacement while the original order may still
+            # be working: that would leave both orders live.
             try:
                 from services.order_replacement_service import cancel_any_order
-                cancel_any_order(
+                cancel_result = cancel_any_order(
                     replacing_order_id=replacing_order_id,
                     user_id=current_user.id,
                     symbol=symbol,
@@ -3198,9 +3201,19 @@ def api_webull_place_order():
                     broker='webull',
                     account_id=account_id
                 )
-                time.sleep(1.0)
             except Exception as cancel_err:
-                logger.warning(f"Could not cancel live order {replacing_order_id} during replace: {cancel_err}")
+                cancel_result = {'success': False, 'error': str(cancel_err)}
+            if not cancel_result.get('success'):
+                logger.warning(f"Could not cancel live order {replacing_order_id} during replace: {cancel_result.get('error')}")
+                return jsonify({
+                    'success': False,
+                    'message': (
+                        f"The original order {replacing_order_id} could not be cancelled, so no replacement was placed. "
+                        f"{cancel_result.get('error') or ''}"
+                    ).strip(),
+                }), 409
+            cancelled_for_replace = str(replacing_order_id)
+            time.sleep(1.0)
 
         result = place_webull_order(
             credential.webull_app_key, credential.webull_app_secret,
@@ -3255,16 +3268,27 @@ def api_webull_place_order():
             res_payload['replaced_order_id'] = str(replacing_order_id)
         return jsonify(res_payload)
     except WebullConnectionError as exc:
+        logger.warning('Webull order rejected: user=%s error_code=%s message=%s', current_user.id, getattr(exc, 'error_code', None), exc)
+        message = str(exc)
+        if cancelled_for_replace:
+            message += (
+                f' Note: the original order {cancelled_for_replace} was already cancelled '
+                'and the replacement was not placed, so no order is working now.'
+            )
         return jsonify({
             'success': False,
-            'message': str(exc),
+            'message': message,
             'error_code': getattr(exc, 'error_code', None),
             'agreement_url': getattr(exc, 'agreement_url', None),
             'request_id': getattr(exc, 'request_id', None),
+            'replaced_order_cancelled': bool(cancelled_for_replace),
         }), 400
     except Exception as exc:
         logger.error('Webull order placement failed: %s', exc, exc_info=True)
-        return jsonify({'success': False, 'message': 'Unable to place this Webull order. Try again.'}), 500
+        message = 'Unable to place this Webull order. Try again.'
+        if cancelled_for_replace:
+            message += f' Note: the original order {cancelled_for_replace} was already cancelled; check Open Orders before retrying.'
+        return jsonify({'success': False, 'message': message}), 500
 
 
 @system_bp.route('/api/webull/events/categories', methods=['GET'])
