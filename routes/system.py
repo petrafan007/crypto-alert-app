@@ -3249,7 +3249,7 @@ def api_webull_place_order():
             # Refuse a ticket Webull is known to reject before a 2FA token is
             # consumed and, for a replacement, before the original is cancelled.
             from services.webull_service import validate_webull_combo_orders
-            validate_webull_combo_orders(combo_orders, symbol)
+            validate_webull_combo_orders(combo_orders, symbol, check_market_hours=True)
 
         from services.trading_2fa_service import require_live_trading_2fa
         two_factor_error = require_live_trading_2fa(current_user.id, data, 'place or replace this live Webull order')

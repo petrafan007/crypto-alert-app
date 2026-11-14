@@ -3347,6 +3347,7 @@ def test_webull_connection(app_key, app_secret, environment='production', access
     }
 
 
+WEBULL_COMBO_MIN_PRICE_GAP_RATIO = 0.001
 SUPPORTED_WEBULL_ORDER_TYPES = {
     'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS',
     'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'
@@ -3980,12 +3981,17 @@ def get_webull_order_detail(app_key, app_secret, environment='production', acces
     return data
 
 
-def validate_webull_combo_orders(combo_orders, symbol=None):
+def validate_webull_combo_orders(combo_orders, symbol=None, check_market_hours=False, now=None):
     """Reject combo tickets Webull is known to refuse, before anything is sent.
 
-    Webull requires the linked (OCO / OTOCO) legs to differ in symbol, price
-    or side. Checking locally lets a replacement be refused while the original
-    order is still working, instead of after it has been cancelled.
+    Checking locally lets a ticket be refused before a 2FA code is used and,
+    for a replacement, while the original order is still working. Rules:
+
+    * a stop-limit leg's limit must sit on the fillable side of its stop;
+    * linked (OCO / OTOCO) legs on the same side must not share a price, and
+      their prices must not be nearly equal;
+    * regular-session legs can only be submitted during regular market hours
+      (checked only when ``check_market_hours`` is set, for live orders).
     """
     def _price(value):
         try:
@@ -3994,24 +4000,69 @@ def validate_webull_combo_orders(combo_orders, symbol=None):
             return None
         return round(number, 4) if number > 0 else None
 
-    seen = {}
-    for index, leg in enumerate(combo_orders or [], start=1):
-        if not isinstance(leg, dict):
-            continue
-        if str(leg.get('combo_type') or '').strip().upper() not in {'OCO', 'OTOCO'}:
-            continue
+    legs = [leg for leg in (combo_orders or []) if isinstance(leg, dict)]
+    linked = []
+    for index, leg in enumerate(legs, start=1):
+        side = str(leg.get('side') or '').strip().upper()
+        order_type = str(leg.get('order_type') or leg.get('type') or '').strip().upper()
+        order_type = {'STOP_LIMIT': 'STOP_LOSS_LIMIT', 'STOP': 'STOP_LOSS'}.get(order_type, order_type)
         limit_price = _price(leg.get('limit_price'))
-        key = (
-            str(leg.get('symbol') or symbol or '').strip().upper(),
-            str(leg.get('side') or '').strip().upper(),
-            limit_price if limit_price is not None else _price(leg.get('stop_price')),
-        )
-        if key in seen:
+        stop_price = _price(leg.get('stop_price'))
+        if order_type == 'STOP_LOSS_LIMIT' and limit_price is not None and stop_price is not None:
+            if side == 'BUY' and limit_price < stop_price:
+                raise WebullConnectionError(
+                    f'Leg #{index}: a Buy Stop Loss Limit triggers when the price rises to the stop ({stop_price:g}), '
+                    f'so its limit ({limit_price:g}) must be at or above the stop or it cannot fill. '
+                    'Check that the limit and stop prices are not swapped.'
+                )
+            if side in {'SELL', 'SHORT'} and limit_price > stop_price:
+                raise WebullConnectionError(
+                    f'Leg #{index}: a Sell Stop Loss Limit triggers when the price falls to the stop ({stop_price:g}), '
+                    f'so its limit ({limit_price:g}) must be at or below the stop or it cannot fill. '
+                    'Check that the limit and stop prices are not swapped.'
+                )
+        if str(leg.get('combo_type') or '').strip().upper() in {'OCO', 'OTOCO'}:
+            linked.append((
+                index,
+                str(leg.get('symbol') or symbol or '').strip().upper(),
+                side,
+                limit_price if limit_price is not None else stop_price,
+            ))
+
+    for position, (index, leg_symbol, side, price) in enumerate(linked):
+        for other_index, other_symbol, other_side, other_price in linked[:position]:
+            if (leg_symbol, side) != (other_symbol, other_side):
+                continue
+            if price == other_price:
+                raise WebullConnectionError(
+                    f'Legs #{other_index} and #{index} are identical. Webull requires linked OCO legs to differ '
+                    'in price or side. Change one leg and try again.'
+                )
+            if price is None or other_price is None:
+                continue
+            # Webull rejects near-equal prices (OPENAPI_ORDER_PRICE_CAN_NOT_BE_NEAR)
+            # without publishing the minimum gap; 0.1% covers the observed case.
+            if abs(price - other_price) < max(price, other_price) * WEBULL_COMBO_MIN_PRICE_GAP_RATIO:
+                raise WebullConnectionError(
+                    f'Legs #{other_index} and #{index} are priced too close together ({other_price:g} and {price:g}). '
+                    'Webull rejects linked OCO legs whose prices are nearly equal. Widen the gap and try again.'
+                )
+
+    if check_market_hours and any(
+        str(leg.get('support_trading_session') or 'CORE').strip().upper() == 'CORE' for leg in legs
+    ):
+        try:
+            from services.market_calendar_service import is_regular_market_hours
+            market_open = is_regular_market_hours(now)
+        except Exception as calendar_err:
+            logger.warning('Market calendar unavailable, using weekday hours: %s', calendar_err)
+            market_open = _is_equity_market_open(now)
+        if not market_open:
             raise WebullConnectionError(
-                f'Legs #{seen[key]} and #{index} are identical. Webull requires linked OCO legs to differ '
-                'in price or side. Change one leg and try again.'
+                'Webull accepts conditional (OTO / OCO / OTOCO) orders only during regular market hours, '
+                '9:30 AM - 4:00 PM ET on trading days. The market is closed now, so nothing was sent. '
+                'Submit this order again once the market opens.'
             )
-        seen[key] = index
 
 
 def cancel_webull_order(

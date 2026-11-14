@@ -213,6 +213,37 @@ class OrderReplacementTests(unittest.TestCase):
         # The triggering (MASTER) leg may share a price with a linked leg.
         validate_webull_combo_orders([{**same[0], 'combo_type': 'MASTER'}, same[1]], 'NVDA')
 
+    def test_combo_stop_limit_direction_and_price_gap_are_checked(self):
+        """Swapped stop-limit prices and near-equal linked prices are refused locally."""
+        from services.webull_service import validate_webull_combo_orders, WebullConnectionError
+        dip = {'combo_type': 'OCO', 'side': 'BUY', 'order_type': 'LIMIT', 'limit_price': 160}
+        breakout = {'combo_type': 'OCO', 'side': 'BUY', 'order_type': 'STOP_LOSS_LIMIT', 'limit_price': 165.05, 'stop_price': 165}
+        validate_webull_combo_orders([dip, breakout], 'NVDA')
+        with self.assertRaisesRegex(WebullConnectionError, 'swapped'):
+            validate_webull_combo_orders([dip, {**breakout, 'limit_price': 160.05}], 'NVDA')
+        with self.assertRaisesRegex(WebullConnectionError, 'too close'):
+            validate_webull_combo_orders([dip, {**dip, 'limit_price': 160.05}], 'NVDA')
+        with self.assertRaisesRegex(WebullConnectionError, 'swapped'):
+            validate_webull_combo_orders([
+                {'combo_type': 'MASTER', 'side': 'BUY', 'order_type': 'LIMIT', 'limit_price': 160},
+                {'combo_type': 'OTO', 'side': 'SELL', 'order_type': 'STOP_LOSS_LIMIT', 'limit_price': 156, 'stop_price': 155},
+            ], 'NVDA')
+
+    def test_combo_orders_are_refused_outside_regular_market_hours(self):
+        """Live conditional orders are only sent while the regular session is open."""
+        from datetime import datetime, timezone
+        from services.webull_service import validate_webull_combo_orders, WebullConnectionError
+        legs = [
+            {'combo_type': 'OCO', 'side': 'BUY', 'order_type': 'LIMIT', 'limit_price': 160},
+            {'combo_type': 'OCO', 'side': 'BUY', 'order_type': 'STOP_LOSS_LIMIT', 'limit_price': 165.05, 'stop_price': 165},
+        ]
+        saturday = datetime(2026, 11, 14, 19, 15, tzinfo=timezone.utc)
+        monday_midday = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)
+        with self.assertRaisesRegex(WebullConnectionError, 'regular market hours'):
+            validate_webull_combo_orders(legs, 'NVDA', check_market_hours=True, now=saturday)
+        validate_webull_combo_orders(legs, 'NVDA', check_market_hours=True, now=monday_midday)
+        validate_webull_combo_orders(legs, 'NVDA', now=saturday)
+
     def test_failed_replacement_restores_original_order(self):
         """A rejected replacement re-submits the cancelled original with its own terms."""
         from routes import system

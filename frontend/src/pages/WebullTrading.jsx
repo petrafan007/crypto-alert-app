@@ -4293,23 +4293,86 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       }
     }
 
-    // Webull rejects linked OCO legs that share the same side and price. Catch
-    // it here so a replacement never cancels the original order first.
-    const linkedLegKeys = new Map();
-    for (let i = 0; i < comboForm.legs.length; i++) {
-      const leg = comboForm.legs[i];
-      if (!['OCO', 'OTOCO'].includes(leg.role)) continue;
-      const usesLimit = ['LIMIT', 'STOP_LOSS_LIMIT', 'LIMIT_ON_OPEN'].includes(leg.order_type);
-      const legPrice = usesLimit ? parseFloat(leg.price) : parseFloat(leg.stopPrice);
-      const key = `${leg.side}|${Number.isFinite(legPrice) ? legPrice.toFixed(4) : ''}`;
-      if (linkedLegKeys.has(key)) {
-        setOrderFeedback({
-          type: 'error',
-          message: `Legs #${linkedLegKeys.get(key)} and #${i + 1} are identical. Webull requires linked OCO legs to differ in price or side. Change one leg and try again.`,
-        });
-        return;
+    // Refuse tickets Webull is known to reject (or that cannot do what they
+    // describe) before a 2FA code is used or, for a replacement, before the
+    // original order is cancelled. The server repeats the same checks.
+    const comboError = (() => {
+      const fmt = (value) => `$${Number(value).toFixed(2)}`;
+      const market = sym === (selectedSymbol || '').trim().toUpperCase() ? Number(livePrice) : 0;
+      const linked = [];
+      for (let i = 0; i < comboForm.legs.length; i++) {
+        const leg = comboForm.legs[i];
+        const label = `Leg #${i + 1}`;
+        const isBuy = leg.side === 'BUY';
+        const hasLimit = ['LIMIT', 'STOP_LOSS_LIMIT', 'LIMIT_ON_OPEN'].includes(leg.order_type);
+        const hasStop = ['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(leg.order_type);
+        const limit = hasLimit ? parseFloat(leg.price) : NaN;
+        const stop = hasStop ? parseFloat(leg.stopPrice) : NaN;
+
+        if (leg.order_type === 'STOP_LOSS_LIMIT') {
+          if (isBuy && limit < stop) {
+            return `${label}: a Buy Stop Loss Limit triggers when the price rises to the stop (${fmt(stop)}), so its limit (${fmt(limit)}) must be at or above the stop or it cannot fill. Check that the limit and stop prices are not swapped.`;
+          }
+          if (!isBuy && limit > stop) {
+            return `${label}: a Sell Stop Loss Limit triggers when the price falls to the stop (${fmt(stop)}), so its limit (${fmt(limit)}) must be at or below the stop or it cannot fill. Check that the limit and stop prices are not swapped.`;
+          }
+        }
+
+        // A standalone OCO is meant to wait for one of two prices. A leg that
+        // fills or triggers at the current price defeats it.
+        if (comboForm.comboType === 'OCO' && market > 0) {
+          if (leg.order_type === 'LIMIT' && isBuy && limit >= market) {
+            return `${label}: a Buy Limit at ${fmt(limit)} is at or above the current price (${fmt(market)}), so it would fill immediately and cancel the other leg. To buy on a rise, use Stop Loss Limit with the stop above the current price.`;
+          }
+          if (leg.order_type === 'LIMIT' && !isBuy && limit <= market) {
+            return `${label}: a Sell Limit at ${fmt(limit)} is at or below the current price (${fmt(market)}), so it would fill immediately and cancel the other leg. To sell on a drop, use Stop Loss or Stop Loss Limit with the stop below the current price.`;
+          }
+          if (hasStop && isBuy && stop <= market) {
+            return `${label}: a Buy stop at ${fmt(stop)} is at or below the current price (${fmt(market)}), so it would trigger immediately. Set the stop above the current price.`;
+          }
+          if (hasStop && !isBuy && stop >= market) {
+            return `${label}: a Sell stop at ${fmt(stop)} is at or above the current price (${fmt(market)}), so it would trigger immediately. Set the stop below the current price.`;
+          }
+        }
+
+        if (['OCO', 'OTOCO'].includes(leg.role)) {
+          linked.push({ number: i + 1, side: leg.side, price: hasLimit ? limit : stop });
+        }
       }
-      linkedLegKeys.set(key, i + 1);
+
+      for (let i = 0; i < linked.length; i++) {
+        for (let j = 0; j < i; j++) {
+          const a = linked[j];
+          const b = linked[i];
+          if (a.side !== b.side || !Number.isFinite(a.price) || !Number.isFinite(b.price)) continue;
+          if (a.price === b.price) {
+            return `Legs #${a.number} and #${b.number} are identical. Webull requires linked OCO legs to differ in price or side. Change one leg and try again.`;
+          }
+          if (Math.abs(a.price - b.price) < Math.max(a.price, b.price) * 0.001) {
+            return `Legs #${a.number} and #${b.number} are priced too close together (${fmt(a.price)} and ${fmt(b.price)}). Webull rejects linked OCO legs whose prices are nearly equal. Widen the gap and try again.`;
+          }
+        }
+      }
+
+      // Conditional legs are regular-session orders, and Webull only accepts
+      // them while the regular session is open.
+      if (!isTestMode && !isQuantMode && comboForm.legs.some((leg) => (leg.session || 'CORE') === 'CORE')) {
+        try {
+          const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          const minutes = et.getHours() * 60 + et.getMinutes();
+          const isOpen = et.getDay() >= 1 && et.getDay() <= 5 && minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+          if (!isOpen) {
+            return 'Webull accepts conditional (OTO / OCO / OTOCO) orders only during regular market hours, 9:30 AM - 4:00 PM ET, Monday to Friday. The market is closed now, so nothing was sent. Submit this order again once the market opens.';
+          }
+        } catch (e) {
+          // If the browser cannot resolve Eastern time, the server check decides.
+        }
+      }
+      return '';
+    })();
+    if (comboError) {
+      setOrderFeedback({ type: 'error', message: comboError });
+      return;
     }
 
     if (!isTestMode && !twofaToken) {

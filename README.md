@@ -1,8 +1,16 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.11
+**Version:** 4.14.12
 
 ## Recent Updates
+
+### v4.14.12
+* **Pre-Submission Validation for Webull Conditional (OTO / OCO / OTOCO) Orders.**
+  * Conditional orders are now checked in the form and again on the server before a 2FA code is used and, for a replacement, before the original order is cancelled. Each failure shows a plain message naming the leg.
+  * **Market Hours:** Webull accepts conditional orders only during regular market hours (9:30 AM - 4:00 PM ET on trading days). Outside those hours the order is refused locally; the server uses the exchange calendar, so market holidays are covered.
+  * **Swapped Stop-Limit Prices:** A Buy Stop Loss Limit whose limit is below its stop, or a Sell Stop Loss Limit whose limit is above its stop, is refused because it could not fill when triggered.
+  * **Legs Priced Too Close:** Linked legs on the same side whose prices are within 0.1% of each other are refused (Webull error `OPENAPI_ORDER_PRICE_CAN_NOT_BE_NEAR`). Webull does not publish its minimum gap, so a slightly wider gap may still be rejected by Webull.
+  * **OCO Legs That Would Act Immediately:** In a standalone OCO, a Buy Limit at or above the current price, a Sell Limit at or below it, or a stop already on the wrong side of the current price is refused in the form, with a suggestion to use Stop Loss Limit for a breakout entry.
 
 ### v4.14.11
 * **Single / Conditional Orders Switch Moved Next to the Order Ticket.**
