@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.5
+**Version:** 4.14.6
 
 ## Recent Updates
+
+### v4.14.6
+* **Fix ReferenceError on Portfolio Trend History Range State.**
+  * Restored the missing `trendHistoryRange` and `setTrendHistoryRange` state hooks in `Dashboard.jsx`, resolving `ReferenceError: trendHistoryRange is not defined` and `ReferenceError: setTrendHistoryRange is not defined` that triggered the View Loading Error boundary on dashboard mount.
 
 ### v4.14.5
 * **Instant Dashboard Load & Elimination of Stuck Loading Screen.**

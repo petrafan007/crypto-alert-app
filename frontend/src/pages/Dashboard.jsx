@@ -341,6 +341,7 @@ function Dashboard({ isLightMode }) {
   const [tradingPairsLoaded, setTradingPairsLoaded] = useState(false);
   const [error, setError] = useState(null);
   const [trendHistory, setTrendHistory] = useState([]);
+  const [trendHistoryRange, setTrendHistoryRange] = useState(null);
   const [pendingOrders, setPendingOrders] = useState([]);
 
   useEffect(() => {
