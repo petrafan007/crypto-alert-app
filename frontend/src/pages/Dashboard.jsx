@@ -190,6 +190,10 @@ function Dashboard({ isLightMode }) {
       portfolioAppliedIdRef.current = fetchId;
     }
 
+    const ordersToCheck = (Array.isArray(pendingOrdersList) && pendingOrdersList.length > 0)
+      ? pendingOrdersList
+      : (pendingOrdersRef.current && pendingOrdersRef.current.length > 0 ? pendingOrdersRef.current : pendingOrders);
+
     setPortfolio(prev => {
       const incomingMap = new Map();
       const portfolioRowKey = (item) => `${item?.source === 'webull' || item?.is_external ? 'webull' : 'binance'}:${item?.id || (item?.symbol || '').toUpperCase()}`;
@@ -198,7 +202,7 @@ function Dashboard({ isLightMode }) {
         if (!c?.symbol || !String(c.symbol).trim()) return;
         incomingMap.set(portfolioRowKey(c), {
           ...c,
-          hasPendingOrder: getPendingOrdersForCoin(c, pendingOrdersList || []).length > 0,
+          hasPendingOrder: getPendingOrdersForCoin(c, ordersToCheck || []).length > 0,
           pendingPlaceholder: false
         });
       });
@@ -285,8 +289,12 @@ function Dashboard({ isLightMode }) {
   const [tradingPairsLoaded, setTradingPairsLoaded] = useState(false);
   const [error, setError] = useState(null);
   const [trendHistory, setTrendHistory] = useState([]);
-  const [trendHistoryRange, setTrendHistoryRange] = useState(null);
   const [pendingOrders, setPendingOrders] = useState([]);
+  const pendingOrdersRef = useRef([]);
+
+  useEffect(() => {
+    pendingOrdersRef.current = pendingOrders;
+  }, [pendingOrders]);
   const [orderTooltip, setOrderTooltip] = useState({ visible: false, text: '', x: 0, y: 0 });
   const [trendRange, setTrendRange] = useState('7D');
   const [showTrendRangeModal, setShowTrendRangeModal] = useState(false);
@@ -1984,14 +1992,16 @@ function Dashboard({ isLightMode }) {
 
   // Pending orders must stay scoped to the provider that owns the portfolio row.
   // A Binance ETH order cannot highlight a separate Webull ETH ETF holding.
-  const getPendingOrdersForCoin = (asset, orders = pendingOrders) => {
-    if (!Array.isArray(orders)) return [];
+  const getPendingOrdersForCoin = (asset, orders) => {
+    const list = Array.isArray(orders) ? orders : (pendingOrdersRef.current?.length ? pendingOrdersRef.current : pendingOrders);
+    if (!Array.isArray(list) || list.length === 0) return [];
     const symbol = typeof asset === 'object' ? asset?.symbol : asset;
     const sym = String(symbol || '').toUpperCase().trim();
     if (!sym) return [];
-    const provider = pendingOrderProvider(asset);
-    return orders.filter(order => {
-      if (orderProvider(order) !== provider) return false;
+    const isObject = typeof asset === 'object' && asset !== null;
+    const provider = isObject ? pendingOrderProvider(asset) : null;
+    return list.filter(order => {
+      if (provider && orderProvider(order) !== provider) return false;
       const orderAsset = String(order?.asset || '').toUpperCase().trim();
       const orderSymbol = String(order?.symbol || '').toUpperCase().trim();
       return orderAsset === sym
@@ -2227,6 +2237,7 @@ function Dashboard({ isLightMode }) {
             })
           ]);
           const pendingOrdersData = ordersRes.data?.pending_orders || [];
+          pendingOrdersRef.current = pendingOrdersData;
           setPendingOrders(pendingOrdersData);
           const rawPortfolio = Array.isArray(portfolioResponse.data.portfolio)
             ? portfolioResponse.data.portfolio
@@ -2336,15 +2347,17 @@ function Dashboard({ isLightMode }) {
           }
 
           // Refresh pending orders; row matching below remains provider-aware.
-          // Refresh pending orders; row matching below remains provider-aware.
           if (ordersResponse.status === 'fulfilled' && ordersResponse.value?.data?.pending_orders) {
             const refreshedPendingOrders = ordersResponse.value.data.pending_orders || [];
+            pendingOrdersRef.current = refreshedPendingOrders;
             setPendingOrders(refreshedPendingOrders);
           }
 
           // Handle live portfolio data (update with fresh prices) – merge into existing state
           if (livePortfolioResponse.status === 'fulfilled' && livePortfolioResponse.value.data.portfolio) {
-            const pendingOrdersList = ordersResponse.status === 'fulfilled' ? (ordersResponse.value.data.pending_orders || []) : [];
+            const pendingOrdersList = (ordersResponse.status === 'fulfilled' && ordersResponse.value?.data?.pending_orders)
+              ? ordersResponse.value.data.pending_orders
+              : pendingOrdersRef.current;
             const pFetchId = nextPortfolioFetchId();
             applyPortfolioUpdate(livePortfolioResponse.value.data.portfolio, pFetchId, pendingOrdersList);
             
@@ -2452,7 +2465,7 @@ function Dashboard({ isLightMode }) {
           // Refresh portfolio data
           const response = await axios.get('/api/coin-data-live');
           if (response.data.portfolio && response.data.portfolio.length > 0) {
-            setPortfolio(response.data.portfolio);
+            applyPortfolioUpdate(response.data.portfolio, nextPortfolioFetchId(), pendingOrdersRef.current);
           }
         }
       }
@@ -3016,7 +3029,7 @@ function Dashboard({ isLightMode }) {
       }
     } catch (err) {
       console.error('Replace order error:', err);
-      const errMsg = err.response?.data?.error || err.message || 'Failed to replace order';
+      const errMsg = err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to replace order';
       const requires2fa = err.response?.data?.requires_2fa;
       setReplaceModalState(prev => ({ ...prev, loading: false, error: errMsg }));
       if (requires2fa) return { requires_2fa: true };
@@ -3142,16 +3155,29 @@ function Dashboard({ isLightMode }) {
         const response = await axios.post('/api/webull/orders/cancel', payload, { withCredentials: true });
 
         if (response.data?.success || response.status === 200) {
-          setPendingOrders(prev => prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId));
+          setPendingOrders(prev => {
+            const next = prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
+            pendingOrdersRef.current = next;
+            return next;
+          });
           setPortfolio(prev => {
             const remainingOrders = pendingOrders.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
-            return prev.map(c => {
-              const cSym = (c.symbol || '').toUpperCase();
-              if (pendingOrderProvider(c) === 'webull' && cSym === symbol) {
-                return { ...c, hasPendingOrder: getPendingOrdersForCoin(c, remainingOrders).length > 0 };
-              }
-              return c;
-            });
+            return prev
+              .map(c => {
+                const cSym = (c.symbol || '').toUpperCase();
+                if (pendingOrderProvider(c) === 'webull' && cSym === symbol) {
+                  return { ...c, hasPendingOrder: getPendingOrdersForCoin(c, remainingOrders).length > 0 };
+                }
+                return c;
+              })
+              .filter(c => {
+                const cSym = (c.symbol || '').toUpperCase();
+                const isTarget = pendingOrderProvider(c) === 'webull' && cSym === symbol;
+                if (isTarget && getPendingOrdersForCoin(c, remainingOrders).length === 0 && Number(c.amount || 0) <= 0.00000001) {
+                  return false;
+                }
+                return true;
+              });
           });
           setWatchlist(prev => {
             const remainingOrders = pendingOrders.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
@@ -3168,7 +3194,12 @@ function Dashboard({ isLightMode }) {
 
           // Background refresh
           axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
-          axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => { });
+          axios.get('/api/pending-orders', { withCredentials: true }).then(r => {
+            if (r.data?.pending_orders) {
+              pendingOrdersRef.current = r.data.pending_orders;
+              setPendingOrders(r.data.pending_orders);
+            }
+          }).catch(() => { });
 
           return { success: true };
         } else {
@@ -3185,7 +3216,11 @@ function Dashboard({ isLightMode }) {
 
         if (response.data.success || response.status === 200) {
           const baseSymbol = (symbol || '').replace(/USDT$/i, '').replace(/USD$/i, '').toUpperCase();
-          setPendingOrders(prev => prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId));
+          setPendingOrders(prev => {
+            const next = prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
+            pendingOrdersRef.current = next;
+            return next;
+          });
           setPortfolio(prev => {
             const remainingOrders = pendingOrders.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
             return prev
@@ -3211,17 +3246,22 @@ function Dashboard({ isLightMode }) {
 
           // Background refresh
           axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
-          axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => { });
+          axios.get('/api/pending-orders', { withCredentials: true }).then(r => {
+            if (r.data?.pending_orders) {
+              pendingOrdersRef.current = r.data.pending_orders;
+              setPendingOrders(r.data.pending_orders);
+            }
+          }).catch(() => { });
 
           return { success: true };
         } else {
-          setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel order' }));
+          setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || response.data.message || 'Failed to cancel order' }));
           return response.data;
         }
       }
     } catch (err) {
       console.error('Cancel order error:', err);
-      const errMsg = err.response?.data?.error || err.message || 'Failed to cancel order';
+      const errMsg = err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to cancel order';
       const requires2fa = err.response?.data?.requires_2fa;
       setCancelModalState(prev => ({ ...prev, loading: false, error: errMsg }));
       if (requires2fa) {
@@ -4989,7 +5029,7 @@ function Dashboard({ isLightMode }) {
                   || (attempts > 4 && found.sentiment !== 'Checking now...');
 
                 if (found.sentiment === 'Checking now...' || !isFinished) {
-                  setPortfolio(res.data.portfolio.map(c => {
+                  setPortfolio(prev => prev.map(c => {
                     const isExt = c.source === 'webull' || c.is_external;
                     if (!isExt && (c.symbol || '').toUpperCase() === cleanSymbol) {
                       return { ...c, sentiment: 'Checking now...' };
@@ -4997,7 +5037,24 @@ function Dashboard({ isLightMode }) {
                     return c;
                   }));
                 } else {
-                  setPortfolio(res.data.portfolio);
+                  setPortfolio(prev => prev.map(c => {
+                    const isExt = c.source === 'webull' || c.is_external;
+                    if (!isExt && (c.symbol || '').toUpperCase() === cleanSymbol) {
+                      return {
+                        ...c,
+                        sentiment: found.sentiment,
+                        sentiment_reason: found.sentiment_reason,
+                        sentiment_last_updated: found.sentiment_last_updated,
+                        sentiment_provider: found.sentiment_provider,
+                        sentiment_model: found.sentiment_model,
+                        sentiment_tier: found.sentiment_tier,
+                        sentiment_search_status: found.sentiment_search_status,
+                        sentiment_failover_history: found.sentiment_failover_history,
+                        sentiment_tracking_enabled: found.sentiment_tracking_enabled,
+                      };
+                    }
+                    return c;
+                  }));
                   clearInterval(pollInterval);
                   setRefreshingSentiment(prev => {
                     const next = { ...prev };

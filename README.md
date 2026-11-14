@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.3
+**Version:** 4.14.4
 
 ## Recent Updates
+
+### v4.14.4
+* **Webull Order Cancellation Client ID Resolution, Clean Modal Error Messaging & Portfolio Highlight Stability.**
+  * **Webull `client_order_id` Parameter Fix:** Resolved Webull OpenAPI rejecting cancellations with `HTTP 417 Parameter error, invalid client_order_id (OPENAPI_PARAM_ERR)` when cancelling orders. The backend pending orders endpoint now includes `client_order_id` in order payloads, and `cancel_webull_order` automatically resolves `client_order_id` from active open orders if only an `order_id` is passed. Additionally, if the combined identifier payload is rejected, it retries seamlessly using `client_order_id` alone.
+  * **Human-Readable Modal Error Messages:** Replaced generic Axios `Request failed with status code 400` errors in the Cancel Order and Replace Order modals with specific backend error messages (`err.response?.data?.message || err.response?.data?.error`), ensuring the exact reason for any transaction rejection is displayed to the user.
+  * **Eliminated Row Flickering & Disappearing Highlights:** Fixed a race condition where pending order highlights and zero-balance pending rows flashed or disappeared every 10 seconds. `checkForFilledOrders` and sentiment polling no longer clobber React portfolio state with raw server responses; instead, they now preserve calculated flags and maintain a synchronized `pendingOrdersRef` so active highlights remain completely stable across background refreshes.
 
 ### v4.14.3
 * **Webull Order Cancellation, Table Icon Contrast & Session Verification Resilience.**

@@ -1126,6 +1126,7 @@ def api_pending_orders():
                     direction = 'rises above' if stop_price else 'drops below'
                 pending_orders.append({
                     'order_id': str(order.get('order_id') or order.get('orderId') or order.get('id') or ''),
+                    'client_order_id': str(order.get('client_order_id') or order.get('clientOrderId') or '').strip() or None,
                     'symbol': symbol,
                     'asset': symbol,
                     'provider': 'webull',
@@ -1297,13 +1298,13 @@ def api_cancel_order(order_id):
                 not credential or credential.webull_token_status != 'NORMAL'
                 or credential.webull_token_environment != environment or not credential.webull_access_token
             ):
-                return jsonify({'error': 'Webull is not connected or token has expired.'}), 400
+                return jsonify({'error': 'Webull is not connected or token has expired.', 'message': 'Webull is not connected or token has expired.'}), 400
 
             from routes.system import _require_webull_account_access, _schedule_webull_transaction_refresh
             try:
                 account_id = _require_webull_account_access(setting, account_id)
             except WebullConnectionError as exc:
-                return jsonify({'error': str(exc)}), 400
+                return jsonify({'error': str(exc), 'message': str(exc)}), 400
 
             try:
                 result = cancel_webull_order(
@@ -1325,10 +1326,10 @@ def api_cancel_order(order_id):
                 })
             except WebullConnectionError as exc:
                 logger.warning('Webull order cancellation failed: %s', exc)
-                return jsonify({'error': str(exc)}), 400
+                return jsonify({'error': str(exc), 'message': str(exc)}), 400
             except Exception as exc:
                 logger.error('Webull order cancellation error: %s', exc, exc_info=True)
-                return jsonify({'error': f'Order cancellation failed: {exc}'}), 500
+                return jsonify({'error': f'Order cancellation failed: {exc}', 'message': f'Order cancellation failed: {exc}'}), 500
 
         # Use SQLAlchemy ORM instead of direct SQLite
         creds = Credential.query.filter_by(user_id=current_user.id).first()

@@ -1770,6 +1770,25 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(body['order_id'], 'wb-ord-123')
         self.assertEqual(body['client_order_id'], 'client-123')
 
+    def test_cancel_webull_order_resolves_client_order_id_from_open_orders(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'status': 'CANCELLED'}}
+        open_orders = [{'order_id': 'wb-ord-lookup', 'client_order_id': 'resolved-client-id'}]
+        with patch('services.webull_service.get_webull_open_orders', return_value=open_orders):
+            with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+                result = cancel_webull_order(
+                    'app-key', 'app-secret', 'production', 'token-123',
+                    account_id='acc-999',
+                    order_id='wb-ord-lookup',
+                )
+
+        self.assertTrue(result['success'])
+        body = request_mock.call_args.kwargs['body']
+        self.assertEqual(body['account_id'], 'acc-999')
+        self.assertEqual(body['order_id'], 'wb-ord-lookup')
+        self.assertEqual(body['client_order_id'], 'resolved-client-id')
+
+
 
 
 class AccountScopeAndFilteringTests(unittest.TestCase):

@@ -3986,19 +3986,46 @@ def cancel_webull_order(
     """Cancel an open order on Webull."""
     if not account_id:
         raise WebullConnectionError('Account ID is required to cancel a Webull order.')
-    if not client_order_id and not order_id:
+
+    clean_client_id = str(client_order_id or '').strip() or None
+    clean_order_id = str(order_id or '').strip() or None
+
+    if not clean_client_id and clean_order_id:
+        try:
+            open_orders = get_webull_open_orders(
+                app_key, app_secret, environment, access_token, account_id=account_id,
+            )
+            for o in open_orders:
+                match_id = str(o.get('order_id') or o.get('orderId') or o.get('combo_order_id') or o.get('id') or '').strip()
+                if match_id == clean_order_id:
+                    cid = str(o.get('client_order_id') or o.get('clientOrderId') or '').strip()
+                    if cid:
+                        clean_client_id = cid
+                        break
+        except Exception as lookup_err:
+            logger.warning('Could not look up client_order_id for Webull order %s: %s', clean_order_id, lookup_err)
+
+    if not clean_client_id and not clean_order_id:
         raise WebullConnectionError('Either client_order_id or order_id is required.')
 
     body = {'account_id': str(account_id)}
-    if client_order_id:
-        body['client_order_id'] = str(client_order_id)
-    if order_id:
-        body['order_id'] = str(order_id)
+    if clean_client_id:
+        body['client_order_id'] = clean_client_id
+    if clean_order_id:
+        body['order_id'] = clean_order_id
 
     response = _rate_limited_order_request(
         app_key, app_secret, environment, 'POST', '/trading/orders/cancel',
         body=body, access_token=access_token,
     )
+    if getattr(response, 'status_code', None) in {400, 417, 422} and clean_client_id and clean_order_id:
+        retry_body = {'account_id': str(account_id), 'client_order_id': clean_client_id}
+        retry_resp = _rate_limited_order_request(
+            app_key, app_secret, environment, 'POST', '/trading/orders/cancel',
+            body=retry_body, access_token=access_token,
+        )
+        if getattr(retry_resp, 'status_code', None) in {200, 201}:
+            response = retry_resp
     if getattr(response, 'status_code', None) in {404, 405}:
         response = _rate_limited_order_request(
             app_key, app_secret, environment, 'POST', '/openapi/account/orders/cancel',
@@ -4009,6 +4036,6 @@ def cancel_webull_order(
     clear_webull_order_cache()
     return {
         'success': True,
-        'order_id': order_id or client_order_id,
+        'order_id': clean_order_id or clean_client_id,
         'raw': payload.get('data', payload) if isinstance(payload, dict) else payload,
     }

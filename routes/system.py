@@ -3467,19 +3467,21 @@ def api_webull_cancel_order():
             return jsonify({
                 'success': False,
                 'message': 'Paper orders cannot be changed while Webull Test Mode is disabled.',
+                'error': 'Paper orders cannot be changed while Webull Test Mode is disabled.',
             }), 409
         if paper_mode_enabled:
             if not order_id.startswith('SIM_'):
                 return jsonify({
                     'success': False,
                     'message': 'Live Webull orders are hidden and cannot be changed while Test Mode is active.',
+                    'error': 'Live Webull orders are hidden and cannot be changed while Test Mode is active.',
                 }), 409
             from services.webull_paper_trading_service import cancel_webull_test_order
             return jsonify(cancel_webull_test_order(current_user.id, order_id))
 
         two_factor_error = _cancellation_2fa_error(data)
         if two_factor_error:
-            return jsonify({'success': False, 'message': two_factor_error, 'requires_2fa': True}), 403
+            return jsonify({'success': False, 'message': two_factor_error, 'error': two_factor_error, 'requires_2fa': True}), 403
 
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
@@ -3487,7 +3489,7 @@ def api_webull_cancel_order():
             not credential or credential.webull_token_status != 'NORMAL'
             or credential.webull_token_environment != environment or not credential.webull_access_token
         ):
-            return jsonify({'success': False, 'message': 'Webull is not connected or token has expired.'}), 400
+            return jsonify({'success': False, 'message': 'Webull is not connected or token has expired.', 'error': 'Webull is not connected or token has expired.'}), 400
 
         account_id = data.get('account_id') or data.get('_webull_account_id')
         client_order_id = data.get('client_order_id')
@@ -3496,9 +3498,9 @@ def api_webull_cancel_order():
         try:
             account_id = _require_webull_account_access(setting, account_id)
         except WebullConnectionError as exc:
-            return jsonify({'success': False, 'message': str(exc)}), 400
+            return jsonify({'success': False, 'message': str(exc), 'error': str(exc)}), 400
         if not client_order_id and not order_id:
-            return jsonify({'success': False, 'message': 'Order identifier is required to cancel.'}), 400
+            return jsonify({'success': False, 'message': 'Order identifier is required to cancel.', 'error': 'Order identifier is required to cancel.'}), 400
 
         result = cancel_webull_order(
             credential.webull_app_key, credential.webull_app_secret,
@@ -3516,10 +3518,10 @@ def api_webull_cancel_order():
         })
     except WebullConnectionError as exc:
         logger.warning('Webull order cancellation failed: %s', exc)
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': str(exc), 'error': str(exc)}), 400
     except Exception as exc:
         logger.error('Webull order cancellation error: %s', exc, exc_info=True)
-        return jsonify({'success': False, 'message': f'Order cancellation failed: {exc}'}), 500
+        return jsonify({'success': False, 'message': f'Order cancellation failed: {exc}', 'error': f'Order cancellation failed: {exc}'}), 500
 
 
 def _fetch_fallback_stock_movers():
