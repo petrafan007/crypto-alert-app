@@ -374,8 +374,28 @@ body.light-mode .combined-order-account,
   filter: grayscale(1);
 }
 
+.equity-order-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.equity-order-header .ticket-chart-selectors {
+  width: 100%;
+}
+
+.equity-order-header .equity-order-mode-tabs {
+  margin-bottom: 0;
+}
+
 .equity-order-mode-tabs {
   display: inline-flex;
+  align-self: flex-start;
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
   gap: 4px;
   margin-bottom: 16px;
   padding: 4px;

@@ -1022,6 +1022,9 @@ const holdingMatchesOptionContract = (holding, { accountId, underlyingSymbol, op
     && Math.abs(holdingStrike - selectedStrike) <= OPTION_STRIKE_EPSILON;
 };
 
+const SYNTHETIC_EXTENDED_TYPES = ['STOP_LOSS', 'LADDER'];
+const SYNTHETIC_EXTENDED_LABELS = 'Stop Loss and Ladder / Trailing Stop';
+
 export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceMode = false, embeddedOrder = null, embeddedCoin = null, onEmbeddedClose = null, onEmbeddedSuccess = null}) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -1336,6 +1339,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     stopPrice: '',
     timeInForce: 'DAY',
     tradingSession: getDefaultTradingSession(),
+    limitCapPct: '1.0',
     optionType: 'CALL',
     optionStrike: '',
     optionExpiration: '',
@@ -1368,6 +1372,9 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
   const [ladderConfig, setLadderConfig] = useState(defaultLadderState);
 
+  // A closed-market OCO offered as a synthetic two-sided order instead.
+  const [syntheticComboOffer, setSyntheticComboOffer] = useState(null);
+
   // Combo Orders Form State (OTO / OCO / OTOCO)
   const [comboForm, setComboForm] = useState({
     comboType: 'OTOCO',
@@ -1381,7 +1388,15 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
   useEffect(() => {
     if (['LADDER', 'SYNTHETIC'].includes(orderForm.type)) {
-      setOrderForm(prev => ({ ...prev, tradingSession: 'CORE', entrustType: 'QTY', isAlgoEnabled: false, isBracketEnabled: false }));
+      // Stock/ETF synthetic orders can also run in extended hours (ALL); every
+      // other session falls back to Regular Hours.
+      setOrderForm(prev => ({
+        ...prev,
+        tradingSession: selectedInstrumentType === 'EQUITY' && prev.tradingSession === 'ALL' ? 'ALL' : 'CORE',
+        entrustType: 'QTY',
+        isAlgoEnabled: false,
+        isBracketEnabled: false,
+      }));
     }
   }, [orderForm.type]);
 
@@ -1440,6 +1455,11 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
   const isExtendedSession = selectedInstrumentType === 'EQUITY' && orderForm.tradingSession === 'ALL';
   const isOvernightSession = selectedInstrumentType === 'EQUITY' && orderForm.tradingSession === 'NIGHT';
+  // Webull accepts only whole-share Limit orders outside Regular Hours. These
+  // types are still available then as synthetic orders: the app watches the
+  // price and sends a whole-share Limit order capped past the trigger.
+  const isSyntheticExtendedType = (typeValue) => selectedInstrumentType === 'EQUITY' && SYNTHETIC_EXTENDED_TYPES.includes(typeValue);
+  const isSyntheticExtendedOrder = isExtendedSession && isSyntheticExtendedType(orderForm.type);
 
   const getOrderTypeDisabledReason = (typeValue) => {
     if (selectedInstrumentType === 'EVENT') {
@@ -1449,11 +1469,13 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       if (isFractional && typeValue !== 'MARKET') {
         return 'Webull supports fractional stock and ETF orders as Market orders only.';
       }
-      if (isExtendedSession && typeValue !== 'LIMIT') {
+      if (isExtendedSession && typeValue !== 'LIMIT' && !isSyntheticExtendedType(typeValue)) {
         return 'Extended hours trading (pre-market & after-hours) on Webull supports Limit orders only.';
       }
       if (isOvernightSession && typeValue !== 'LIMIT') {
-        return 'Overnight trading on Webull supports Limit orders only.';
+        return isSyntheticExtendedType(typeValue)
+          ? 'Synthetic orders do not run overnight. Switch Trading Session to Including Extended Hours to place this as a Synthetic Order.'
+          : 'Overnight trading on Webull supports Limit orders only.';
       }
     }
     return '';
@@ -1466,6 +1488,10 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       return 'Fractional stock and ETF orders are supported only during Regular Hours (CORE).';
     }
     if (orderForm.type !== 'LIMIT') {
+      if (sessionValue === 'ALL' && isSyntheticExtendedType(orderForm.type)) return '';
+      if (sessionValue === 'NIGHT' && isSyntheticExtendedType(orderForm.type)) {
+        return 'Synthetic orders do not run overnight.';
+      }
       return `${sessionValue === 'NIGHT' ? 'Overnight' : 'Extended'} hours trading on Webull requires a Limit order.`;
     }
     return '';
@@ -1506,11 +1532,12 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
   // Auto-enforce Webull extended and overnight rules: Limit order and whole shares only; Overnight is DAY order only
   useEffect(() => {
     if (selectedInstrumentType === 'EQUITY' && (orderForm.tradingSession === 'ALL' || orderForm.tradingSession === 'NIGHT')) {
-      if (orderForm.type !== 'LIMIT' || orderForm.entrustType === 'AMOUNT' || (orderForm.tradingSession === 'NIGHT' && orderForm.timeInForce !== 'DAY')) {
+      const keepSynthetic = orderForm.tradingSession === 'ALL' && SYNTHETIC_EXTENDED_TYPES.includes(orderForm.type);
+      if ((orderForm.type !== 'LIMIT' && !keepSynthetic) || orderForm.entrustType === 'AMOUNT' || (orderForm.tradingSession === 'NIGHT' && orderForm.timeInForce !== 'DAY')) {
         setOrderForm((prev) => ({
           ...prev,
-          type: 'LIMIT',
-          stopPrice: '',
+          type: keepSynthetic ? prev.type : 'LIMIT',
+          stopPrice: keepSynthetic ? prev.stopPrice : '',
           entrustType: 'QTY',
           totalCashAmount: '',
           timeInForce: prev.tradingSession === 'NIGHT' ? 'DAY' : prev.timeInForce,
@@ -1521,7 +1548,8 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
   // Auto-enforce non-limit orders run during Regular Hours (CORE) only
   useEffect(() => {
-    if (selectedInstrumentType === 'EQUITY' && orderForm.type !== 'LIMIT' && orderForm.tradingSession !== 'CORE') {
+    if (selectedInstrumentType === 'EQUITY' && orderForm.type !== 'LIMIT' && orderForm.tradingSession !== 'CORE'
+      && !(orderForm.tradingSession === 'ALL' && SYNTHETIC_EXTENDED_TYPES.includes(orderForm.type))) {
       setOrderForm((prev) => ({ ...prev, tradingSession: 'CORE' }));
     }
   }, [selectedInstrumentType, orderForm.type, orderForm.tradingSession]);
@@ -4091,6 +4119,73 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         ...(tokenOverride ? { twofa_token: tokenOverride } : {}),
       };
 
+      if (isSyntheticExtendedOrder && isEmbeddedReplaceMode) {
+        setOrderFeedback({ type: 'error', message: 'A synthetic order cannot replace a Webull order. Use a Limit order, or cancel the pending order and create the synthetic order separately.' });
+        return;
+      }
+
+      // Outside regular hours a Stop Loss runs as a synthetic order: one
+      // trigger that sends the whole quantity when the price reaches the stop.
+      if (orderForm.type === 'STOP_LOSS' && isSyntheticExtendedOrder) {
+        const stop = Number(orderForm.stopPrice);
+        const qty = Number(orderForm.quantity);
+        const market = Number(livePrice);
+        const isBuy = orderForm.side === 'BUY';
+        if (!['BUY', 'SELL'].includes(orderForm.side)) {
+          setOrderFeedback({ type: 'error', message: 'Synthetic Stop Loss orders support Buy and Sell only.' });
+          return;
+        }
+        if (!Number.isInteger(qty) || qty <= 0) {
+          setOrderFeedback({ type: 'error', message: 'Extended-hours synthetic orders require a whole number of shares.' });
+          return;
+        }
+        if (!(stop > 0)) {
+          setOrderFeedback({ type: 'error', message: 'Enter a stop price for the synthetic Stop Loss.' });
+          return;
+        }
+        if (market > 0 && (isBuy ? stop <= market : stop >= market)) {
+          setOrderFeedback({
+            type: 'error',
+            message: isBuy
+              ? `A Buy stop triggers when the price rises to it, so it must be above the current price ($${market.toFixed(2)}). To buy on a dip, use a Limit order.`
+              : `A Sell stop triggers when the price falls to it, so it must be below the current price ($${market.toFixed(2)}).`,
+          });
+          return;
+        }
+        const syntheticStopPayload = {
+          broker: 'webull',
+          account_id: effectiveAccountId,
+          symbol: selectedSymbol.trim().toUpperCase(),
+          instrument_type: selectedSecurityType || 'EQUITY',
+          side: orderForm.side,
+          total_quantity: qty,
+          strategy_type: 'SYNTHETIC',
+          upside_mode: isBuy ? 'SINGLE' : 'NONE',
+          upside_target_price: isBuy ? stop : null,
+          downside_mode: isBuy ? 'NONE' : 'SINGLE',
+          downside_target_price: isBuy ? null : stop,
+          has_stop_loss: !isBuy,
+          stop_loss_action: 'MARKET_SELL_ALL',
+          trading_session: 'ALL',
+          limit_cap_pct: Number(orderForm.limitCapPct),
+          test_mode: isTestMode,
+          ...(tokenOverride ? { twofa_token: tokenOverride } : {}),
+        };
+        const response = await axios.post('/api/trading/ladder-orders', syntheticStopPayload, { withCredentials: true });
+        if (response.data?.success) {
+          setOrderFeedback({
+            type: 'success',
+            message: `Synthetic Stop Loss placed for ${qty} ${selectedSymbol.trim().toUpperCase()} at $${stop.toFixed(2)}. The app watches the price from 4:00 AM to 8:00 PM ET on trading days and sends the order when the stop is reached: a Market order in regular hours, or a whole-share Limit order capped ${orderForm.limitCapPct || '1.0'}% past the stop in pre-market and after-hours.`,
+          });
+          setShowConfirmModal(false);
+          setOrderForm((prev) => ({ ...prev, quantity: '', stopPrice: '' }));
+          setActiveTab('synthetic_orders');
+        } else {
+          setOrderFeedback({ type: 'error', message: response.data?.error || 'Failed to place the synthetic Stop Loss.' });
+        }
+        return;
+      }
+
       if (orderForm.type === 'TRAILING_STOP') {
         const syntheticPayload = {
           broker: 'webull',
@@ -4140,6 +4235,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
           total_quantity: Number(orderForm.quantity),
           ...buildSyntheticPayload(ladderConfig),
           trading_session: orderForm.tradingSession || 'CORE',
+          limit_cap_pct: isSyntheticExtendedOrder ? Number(orderForm.limitCapPct) : undefined,
           test_mode: isTestMode,
           ...(tokenOverride ? { twofa_token: tokenOverride } : {}),
         };
@@ -4260,6 +4356,108 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     }
   };
 
+  // Turn a two-leg OCO into the synthetic engine's two-sided order: one
+  // trigger above the market and one below, sharing one quantity. Whichever
+  // price is reached first executes the whole quantity and ends the order.
+  const buildSyntheticComboOffer = (sym) => {
+    const legs = comboForm.legs;
+    if (comboForm.comboType !== 'OCO' || legs.length !== 2) {
+      return { error: 'Only a two-leg One Cancels the Other order can run as a Synthetic Order.' };
+    }
+    const [a, b] = legs;
+    if (a.side !== b.side || !['BUY', 'SELL'].includes(a.side)) {
+      return { error: 'A Synthetic OCO needs both legs on the same side (both Buy or both Sell).' };
+    }
+    const qty = Number(a.quantity);
+    if (Number(b.quantity) !== qty || !Number.isInteger(qty) || qty <= 0) {
+      return { error: 'A Synthetic OCO needs the same whole-share quantity on both legs.' };
+    }
+    const trigger = (leg) => (leg.order_type === 'LIMIT' ? Number(leg.price)
+      : ['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(leg.order_type) ? Number(leg.stopPrice) : NaN);
+    const prices = [trigger(a), trigger(b)];
+    if (prices.some((price) => !(price > 0)) || prices[0] === prices[1]) {
+      return { error: 'A Synthetic OCO needs one trigger price above the market and one below it.' };
+    }
+    return {
+      symbol: sym,
+      side: a.side,
+      quantity: qty,
+      upper: Math.max(...prices),
+      lower: Math.min(...prices),
+      dropsStopLimit: legs.some((leg) => leg.order_type === 'STOP_LOSS_LIMIT'),
+      capPct: '1.0',
+      error: '',
+    };
+  };
+
+  const submitSyntheticCombo = async (twofaToken = null) => {
+    const offer = syntheticComboOffer;
+    if (!offer) return;
+    const cap = Number(offer.capPct);
+    if (!(cap >= 0.1 && cap <= 5)) {
+      setOrderFeedback({ type: 'error', message: 'The extended-hours price cap must be between 0.1% and 5%.' });
+      return;
+    }
+    if (!isTestMode && !twofaToken) {
+      setTwoFactorModal({
+        isVisible: true,
+        action: 'SYNTHETIC_COMBO',
+        orderData: {
+          provider: 'Webull',
+          accountLabel: activeAccountLabel(),
+          symbol: offer.symbol,
+          instrumentType: 'SECURITIES',
+          side: offer.side,
+          type: 'Synthetic OCO',
+          quantity: String(offer.quantity),
+          currency: 'USD',
+        },
+      });
+      return;
+    }
+    setOrderSubmitting(true);
+    try {
+      const payload = {
+        broker: 'webull',
+        account_id: selectedAccountId,
+        symbol: offer.symbol,
+        instrument_type: offer.symbol === (selectedSymbol || '').trim().toUpperCase() ? (selectedSecurityType || 'EQUITY') : 'EQUITY',
+        side: offer.side,
+        total_quantity: offer.quantity,
+        strategy_type: 'BRACKET',
+        upside_mode: 'SINGLE',
+        upside_target_price: offer.upper,
+        downside_mode: 'SINGLE',
+        downside_target_price: offer.lower,
+        has_stop_loss: true,
+        stop_loss_action: 'MARKET_SELL_ALL',
+        trading_session: 'ALL',
+        limit_cap_pct: cap,
+        test_mode: isTestMode,
+        ...(twofaToken ? { twofa_token: twofaToken } : {}),
+      };
+      const response = await axios.post('/api/trading/ladder-orders', payload, { withCredentials: true });
+      if (response.data?.success) {
+        setSyntheticComboOffer(null);
+        setOrderFeedback({
+          type: 'success',
+          message: `Synthetic OCO placed: ${offer.side === 'BUY' ? 'buy' : 'sell'} ${offer.quantity} ${offer.symbol} when the price reaches $${offer.upper.toFixed(2)} or $${offer.lower.toFixed(2)}, whichever comes first. The app watches from 4:00 AM to 8:00 PM ET on trading days.`,
+        });
+        setActiveTab('synthetic_orders');
+      } else {
+        setOrderFeedback({ type: 'error', message: response.data?.error || 'Failed to place the Synthetic OCO.' });
+      }
+    } catch (err) {
+      if (err.response?.data?.requires_2fa) {
+        await submitSyntheticCombo(null);
+      } else {
+        setOrderFeedback({ type: 'error', message: err.response?.data?.error || err.message || 'Failed to place the Synthetic OCO.' });
+      }
+    } finally {
+      setOrderSubmitting(false);
+    }
+  };
+
   const handleComboSubmit = async (twofaToken = null) => {
     if (!selectedAccountId) {
       setOrderFeedback({ type: 'error', message: 'Please select a Webull account.' });
@@ -4296,6 +4494,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     // Refuse tickets Webull is known to reject (or that cannot do what they
     // describe) before a 2FA code is used or, for a replacement, before the
     // original order is cancelled. The server repeats the same checks.
+    let comboMarketClosed = false;
     const comboError = (() => {
       const fmt = (value) => `$${Number(value).toFixed(2)}`;
       const market = sym === (selectedSymbol || '').trim().toUpperCase() ? Number(livePrice) : 0;
@@ -4361,9 +4560,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
           const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
           const minutes = et.getHours() * 60 + et.getMinutes();
           const isOpen = et.getDay() >= 1 && et.getDay() <= 5 && minutes >= 9 * 60 + 30 && minutes < 16 * 60;
-          if (!isOpen) {
-            return 'Webull accepts conditional (OTO / OCO / OTOCO) orders only during regular market hours, 9:30 AM - 4:00 PM ET, Monday to Friday. The market is closed now, so nothing was sent. Submit this order again once the market opens.';
-          }
+          if (!isOpen) comboMarketClosed = true;
         } catch (e) {
           // If the browser cannot resolve Eastern time, the server check decides.
         }
@@ -4372,6 +4569,19 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     })();
     if (comboError) {
       setOrderFeedback({ type: 'error', message: comboError });
+      return;
+    }
+    if (comboMarketClosed) {
+      const offer = isEmbeddedReplaceMode ? null : buildSyntheticComboOffer(sym);
+      if (offer && !offer.error) {
+        setSyntheticComboOffer(offer);
+        return;
+      }
+      setOrderFeedback({
+        type: 'error',
+        message: 'Webull accepts conditional (OTO / OCO / OTOCO) orders only during regular market hours, 9:30 AM - 4:00 PM ET, Monday to Friday. The market is closed now, so nothing was sent. Submit this order again once the market opens.'
+          + (offer?.error ? ` ${offer.error}` : ''),
+      });
       return;
     }
 
@@ -4475,6 +4685,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       const action = twoFactorModal.action;
       setTwoFactorModal({ isVisible: false, orderData: null });
       if (action === 'COMBO') await handleComboSubmit(res.data.token);
+      else if (action === 'SYNTHETIC_COMBO') await submitSyntheticCombo(res.data.token);
       else await handleConfirmSubmit(res.data.token);
     } else {
       throw new Error(res.data?.error || 'Invalid 2FA code');
@@ -5140,14 +5351,38 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
   // Single / Conditional switch for stock orders. Rendered directly above the
   // order ticket so it stays in view next to the fields it changes.
+  // The account and symbol selectors repeat the chart's own selectors (same
+  // state and handlers), so the trading account or symbol can be changed
+  // without scrolling back to the chart. A replacement stays locked to the
+  // original order's account, so they are hidden in the Replace dialog.
   const equityOrderModeSwitch = activeTab === 'order' && selectedInstrumentType === 'EQUITY' ? (
-    <div className="equity-order-mode-tabs" role="group" aria-label="Equities order workflow">
-      <button type="button" className={equityOrderMode === 'single' ? 'active' : ''} onClick={() => handleEquityOrderModeChange('single')}>
-        Single Order
-      </button>
-      <button type="button" className={equityOrderMode === 'combo' ? 'active' : ''} onClick={() => handleEquityOrderModeChange('combo')}>
-        Conditional Orders
-      </button>
+    <div className="equity-order-header">
+      {!isEmbeddedReplaceMode && (
+        <WebullTradingViewChart
+          selectorsOnly
+          symbol={selectedSymbol}
+          instrumentType={selectedInstrumentType}
+          onInstrumentChange={handleInstrumentChange}
+          accounts={displayAccounts}
+          selectedAccountId={displayAccounts.some((a) => a.account_id === selectedAccountId) ? selectedAccountId : (activeAccount?.account_id || selectedAccountId)}
+          onAccountChange={handleAccountChange}
+          defaultAccountId={defaultAccountId}
+          onSetDefaultAccount={saveDefaultAccount}
+          savingDefaultAccount={savingDefaultAccount}
+          allowDefaultAccount={!isTestMode && !isQuantMode}
+          holdings={modeHoldings}
+          optionUnderlyingInstruments={availableTraditional}
+          isLightMode={isLightMode}
+        />
+      )}
+      <div className="equity-order-mode-tabs" role="group" aria-label="Equities order workflow">
+        <button type="button" className={equityOrderMode === 'single' ? 'active' : ''} onClick={() => handleEquityOrderModeChange('single')}>
+          Single Order
+        </button>
+        <button type="button" className={equityOrderMode === 'combo' ? 'active' : ''} onClick={() => handleEquityOrderModeChange('combo')}>
+          Conditional Orders
+        </button>
+      </div>
     </div>
   ) : null;
 
@@ -6121,7 +6356,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                                 title={disabledReason || t.description}
                                 disabled={isDisabled}
                               >
-                                {t.label}
+                                {t.label}{isExtendedSession && isSyntheticExtendedType(t.value) ? ' (Synthetic)' : ''}
                               </button>
                             );
                           })}
@@ -6133,7 +6368,9 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                         )}
                         {selectedInstrumentType === 'EQUITY' && (isExtendedSession || isOvernightSession) && (
                           <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '6px', lineHeight: 1.4 }}>
-                            ℹ️ {isOvernightSession ? 'Overnight' : 'Extended'} hours trading on Webull supports Limit orders only with whole shares. Other order types are grayed out.
+                            ℹ️ {isOvernightSession
+                              ? `Overnight hours trading on Webull supports Limit orders only with whole shares. ${SYNTHETIC_EXTENDED_LABELS} are possible as Synthetic Orders if you switch Trading Session to Including Extended Hours; they start watching the price at 4:00 AM ET. Other order types are grayed out.`
+                              : `Extended hours trading on Webull supports Limit orders only with whole shares. ${SYNTHETIC_EXTENDED_LABELS} are possible as Synthetic Orders: the app watches the price from 4:00 AM to 8:00 PM ET and, when your trigger is reached, sends a whole-share Limit order capped past the trigger (a Market order during regular hours). Other order types are grayed out.`}
                           </div>
                         )}
                       </div>
@@ -6668,7 +6905,6 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                           <label className="order-field-label">Trading Session</label>
                           <select
                             value={orderForm.tradingSession}
-                            disabled={['LADDER', 'SYNTHETIC'].includes(orderForm.type)}
                             onChange={(e) => {
                               userChangedSessionRef.current = true;
                               const tradingSession = e.target.value;
@@ -6699,6 +6935,24 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                               Overnight Hours Only (NIGHT: 8:00 PM - 4:00 AM ET){getSessionDisabledReason('NIGHT') ? ' — (Limit & whole shares only)' : ''}
                             </option>
                           </select>
+                        </div>
+                      )}
+                      {isSyntheticExtendedOrder && (
+                        <div className="order-input-group">
+                          <label className="order-field-label">Extended-Hours Price Cap (%)</label>
+                          <input
+                            type="number"
+                            min="0.1"
+                            max="5"
+                            step="0.1"
+                            className="order-styled-input"
+                            value={orderForm.limitCapPct}
+                            onChange={(e) => setOrderForm((prev) => ({ ...prev, limitCapPct: e.target.value }))}
+                            title="Outside regular hours Webull accepts only Limit orders. When the trigger is reached, the app sends a Limit order this far past the trigger price, so it fills like a market order but never beyond this cap."
+                          />
+                          <small style={{ color: '#94a3b8', fontSize: '11px' }}>
+                            {orderForm.side === 'SELL' ? 'Sell' : 'Buy'} limit = trigger {orderForm.side === 'SELL' ? '−' : '+'} {orderForm.limitCapPct || '1.0'}%. Unfilled after 5 minutes, it is cancelled.
+                          </small>
                         </div>
                       )}
                     </div>
@@ -7013,6 +7267,11 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                           ? 'Please review the simulated trade details below. This will be submitted to the isolated Paper Trading engine under the applicable market-hours rules.'
                           : 'Please review the details below. This will transmit an active order to Webull OpenAPI.'}
                       </p>
+                      {isSyntheticExtendedOrder && (
+                        <div style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.35)', borderRadius: '8px', padding: '12px', marginBottom: '16px', color: '#bae6fd', fontSize: '0.85rem', lineHeight: 1.5 }}>
+                          <strong>Synthetic Order.</strong> Nothing is sent to Webull now. The app watches {selectedSymbol} from 4:00 AM to 8:00 PM ET on trading days. When the trigger is reached it sends a whole-share order: a Market order during regular hours, or a Limit order capped {orderForm.limitCapPct || '1.0'}% past the trigger in pre-market and after-hours (cancelled if unfilled after 5 minutes). Extended-hours prices come from Yahoo Finance and can lag.
+                        </div>
+                      )}
                       <div style={{ background: 'rgba(0,0,0,0.25)', padding: '16px', borderRadius: '8px', marginBottom: '20px', display: 'grid', gap: '10px', fontSize: '0.95rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Account:</span>
@@ -7613,6 +7872,45 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         type="success"
         isLightMode={isLightMode}
       />
+      {syntheticComboOffer && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, padding: '20px' }}>
+          <div role="dialog" aria-labelledby="synthetic-oco-title" style={{ background: '#1e293b', borderRadius: '14px', maxWidth: '560px', width: '100%', border: '1px solid rgba(56, 189, 248, 0.35)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <h3 id="synthetic-oco-title" style={{ margin: 0, color: '#f8fafc', fontSize: '1.15rem' }}>Market closed: place as a Synthetic OCO?</h3>
+            </div>
+            <div style={{ padding: '20px 24px', color: '#cbd5e1', fontSize: '0.92rem', lineHeight: 1.55, display: 'grid', gap: '12px' }}>
+              <p style={{ margin: 0 }}>Webull accepts conditional orders only during regular market hours. The app can run this order itself instead:</p>
+              <p style={{ margin: 0 }}>
+                <strong>{syntheticComboOffer.side === 'BUY' ? 'Buy' : 'Sell'} {syntheticComboOffer.quantity} {syntheticComboOffer.symbol}</strong> when the price rises to <strong>${syntheticComboOffer.upper.toFixed(2)}</strong> or falls to <strong>${syntheticComboOffer.lower.toFixed(2)}</strong>, whichever comes first. The other trigger is then dropped.
+              </p>
+              <p style={{ margin: 0 }}>
+                It watches the price from 4:00 AM to 8:00 PM ET on trading days. In regular hours it sends a Market order; in pre-market and after-hours it sends a whole-share Limit order capped past the trigger, cancelled if unfilled after 5 minutes. Extended-hours prices come from Yahoo Finance and can lag. The order depends on this server running.
+                {syntheticComboOffer.dropsStopLimit ? ' The Stop Loss Limit leg\'s limit price is replaced by the price cap below.' : ''}
+              </p>
+              <label style={{ display: 'grid', gap: '6px', maxWidth: '260px' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Extended-hours price cap (%)</span>
+                <input
+                  type="number"
+                  min="0.1"
+                  max="5"
+                  step="0.1"
+                  className="order-styled-input"
+                  value={syntheticComboOffer.capPct}
+                  onChange={(e) => setSyntheticComboOffer((prev) => ({ ...prev, capPct: e.target.value }))}
+                />
+              </label>
+            </div>
+            <div style={{ padding: '16px 24px', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
+              <button type="button" onClick={() => setSyntheticComboOffer(null)} style={{ padding: '10px 18px', borderRadius: '8px', background: '#334155', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button type="button" disabled={orderSubmitting} onClick={() => submitSyntheticCombo(null)} style={{ padding: '10px 18px', borderRadius: '8px', background: '#2563eb', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>
+                {orderSubmitting ? 'Placing…' : 'Place as Synthetic OCO'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <TwoFactorModal
         isVisible={twoFactorModal.isVisible}
         onClose={() => setTwoFactorModal({ isVisible: false, orderData: null })}

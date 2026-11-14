@@ -3895,7 +3895,8 @@ def api_create_trailing_order():
             broker=broker,
             account_id=account_id,
             instrument_type=instrument_type,
-            trading_session=trading_session
+            trading_session=trading_session,
+            limit_cap_pct=data.get('limit_cap_pct'),
         )
         return jsonify({'success': True, 'trailing_order': order_dict, 'replaced_order_id': replaced_order_id})
     except Exception as e:
@@ -4024,7 +4025,8 @@ def api_create_ladder_order():
             downside_trail_type=downside_trail_type,
             downside_activation_price=downside_activation_price,
             downside_preset=downside_preset,
-            downside_rungs=downside_rungs
+            downside_rungs=downside_rungs,
+            limit_cap_pct=data.get('limit_cap_pct'),
         )
         return jsonify({'success': True, 'ladder_order': ladder_dict, 'replaced_order_id': replaced_order_id})
     except Exception as e:

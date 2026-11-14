@@ -13,8 +13,9 @@ from log import logger
 from services import synthetic_execution_service as execution
 
 
-def _get_reference_price(symbol, client=None, broker='binance', instrument_type='CRYPTO', user_id=None, environment=None):
-    return execution.reference_price(symbol, client, broker, instrument_type, user_id, environment)
+def _get_reference_price(symbol, client=None, broker='binance', instrument_type='CRYPTO', user_id=None, environment=None,
+                         trading_session='CORE'):
+    return execution.reference_price(symbol, client, broker, instrument_type, user_id, environment, trading_session)
 
 
 def calculate_trailing_stop_price(side, reference_price, trail_type, trail_value):
@@ -41,7 +42,8 @@ def calculate_trailing_stop_price(side, reference_price, trail_type, trail_value
 
 def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT', trail_value=2.0,
                           activation_price=None, execution_type='MARKET', test_mode=False, client=None,
-                          broker='binance', account_id=None, instrument_type='CRYPTO', trading_session='CORE'):
+                          broker='binance', account_id=None, instrument_type='CRYPTO', trading_session='CORE',
+                          limit_cap_pct=None):
     """
     Validate and persist a new synthetic TrailingOrder.
     Supports both Binance.US and Webull.
@@ -82,7 +84,10 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
     except (TypeError, ValueError):
         raise ValueError("Trail value must be a positive number.")
 
-    current_price = _get_reference_price(clean_symbol, client=client, broker=clean_broker, instrument_type=clean_instrument, user_id=user_id)
+    cap_pct = execution.limit_cap(limit_cap_pct, clean_session)
+    execution.require_whole_shares(qty, clean_session, clean_instrument)
+    current_price = _get_reference_price(clean_symbol, client=client, broker=clean_broker, instrument_type=clean_instrument,
+                                         user_id=user_id, trading_session=clean_session)
     if not current_price or current_price <= 0:
         raise ValueError(f"Unable to determine current market price for {clean_symbol}.")
 
@@ -124,6 +129,7 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
         execution_type=clean_exec_type,
         test_mode=bool(test_mode),
         trading_session=clean_session,
+        limit_cap_pct=cap_pct,
         status='ACTIVE',
         created_at=utc_now(aware=False),
         updated_at=utc_now(aware=False)
@@ -292,14 +298,13 @@ def evaluate_active_trailing_orders():
                 if order.status == 'ACTIVE' and not order.cancel_requested:
                     if execution.market_is_open(order):
                         try:
-                            price = _get_reference_price(order.symbol, broker=order.broker, instrument_type=order.instrument_type,
-                                                         user_id=order.user_id, environment=order.environment)
+                            price = execution.parent_reference_price(order)
                             order.last_price, order.last_checked_at, order.monitoring_error = price, utc_now(aware=False), None
                             evaluate_single_trailing_order(order, price)
                         except Exception:
                             order.monitoring_error = 'Current venue quote unavailable or stale. Waiting for a fresh quote.'
                     else:
-                        order.monitoring_error = 'Waiting for regular market hours; stock/ETF market orders execute only during CORE.'
+                        order.monitoring_error = execution.waiting_message(order)
                 db.session.commit()
         except Exception:
             db.session.rollback()

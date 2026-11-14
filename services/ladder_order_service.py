@@ -155,7 +155,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
                         upside_trail_value=None, upside_trail_type='PERCENT', upside_activation_price=None,
                         downside_mode='NONE', downside_target_price=None, downside_trail_value=None,
                         downside_trail_type='PERCENT', downside_activation_price=None,
-                        downside_preset='Moderate', downside_rungs=None):
+                        downside_preset='Moderate', downside_rungs=None, limit_cap_pct=None):
     """
     Validate, calculate, and persist a parent LadderOrder with child LadderRungs.
     Supports Mode A (Single), Mode B (Ladder), Mode C (Trailing) for both Upside and Downside.
@@ -189,7 +189,10 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     except (TypeError, ValueError):
         raise ValueError("Total quantity must be a positive number.")
 
-    current_price = _get_reference_price(clean_symbol, client=client, broker=clean_broker, instrument_type=clean_instrument, user_id=user_id)
+    cap_pct = execution.limit_cap(limit_cap_pct, clean_session)
+    execution.require_whole_shares(qty, clean_session, clean_instrument)
+    current_price = _get_reference_price(clean_symbol, client=client, broker=clean_broker, instrument_type=clean_instrument,
+                                         user_id=user_id, trading_session=clean_session)
     if not current_price or current_price <= 0:
         raise ValueError(f"Unable to determine current market price for {clean_symbol}.")
 
@@ -314,6 +317,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         rungs_filled=0,
         test_mode=bool(test_mode),
         trading_session=clean_session,
+        limit_cap_pct=cap_pct,
         created_at=utc_now(aware=False),
         updated_at=utc_now(aware=False)
     )
@@ -397,7 +401,9 @@ def _sync_parent(ladder, rows):
         ladder.status = 'CANCELLED'
     elif any(r.status in {'FAILED', 'CANCELLED'} for r in rows):
         ladder.status = 'FAILED'
-        ladder.monitoring_error = 'An execution was rejected or cancelled before the strategy finished. Review fills before creating a replacement.'
+        ladder.monitoring_error = next(
+            (r.error_message for r in reversed(rows) if r.status in {'FAILED', 'CANCELLED'} and r.error_message),
+            'An execution was rejected or cancelled before the strategy finished. Review fills before creating a replacement.')
     elif filled > 0:
         ladder.status = 'PARTIALLY_FILLED'
     if ladder.status in {'COMPLETED', 'STOPPED_OUT', 'CANCELLED', 'FAILED'}:
@@ -521,14 +527,13 @@ def evaluate_active_ladder_orders():
                 if ladder.status in {'ACTIVE', 'PARTIALLY_FILLED'} and not ladder.cancel_requested:
                     if execution.market_is_open(ladder):
                         try:
-                            price = _get_reference_price(ladder.symbol, broker=ladder.broker, instrument_type=ladder.instrument_type,
-                                                         user_id=ladder.user_id, environment=ladder.environment)
+                            price = execution.parent_reference_price(ladder)
                             ladder.last_price, ladder.last_checked_at, ladder.monitoring_error = price, utc_now(aware=False), None
                             evaluate_single_ladder_order(ladder, price)
                         except Exception:
                             ladder.monitoring_error = 'Current venue quote unavailable or stale. Waiting for a fresh quote.'
                     else:
-                        ladder.monitoring_error = 'Waiting for regular market hours; stock/ETF market orders execute only during CORE.'
+                        ladder.monitoring_error = execution.waiting_message(ladder)
                 db.session.commit()
         except Exception:
             db.session.rollback()

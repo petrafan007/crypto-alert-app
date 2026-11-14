@@ -226,6 +226,7 @@ class TrailingOrder(db.Model):
     execution_type = Column(String(10), default='MARKET')           # 'MARKET' or 'LIMIT'
     test_mode = Column(Boolean, default=False)
     trading_session = Column(String(20), default='CORE')            # 'CORE', 'ALL', 'NIGHT'
+    limit_cap_pct = Column(Float, nullable=True)                    # extended-hours limit cap past the trigger, in percent
     status = Column(String(20), default='ACTIVE')                   # 'ACTIVE', 'TRIGGERED', 'FILLED', 'CANCELLED', 'FAILED'
     triggered_at = Column(DateTime, nullable=True)
     executed_order_id = Column(String(64), nullable=True)
@@ -260,6 +261,7 @@ class TrailingOrder(db.Model):
             'execution_type': self.execution_type,
             'test_mode': self.test_mode,
             'trading_session': self.trading_session or 'CORE',
+            'limit_cap_pct': self.limit_cap_pct,
             'status': self.status,
             'triggered_at': self.triggered_at.isoformat() if self.triggered_at else None,
             'executed_order_id': self.executed_order_id,
@@ -312,6 +314,7 @@ class LadderOrder(db.Model):
     rungs_filled = Column(Integer, default=0)
     test_mode = Column(Boolean, default=False)
     trading_session = Column(String(20), default='CORE')             # 'CORE', 'ALL', 'NIGHT'
+    limit_cap_pct = Column(Float, nullable=True)                     # extended-hours limit cap past the trigger, in percent
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     environment = Column(String(20), nullable=True)
@@ -360,6 +363,7 @@ class LadderOrder(db.Model):
             'rungs_filled': self.rungs_filled,
             'test_mode': self.test_mode,
             'trading_session': self.trading_session or 'CORE',
+            'limit_cap_pct': self.limit_cap_pct,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'rungs': [r.to_dict() for r in self.rungs] if hasattr(self, 'rungs') and self.rungs else [],
@@ -422,6 +426,8 @@ class SyntheticExecution(db.Model):
     filled_quantity = Column(Float, default=0.0, nullable=False)
     filled_price = Column(Float, nullable=True)
     status = Column(String(24), nullable=False, default='SUBMITTING')
+    order_type = Column(String(20), nullable=True)                   # 'MARKET', or 'LIMIT' for an extended-hours execution
+    limit_price = Column(Float, nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
@@ -431,7 +437,7 @@ class SyntheticExecution(db.Model):
         return {key: (value.isoformat() if isinstance(value, datetime) else value)
                 for key in ('id', 'rung_id', 'leg', 'client_order_id', 'broker_order_id',
                             'quantity', 'filled_quantity', 'filled_price', 'status',
-                            'error_message', 'created_at', 'updated_at')
+                            'order_type', 'limit_price', 'error_message', 'created_at', 'updated_at')
                 for value in (getattr(self, key),)}
 
 class TaxCorrection(db.Model):

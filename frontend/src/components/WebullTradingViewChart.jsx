@@ -46,6 +46,7 @@ export default function WebullTradingViewChart({
   optionUnderlyingInstruments = [],
   isLightMode = false,
   accountOnly = false,
+  selectorsOnly = false,
 }) {
   const hostRef = useRef(null);
   const [status, setStatus] = useState('loading');
@@ -228,9 +229,13 @@ export default function WebullTradingViewChart({
     };
   }, [tvSymbol, isLightMode, pageUrl, symbol]);
 
+  const Wrapper = selectorsOnly ? 'div' : 'section';
   return (
-    <section className="advanced-trading-chart" aria-label={accountOnly ? 'Webull Event Contract account' : `${symbol} Webull advanced chart`}>
-      <header className="advanced-chart-header" style={{ flexWrap: 'wrap', gap: '16px' }}>
+    <Wrapper
+      className={selectorsOnly ? 'ticket-chart-selectors' : 'advanced-trading-chart'}
+      aria-label={selectorsOnly ? 'Webull account and symbol for orders' : accountOnly ? 'Webull Event Contract account' : `${symbol} Webull advanced chart`}
+    >
+      <header className="advanced-chart-header" style={{ flexWrap: 'wrap', gap: '16px', ...(selectorsOnly ? { padding: 0, border: 0, background: 'transparent' } : {}) }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', width: '100%' }}>
           {/* Webull Account Selector */}
           {accounts.length > 0 && (
@@ -326,7 +331,7 @@ export default function WebullTradingViewChart({
         </div>
       </header>
 
-      {!accountOnly && <div className="advanced-chart-capabilities">
+      {!accountOnly && !selectorsOnly && <div className="advanced-chart-capabilities">
         <span>80+ indicators</span>
         <span>100+ drawings</span>
         <span>Native symbol search</span>
@@ -336,7 +341,7 @@ export default function WebullTradingViewChart({
         <span>Image &amp; popup tools</span>
       </div>}
 
-      {!accountOnly && <div className="advanced-chart-widget-shell">
+      {!accountOnly && !selectorsOnly && <div className="advanced-chart-widget-shell">
         <div ref={hostRef} className="tradingview-widget-container advanced-chart-widget-host" />
         {!tvSymbol && <div className="advanced-chart-widget-status">Select a Webull futures contract above to load its chart.</div>}
         {tvSymbol && status === 'loading' && <div className="advanced-chart-widget-status">Loading TradingView Advanced Chart…</div>}
@@ -348,13 +353,13 @@ export default function WebullTradingViewChart({
         )}
       </div>}
 
-      {!accountOnly && <p className="advanced-chart-sync-note">
+      {!accountOnly && !selectorsOnly && <p className="advanced-chart-sync-note">
         {isOption
           ? 'The chart shows the option underlying. The imported holding and its strike, expiration, and call/put terms remain locked into the option ticket below.'
           : isFutures
             ? 'The TradingView chart reflects the continuous contract stream for your selected futures market. Use the discovery suite above to switch contracts or categories.'
           : 'The selector above keeps the order ticket and Webull chart synchronized. TradingView\'s built-in symbol search remains available for independent market research.'}
       </p>}
-    </section>
+    </Wrapper>
   );
 }

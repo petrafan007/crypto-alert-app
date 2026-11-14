@@ -101,7 +101,10 @@ def init_db(app=None):
               for column, declaration in (
                   ('environment', 'VARCHAR(20)'), ('engine_version', 'INTEGER'),
                   ('last_price', 'FLOAT'), ('last_checked_at', 'TIMESTAMP'),
-                  ('monitoring_error', 'TEXT'), ('cancel_requested', 'BOOLEAN DEFAULT FALSE'))],
+                  ('monitoring_error', 'TEXT'), ('cancel_requested', 'BOOLEAN DEFAULT FALSE'),
+                  ('limit_cap_pct', 'FLOAT'))],
+            ("synthetic_executions", "order_type", "VARCHAR(20)"),
+            ("synthetic_executions", "limit_price", "FLOAT"),
             ("trailing_orders", "broker", "VARCHAR(20) DEFAULT 'binance'"),
             ("trailing_orders", "account_id", "VARCHAR(64)"),
             ("trailing_orders", "instrument_type", "VARCHAR(20) DEFAULT 'CRYPTO'"),

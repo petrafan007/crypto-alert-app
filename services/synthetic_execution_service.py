@@ -21,6 +21,20 @@ from log import logger
 
 OPEN_EXECUTIONS = {'SUBMITTING', 'SUBMITTED', 'PARTIALLY_FILLED', 'UNKNOWN'}
 WORKING_PARENTS = ('ACTIVE', 'PARTIALLY_FILLED', 'TRIGGERED', 'SUBMITTED', 'CANCEL_PENDING')
+# Stock/ETF synthetic orders run in Regular Hours ('CORE') or in Regular plus
+# Extended Hours ('ALL', 4:00 AM - 8:00 PM ET). Webull accepts only whole-share
+# Limit orders in extended hours, so an execution there is a Limit order
+# capped this far past the trigger price, cancelled if it has not filled in time.
+DEFAULT_LIMIT_CAP_PCT = 1.0
+MIN_LIMIT_CAP_PCT = 0.1
+MAX_LIMIT_CAP_PCT = 5.0
+EXTENDED_LIMIT_TIMEOUT_SECONDS = 300
+EXTENDED_TIMEOUT_MESSAGE = ('The extended-hours limit order did not fill within 5 minutes and was cancelled at Webull. '
+                            'Review any partial fill before creating a new order.')
+EQUITY_HOURS_WAIT = {
+    'CORE': 'Waiting for regular market hours (9:30 AM - 4:00 PM ET on trading days).',
+    'ALL': 'Waiting for market hours; this order runs 4:00 AM - 8:00 PM ET on trading days.',
+}
 _local_locks = [threading.RLock() for _ in range(127)]
 
 
@@ -55,8 +69,13 @@ def validate_identity(symbol, side, broker, instrument_type, trading_session, ac
     if instrument_type not in {'CRYPTO', 'EQUITY', 'ETF'} or (broker == 'binance' and instrument_type != 'CRYPTO'):
         raise ValueError('Synthetic orders support Binance.US crypto and Webull crypto, stocks and ETFs.')
     trading_session = str(trading_session or 'CORE').upper()
-    if instrument_type != 'CRYPTO' and trading_session != 'CORE':
-        raise ValueError('Synthetic stock/ETF orders execute market orders during Regular Hours (CORE).')
+    if instrument_type == 'CRYPTO' or broker != 'webull':
+        trading_session = 'CORE'
+    elif trading_session == 'NIGHT':
+        raise ValueError('Synthetic stock/ETF orders run in Regular Hours or Regular + Extended Hours (4:00 AM - 8:00 PM ET). '
+                         'Overnight is not supported because no overnight price feed is available.')
+    elif trading_session not in {'CORE', 'ALL'}:
+        raise ValueError('Choose Regular Hours or Regular + Extended Hours for this synthetic order.')
     account_id = str(account_id or '').strip() or None
     if broker == 'webull':
         if test_mode:
@@ -65,7 +84,28 @@ def validate_identity(symbol, side, broker, instrument_type, trading_session, ac
             raise ValueError('Select a live Webull account for a real synthetic order.')
         if instrument_type == 'CRYPTO' and not symbol.endswith('USD'):
             symbol += 'USD'
-    return symbol, side, broker, instrument_type, 'CORE', account_id
+    return symbol, side, broker, instrument_type, trading_session, account_id
+
+
+def limit_cap(value, trading_session):
+    """Validate the extended-hours price cap; only stock/ETF 'ALL' orders use it."""
+    if trading_session != 'ALL':
+        return None
+    if value in (None, ''):
+        return DEFAULT_LIMIT_CAP_PCT
+    try:
+        cap = float(value)
+    except (TypeError, ValueError):
+        cap = float('nan')
+    if not math.isfinite(cap) or not MIN_LIMIT_CAP_PCT <= cap <= MAX_LIMIT_CAP_PCT:
+        raise ValueError(f'The extended-hours price cap must be between {MIN_LIMIT_CAP_PCT:g}% and {MAX_LIMIT_CAP_PCT:g}%.')
+    return cap
+
+
+def require_whole_shares(quantity, trading_session, instrument_type):
+    if trading_session == 'ALL' and instrument_type != 'CRYPTO' and not float(quantity).is_integer():
+        raise ValueError('Extended-hours synthetic orders require whole shares, because Webull accepts only whole-share '
+                         'orders outside Regular Hours.')
 
 
 def environment_for(user_id, broker):
@@ -104,8 +144,26 @@ def binance_client(user_id=None, public=False):
     return LazyClient(cred.trading_api_key, cred.trading_api_secret, tld='us', requests_params={'timeout': 10})
 
 
-def reference_price(symbol, client=None, broker='binance', instrument_type='CRYPTO', user_id=None, environment=None):
-    """Only use a fresh request for the exact venue/instrument; never the Coin table."""
+def reference_price(symbol, client=None, broker='binance', instrument_type='CRYPTO', user_id=None, environment=None,
+                    trading_session='CORE'):
+    """Only use a fresh request for the exact venue/instrument; never the Coin table.
+
+    Webull's basic snapshot reports only the regular-session price, so a stock
+    order that runs in extended hours reads Yahoo's extended-hours price there.
+    While the market is closed it uses Yahoo's latest price (normally the last
+    after-hours trade) when available, which is more current than the close.
+    """
+    if broker == 'webull' and instrument_type != 'CRYPTO' and str(trading_session or 'CORE').upper() == 'ALL':
+        from services.market_calendar_service import equity_session_phase
+        from services.extended_hours_quote_service import get_extended_hours_price
+        phase = equity_session_phase(utc_now(aware=True))
+        if phase == 'EXTENDED':
+            return positive(get_extended_hours_price(symbol)[0], 'Extended-hours reference price')
+        if phase is None:
+            try:
+                return positive(get_extended_hours_price(symbol, require_fresh=False)[0], 'Extended-hours reference price')
+            except ValueError:
+                pass
     if broker == 'webull':
         from types import SimpleNamespace
         from services.webull_service import get_webull_market_snapshot
@@ -135,11 +193,38 @@ def reference_price(symbol, client=None, broker='binance', instrument_type='CRYP
     return positive(ticker.get('price'), 'Binance.US reference price')
 
 
+def session_phase(parent, now=None):
+    """Return 'CORE', 'EXTENDED' or None (closed) for this parent's trading hours."""
+    if parent.broker != 'webull' or parent.instrument_type == 'CRYPTO':
+        return 'CORE'
+    from services.market_calendar_service import equity_session_phase
+    phase = equity_session_phase(now or utc_now(aware=True))
+    if str(parent.trading_session or 'CORE').upper() == 'ALL':
+        return phase
+    return 'CORE' if phase == 'CORE' else None
+
+
 def market_is_open(parent):
-    if parent.broker == 'webull' and parent.instrument_type != 'CRYPTO':
-        from services.portfolio_strategy_signals import in_session
-        return in_session(utc_now(aware=True))
-    return True
+    return session_phase(parent) is not None
+
+
+def waiting_message(parent):
+    return EQUITY_HOURS_WAIT.get(str(parent.trading_session or 'CORE').upper(), EQUITY_HOURS_WAIT['CORE'])
+
+
+def parent_reference_price(parent):
+    return reference_price(parent.symbol, broker=parent.broker, instrument_type=parent.instrument_type,
+                           user_id=parent.user_id, environment=parent.environment,
+                           trading_session=parent.trading_session or 'CORE')
+
+
+def extended_limit_price(side, price, cap_pct):
+    """A Limit price past the trigger by ``cap_pct`` so the order fills like a market order, capped."""
+    cap = (cap_pct if cap_pct else DEFAULT_LIMIT_CAP_PCT) / 100.0
+    raw = Decimal(str(price)) * Decimal(str(1 + cap if side == 'BUY' else 1 - cap))
+    step = Decimal('0.01') if raw >= 1 else Decimal('0.0001')
+    rounding = 'ROUND_DOWN' if side == 'BUY' else 'ROUND_UP'
+    return float(raw.quantize(step, rounding=rounding))
 
 
 def quantity_rules(parent):
@@ -430,12 +515,22 @@ def _binance_paper(parent, execution, price, rules):
 def submit_execution(parent, kind, quantity, price, leg, rung=None):
     rules = quantity_rules(parent)
     quantity = normalize_quantity(quantity, rules)
+    # Workers only call this while the parent's session is open; an
+    # extended-hours session is the one case that needs a capped Limit order.
+    extended = session_phase(parent) == 'EXTENDED' and not parent.test_mode
+    limit_price = None
+    if extended:
+        if not float(quantity).is_integer():
+            raise ValueError('Extended-hours executions require whole shares.')
+        limit_price = extended_limit_price(parent.side, price, getattr(parent, 'limit_cap_pct', None))
+    funding_price = limit_price if extended and parent.side == 'BUY' else price
     check_quantity(parent, quantity, price, rules)
-    check_order_limit(parent, quantity, price, rules)
-    check_live_funding(parent, quantity, price, rules)
+    check_order_limit(parent, quantity, funding_price, rules)
+    check_live_funding(parent, quantity, funding_price, rules)
     row = SyntheticExecution(user_id=parent.user_id, parent_kind=kind, parent_id=parent.id,
                              rung_id=rung.id if rung else None, leg=leg, quantity=quantity,
-                             client_order_id='syn' + uuid4().hex[:29], filled_quantity=0, status='SUBMITTING')
+                             client_order_id='syn' + uuid4().hex[:29], filled_quantity=0, status='SUBMITTING',
+                             order_type='LIMIT' if extended else 'MARKET', limit_price=limit_price)
     db.session.add(row)
     db.session.flush()
     if parent.test_mode:
@@ -467,10 +562,16 @@ def submit_execution(parent, kind, quantity, price, leg, rung=None):
         if parent.broker == 'webull':
             from services.webull_service import place_webull_order
             cred, env = webull_credentials(parent)
-            result = place_webull_order(cred.webull_app_key, cred.webull_app_secret, env, cred.webull_access_token,
-                account_id=parent.account_id, symbol=parent.symbol, instrument_type=parent.instrument_type,
-                side=parent.side, order_type='MARKET', quantity=quantity, support_trading_session='CORE',
-                client_order_id=row.client_order_id)
+            if extended:
+                result = place_webull_order(cred.webull_app_key, cred.webull_app_secret, env, cred.webull_access_token,
+                    account_id=parent.account_id, symbol=parent.symbol, instrument_type=parent.instrument_type,
+                    side=parent.side, order_type='LIMIT', quantity=int(quantity), limit_price=limit_price,
+                    time_in_force='DAY', support_trading_session='ALL', client_order_id=row.client_order_id)
+            else:
+                result = place_webull_order(cred.webull_app_key, cred.webull_app_secret, env, cred.webull_access_token,
+                    account_id=parent.account_id, symbol=parent.symbol, instrument_type=parent.instrument_type,
+                    side=parent.side, order_type='MARKET', quantity=quantity, support_trading_session='CORE',
+                    client_order_id=row.client_order_id)
         else:
             result = binance_client(parent.user_id).create_order(symbol=parent.symbol, side=parent.side,
                 type='MARKET', quantity=format(Decimal(str(quantity)), 'f'), newClientOrderId=row.client_order_id,
@@ -507,7 +608,11 @@ def reconcile_executions(parent, kind):
             apply_broker_result(row, result, parent.broker)
         except Exception:
             row.error_message = 'Awaiting broker confirmation. No additional order will be sent while this execution is unresolved.'
-        if parent.cancel_requested and row.status in OPEN_EXECUTIONS:
+        timed_out = row.order_type == 'LIMIT' and not parent.cancel_requested and row.created_at is not None and (
+            utc_now(aware=False) - row.created_at).total_seconds() >= EXTENDED_LIMIT_TIMEOUT_SECONDS
+        if row.order_type == 'LIMIT' and row.status == 'CANCELLED' and not parent.cancel_requested:
+            row.error_message = EXTENDED_TIMEOUT_MESSAGE
+        if (parent.cancel_requested or timed_out) and row.status in OPEN_EXECUTIONS:
             try:
                 if parent.broker == 'binance':
                     result = binance_client(parent.user_id).cancel_order(symbol=parent.symbol, origClientOrderId=row.client_order_id)
@@ -518,6 +623,8 @@ def reconcile_executions(parent, kind):
                     cancel_webull_order(cred.webull_app_key, cred.webull_app_secret, env, cred.webull_access_token,
                         account_id=parent.account_id, client_order_id=row.client_order_id)
                     # Cancellation acknowledgement is not final; reconcile on the next cycle.
+                if timed_out:
+                    row.error_message = EXTENDED_TIMEOUT_MESSAGE
             except Exception:
                 row.error_message = 'Cancellation requested; waiting for the broker to confirm the final order state.'
     return rows

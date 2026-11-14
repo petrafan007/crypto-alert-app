@@ -1,8 +1,17 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.14.12
+**Version:** 4.15.0
 
 ## Recent Updates
+
+### v4.15.0
+* **Synthetic Stock & ETF Orders in Extended Hours, Synthetic OCO, and Order Ticket Layout.** See [Synthetic orders in extended hours](docs/synthetic_orders_v4.15.0.md).
+  * **Regular + Extended Hours:** Webull stock and ETF synthetic orders can now run from 4:00 AM to 8:00 PM ET on trading days (holidays and early closes follow the exchange calendar), as well as Regular Hours only. Overnight is not supported.
+  * **Capped Limit Orders After Hours:** In regular hours a triggered synthetic order still sends a Market order. In pre-market and after-hours, where Webull accepts only whole-share Limit orders, it sends a Limit order priced past the trigger by a price cap you set (default 1%, 0.1%–5%), cancelled if unfilled after 5 minutes.
+  * **Extended-Hours Prices from Yahoo Finance:** Webull's basic quote reports only the regular-session price, so pre-market and after-hours triggers use Yahoo Finance minute bars. Prices older than 5 minutes are refused.
+  * **Synthetic Order Types in the Ticket:** With Trading Session set to Including Extended Hours, Stop Loss and Ladder / Trailing Stop are available as Synthetic Orders. The session hint now names the order types that are possible as Synthetic Orders instead of only saying other types are grayed out.
+  * **Synthetic OCO When the Market Is Closed:** A two-leg Conditional OCO submitted while the market is closed can be placed as a Synthetic OCO: whichever trigger is reached first executes the whole quantity and the other is dropped.
+  * **Order Ticket Layout:** The Single Order / Conditional Orders switch is now only as wide as its buttons, and the Webull Account and Stock / ETF selectors appear directly above it, linked to the chart's selectors.
 
 ### v4.14.12
 * **Pre-Submission Validation for Webull Conditional (OTO / OCO / OTOCO) Orders.**
