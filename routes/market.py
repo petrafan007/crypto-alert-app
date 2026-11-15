@@ -175,6 +175,10 @@ def api_coin_data_live():
         portfolio = []
         visibility_changed = False
         price_changed = False
+        # Whether each provider's rows below are the whole current set. The
+        # dashboard removes a missing row only for a provider reported complete.
+        binance_complete = True
+        webull_complete = True
 
         def _to_float(val):
             try:
@@ -391,8 +395,11 @@ def api_coin_data_live():
                         "cached_news": fallback_news.get('text', ''),
                         "cached_news_date": fallback_news.get('created_at', None)
                     })
-                except Exception:
-                    pass
+                except Exception as fallback_err:
+                    # The holding could not be described at all. Say so, so the
+                    # dashboard keeps its last known row instead of dropping it.
+                    binance_complete = False
+                    logger.error(f"[api_coin_data_live] Could not serialize coin {getattr(coin, 'symbol', '?')}: {fallback_err}")
 
         if visibility_changed or price_changed:
             db.session.commit()
@@ -401,7 +408,12 @@ def api_coin_data_live():
         # workspace consumes this live portfolio endpoint, so omitting them
         # here made an account-correct position appear as zero shares even
         # though it was present on the Portfolio table.
-        portfolio.extend(get_webull_portfolio_rows(current_user.id))
+        try:
+            portfolio.extend(get_webull_portfolio_rows(current_user.id))
+        except Exception as webull_rows_err:
+            webull_complete = False
+            db.session.rollback()
+            logger.error(f"Webull portfolio rows unavailable: {webull_rows_err}", exc_info=True)
         
         # Calculate authoritative totals directly in coin-data-live
         from services.portfolio_service import compute_portfolio_total_value, get_fast_pending_orders
@@ -427,7 +439,14 @@ def api_coin_data_live():
         except Exception as fast_err:
             logger.warning(f"Error getting fast pending orders in coin-data-live: {fast_err}")
 
-        return jsonify({"portfolio": portfolio, "account_totals": account_totals, "pending_orders": fast_pending})
+        from services.portfolio_service import get_pending_order_mode
+        return jsonify({
+            "portfolio": portfolio,
+            "account_totals": account_totals,
+            "pending_orders": fast_pending,
+            "pending_mode": get_pending_order_mode(current_user.id),
+            "sources": {"binance": {"complete": binance_complete}, "webull": {"complete": webull_complete}},
+        })
 
     except Exception as e:
         logger.error(f"Error in api_coin_data_live: {e}")
@@ -449,6 +468,10 @@ def api_coin_data():
         portfolio = []
         visibility_changed = False
         price_changed = False
+        # Whether each provider's rows below are the whole current set. The
+        # dashboard removes a missing row only for a provider reported complete.
+        binance_complete = True
+        webull_complete = True
 
         def _to_float(val):
             try:
@@ -589,6 +612,7 @@ def api_coin_data():
                     "cached_news_date": coin_news.get('created_at', None)
                 })
             except Exception as e:
+                binance_complete = False
                 logger.error(f"[api_coin_data] Error processing coin {getattr(coin,'symbol','?')}: {e}", exc_info=True)
                 continue
 
@@ -597,7 +621,12 @@ def api_coin_data():
 
         # Webull snapshots are deliberately appended as read-only, exchange-sourced
         # rows. They never become Coin records or Binance trade candidates.
-        portfolio.extend(get_webull_portfolio_rows(current_user.id))
+        try:
+            portfolio.extend(get_webull_portfolio_rows(current_user.id))
+        except Exception as webull_rows_err:
+            webull_complete = False
+            db.session.rollback()
+            logger.error(f"Webull portfolio rows unavailable: {webull_rows_err}", exc_info=True)
         
         # Calculate authoritative totals directly in coin-data to prevent UI flicker
         from services.portfolio_service import compute_portfolio_total_value, get_fast_pending_orders
@@ -623,7 +652,14 @@ def api_coin_data():
         except Exception as fast_err:
             logger.warning(f"Error getting fast pending orders in coin-data: {fast_err}")
 
-        return jsonify({"portfolio": portfolio, "account_totals": account_totals, "pending_orders": fast_pending})
+        from services.portfolio_service import get_pending_order_mode
+        return jsonify({
+            "portfolio": portfolio,
+            "account_totals": account_totals,
+            "pending_orders": fast_pending,
+            "pending_mode": get_pending_order_mode(current_user.id),
+            "sources": {"binance": {"complete": binance_complete}, "webull": {"complete": webull_complete}},
+        })
     except Exception as e:
         logger.error(f"api_coin_data error: {str(e)}")
         logger.error(f"Exception type: {type(e)}")
@@ -634,7 +670,8 @@ def api_coin_data():
             db.session.rollback()
         except Exception:
             pass
-        return jsonify({"portfolio": []})
+        # No "sources" here: an error is not an empty account.
+        return jsonify({"portfolio": [], "error": "Error retrieving portfolio data"}), 500
 
 
 @market_bp.route("/api/coin-performance")

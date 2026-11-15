@@ -712,9 +712,29 @@ def cache_binance_open_orders(user_id, orders):
         logger.warning(f"Failed to cache Binance open orders: {e}")
 
 
+def get_pending_order_mode(user_id, setting=None):
+    """Identify which Webull environment and live/paper mode a pending-order list describes.
+
+    Every pending-order reader reports this value. The dashboard never carries
+    orders from one mode over into another.
+    """
+    try:
+        from credentials import UserSetting
+        from services.webull_service import normalize_webull_environment
+        if setting is None:
+            setting = UserSetting.query.filter_by(user_id=user_id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        paper = bool(getattr(setting, 'webull_test_mode_enabled', False))
+        return f"{environment}:{'paper' if paper else 'live'}"
+    except Exception as mode_err:
+        logger.warning(f"Could not resolve pending-order mode for user {user_id}: {mode_err}")
+        return 'unknown'
+
+
 def get_fast_pending_orders(user_id):
     """Return all pending orders from local DB and memory caches in < 5ms without blocking external network calls."""
     pending_orders = []
+    paper_mode = get_pending_order_mode(user_id).endswith(':paper')
 
     # 1. Trailing and Ladder synthetic orders from DB
     try:
@@ -788,11 +808,13 @@ def get_fast_pending_orders(user_id):
     except Exception as synth_err:
         logger.warning(f"Error appending synthetic orders to fast pending_orders: {synth_err}")
 
-    # 2. Webull open orders from local WebullOrder table
+    # 2. Webull open orders from local WebullOrder table. That table holds
+    # live-account orders only; in paper mode the dedicated pending-order read
+    # supplies the simulated orders, so live orders are not shown first.
     try:
         from models import WebullOrder
         from services.order_history_sync_service import WEBULL_OPEN_ORDER_STATUSES
-        webull_orders = WebullOrder.query.filter(
+        webull_orders = [] if paper_mode else WebullOrder.query.filter(
             WebullOrder.user_id == user_id,
             WebullOrder.status.in_(WEBULL_OPEN_ORDER_STATUSES)
         ).all()

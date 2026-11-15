@@ -2,7 +2,8 @@ import {
   portfolioRowIdentity, watchlistRowIdentity, rowProvider, rowAccount, rowSymbol, orderMatchesRow,
   sortDashboardRows, parseSortPreference, nextSortPreference, createRowEditLedger, createWatchlistIntents,
 } from '../utils/dashboardRows.mjs';
-import { createDashboardRefreshCoordinator, sameDashboardOrder, cancellationOutcome, recentFillRevision } from '../utils/dashboardRefresh.mjs';
+import CommittedInput, { sanitizeDecimalInput, formatDecimalInput, sanitizeIntegerInput, formatIntegerInput } from '../components/CommittedInput';
+import { createDashboardRefreshCoordinator, sameDashboardOrder, cancellationOutcome, recentFillRevision, mergePendingOrders } from '../utils/dashboardRefresh.mjs';
 import { syntheticCancellationEndpoint } from '../utils/syntheticCancellation.mjs';
 import { syntheticOrderTooltip } from '../utils/syntheticOrders.mjs';
 import React, { useEffect, useState, useRef, useMemo } from 'react';
@@ -176,6 +177,8 @@ function Dashboard({ isLightMode }) {
   const dashboardUserRef = useRef(user?.id);
   const confirmedCancellationsRef = useRef([]);
   const [portfolioFreshness, setPortfolioFreshness] = useState('loading');
+  const [orderSourceNotice, setOrderSourceNotice] = useState('');
+  const pendingModeRef = useRef(undefined);
   const refreshDashboard = () => {
     // Also invalidate older standalone watchlist reads after an order action.
     watchlistAppliedIdRef.current = ++watchlistFetchIdRef.current;
@@ -232,9 +235,24 @@ function Dashboard({ isLightMode }) {
 
   // `readMark` is rowEditsRef.current.mark() captured before the request was
   // sent; fields saved after that point are kept over the incoming values.
-  const applyPortfolioUpdate = (incoming, readMark) => {
+  // A pending-order response replaces the orders of every source that
+  // answered. A source that reported itself unavailable keeps its last
+  // accepted orders and is named in a notice above the portfolio.
+  const acceptPendingOrders = (response) => {
+    const merged = mergePendingOrders(pendingOrdersRef.current, response, pendingModeRef.current);
+    if (!merged) return;
+    if (merged.mode !== undefined) pendingModeRef.current = merged.mode;
+    publishPendingOrders(merged.orders);
+    setOrderSourceNotice(merged.reasons.length ? `${merged.reasons.join(' · ')} · showing last known orders` : '');
+  };
+
+  // `sources` says, per provider, whether `incoming` is that provider's whole
+  // current set of holdings. Only then is a row that is missing from it
+  // removed; otherwise the last known row stays until a complete answer arrives.
+  const applyPortfolioUpdate = (incoming, readMark, sources) => {
     if (!Array.isArray(incoming)) return;
     const ordersToCheck = pendingOrdersRef.current;
+    const providerComplete = row => sources?.[rowProvider(row)]?.complete === true;
 
     setPortfolio(prev => {
       const incomingMap = new Map();
@@ -271,6 +289,10 @@ function Dashboard({ isLightMode }) {
         if (p.pendingPlaceholder || String(p.id || '').startsWith('pending-')) return;
         const key = portfolioRowKey(p);
         const item = prevMap.get(key);
+        if (!incomingMap.has(key) && providerComplete(p)) {
+          seen.add(key); // sold, hidden or removed: gone from a complete snapshot
+          return;
+        }
         if (item) {
           const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
           const isStaked = !item.is_external && (!!item.is_staked || Number(item.staked_amount || 0) > 0);
@@ -2190,6 +2212,8 @@ function Dashboard({ isLightMode }) {
       confirmedCancellationsRef.current = [];
       watchlistIntentsRef.current.clear();
       rowEditsRef.current.clear();
+      pendingModeRef.current = undefined;
+      setOrderSourceNotice('');
       publishPendingOrders([]);
       setPortfolio([]);
       setWatchlist([]);
@@ -2210,8 +2234,8 @@ function Dashboard({ isLightMode }) {
           const hydrateMark = rowEditsRef.current.mark();
           const response = await axios.get('/api/coin-data', options);
           if (!ticket.isCurrent() || window.globalIsLoggingOut) return;
-          publishPendingOrders(response.data?.pending_orders);
-          applyPortfolioUpdate(response.data?.portfolio, hydrateMark);
+          acceptPendingOrders({ pending_orders: response.data?.pending_orders, mode: response.data?.pending_mode });
+          applyPortfolioUpdate(response.data?.portfolio, hydrateMark, response.data?.sources);
           publishSnapshotTotals(response.data?.account_totals);
           setPortfolioFreshness('cached');
           setLoading(false);
@@ -2244,14 +2268,17 @@ function Dashboard({ isLightMode }) {
       setNeedsLogin(false);
       // Dedicated order reads own order state after hydration. Embedded fast
       // orders can be cached and must never override this accepted list.
-      if (ordersResponse.status === 'fulfilled') publishPendingOrders(ordersResponse.value.data?.pending_orders);
+      if (ordersResponse.status === 'fulfilled') acceptPendingOrders(ordersResponse.value.data);
+      else setOrderSourceNotice('Orders could not be refreshed · showing last known orders');
       if (watchlistResponse.status === 'fulfilled' && Array.isArray(watchlistResponse.value.data)) {
         applyWatchlistUpdate(watchlistResponse.value.data, wFetchId, readMark);
       }
       if (portfolioResponse.status === 'fulfilled' && Array.isArray(portfolioResponse.value.data?.portfolio)) {
         const snapshot = portfolioResponse.value.data;
-        applyPortfolioUpdate(snapshot.portfolio, readMark);
-        setPortfolioFreshness(publishSnapshotTotals(snapshot.account_totals) ? 'live' : 'partial');
+        applyPortfolioUpdate(snapshot.portfolio, readMark, snapshot.sources);
+        const totalsComplete = publishSnapshotTotals(snapshot.account_totals);
+        const holdingsComplete = !snapshot.sources || Object.values(snapshot.sources).every(source => source?.complete === true);
+        setPortfolioFreshness(!holdingsComplete ? 'incomplete' : totalsComplete ? 'live' : 'partial');
         setError(null);
       } else {
         setPortfolioFreshness('stale');
@@ -4124,26 +4151,11 @@ function Dashboard({ isLightMode }) {
           // Update portfolio state with response data
           patchRow('portfolio', item, customAlertFields(response.data));
         }
+        return !!response.data.success;
       } catch (err) {
         console.error('Save alert error:', err);
+        return false;
       }
-    };
-
-    const handleKeyPress = (e) => {
-      if (e.key === 'Enter') {
-        const value = e.target.value.replace(/[^0-9.]/g, '');
-        // Format to 2 decimal places and update the input display
-        const formattedValue = value === '' ? '' : parseFloat(value).toFixed(2);
-        e.target.value = formattedValue;
-        handleValueChange(formattedValue);
-      }
-    };
-
-    const handleBlur = (e) => {
-      const value = e.target.value.replace(/[^0-9.]/g, '');
-      const formattedValue = value === '' ? '' : parseFloat(value).toFixed(2);
-      e.target.value = formattedValue;
-      handleValueChange(formattedValue);
     };
 
     const handleTypeChange = async (newType) => {
@@ -4183,25 +4195,14 @@ function Dashboard({ isLightMode }) {
         alignItems: 'center',
         justifyContent: 'center'
       }}>
-        <input
-          key={`${item.id}-${direction}-${currentType}`}
-          type="text"
-          defaultValue={currentValue}
+        <CommittedInput
+          key={`${portfolioRowIdentity(item)}-${direction}-${currentType}`}
+          value={currentValue}
           disabled={isAutoType}
-          onKeyPress={handleKeyPress}
-          onBlur={handleBlur}
-          onChange={(e) => {
-            // Allow numbers and decimal point, limit to 2 decimal places
-            let value = e.target.value.replace(/[^0-9.]/g, '');
-            const parts = value.split('.');
-            if (parts.length > 2) {
-              value = parts[0] + '.' + parts.slice(1).join('');
-            }
-            if (parts[1] && parts[1].length > 2) {
-              value = parts[0] + '.' + parts[1].substring(0, 2);
-            }
-            e.target.value = value;
-          }}
+          sanitize={sanitizeDecimalInput}
+          format={formatDecimalInput}
+          onCommit={handleValueChange}
+          aria-label={`${item.symbol} ${direction === 'down' ? 'lower' : 'upper'} alert`}
           style={{
             width: '90px',
             padding: '2px 4px',
@@ -4256,26 +4257,11 @@ function Dashboard({ isLightMode }) {
         if (response.data.success) {
           patchRow('watchlist', item, { [alertKey]: roundedValue });
         }
+        return !!response.data.success;
       } catch (err) {
         console.error('Save watchlist alert error:', err);
+        return false;
       }
-    };
-
-    const handleKeyPress = (e) => {
-      if (e.key === 'Enter') {
-        const value = e.target.value.replace(/[^0-9.]/g, '');
-        // Format to 2 decimal places and update the input display
-        const formattedValue = value === '' ? '' : parseFloat(value).toFixed(2);
-        e.target.value = formattedValue;
-        handleValueChange(formattedValue);
-      }
-    };
-
-    const handleBlur = (e) => {
-      const value = e.target.value.replace(/[^0-9.]/g, '');
-      const formattedValue = value === '' ? '' : parseFloat(value).toFixed(2);
-      e.target.value = formattedValue;
-      handleValueChange(formattedValue);
     };
 
     return (
@@ -4285,24 +4271,13 @@ function Dashboard({ isLightMode }) {
         alignItems: 'center',
         justifyContent: 'center'
       }}>
-        <input
-          key={`${item.id || item.symbol}-${direction}`}
-          type="text"
-          defaultValue={currentValue}
-          onChange={(e) => {
-            // Allow numbers and decimal point, limit to 2 decimal places
-            let value = e.target.value.replace(/[^0-9.]/g, '');
-            const parts = value.split('.');
-            if (parts.length > 2) {
-              value = parts[0] + '.' + parts.slice(1).join('');
-            }
-            if (parts[1] && parts[1].length > 2) {
-              value = parts[0] + '.' + parts[1].substring(0, 2);
-            }
-            e.target.value = value;
-          }}
-          onKeyPress={handleKeyPress}
-          onBlur={handleBlur}
+        <CommittedInput
+          key={`${watchlistRowIdentity(item)}-${direction}`}
+          value={currentValue}
+          sanitize={sanitizeDecimalInput}
+          format={formatDecimalInput}
+          onCommit={handleValueChange}
+          aria-label={`${item.symbol} ${direction === 'down' ? 'lower' : 'upper'} alert`}
           style={{
             width: '100px',
             padding: '2px 4px',
@@ -4324,26 +4299,11 @@ function Dashboard({ isLightMode }) {
     const handleValueChange = async (newValue) => {
       try {
         const roundedValue = newValue === '' ? null : parseInt(newValue, 10);
-        updateVolatilityPct(item, roundedValue, tableType);
+        return await updateVolatilityPct(item, roundedValue, tableType);
       } catch (err) {
         console.error('Save volatility pct error:', err);
+        return false;
       }
-    };
-
-    const handleKeyPress = (e) => {
-      if (e.key === 'Enter') {
-        const value = e.target.value.replace(/[^0-9]/g, '');
-        const formattedValue = value === '' ? '' : parseInt(value, 10);
-        e.target.value = formattedValue;
-        handleValueChange(formattedValue);
-      }
-    };
-
-    const handleBlur = (e) => {
-      const value = e.target.value.replace(/[^0-9]/g, '');
-      const formattedValue = value === '' ? '' : parseInt(value, 10);
-      e.target.value = formattedValue;
-      handleValueChange(formattedValue);
     };
 
     return (
@@ -4365,15 +4325,12 @@ function Dashboard({ isLightMode }) {
           )}
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-          <input
-            type="text"
-            defaultValue={volatilityPct}
-            onChange={(e) => {
-              let value = e.target.value.replace(/[^0-9]/g, '');
-              e.target.value = value;
-            }}
-            onKeyPress={handleKeyPress}
-            onBlur={handleBlur}
+          <CommittedInput
+            value={volatilityPct}
+            sanitize={sanitizeIntegerInput}
+            format={formatIntegerInput}
+            onCommit={handleValueChange}
+            aria-label={`${item.symbol} volatility percent`}
             style={{
               width: '45px',
               padding: '2px 4px',
@@ -4432,8 +4389,10 @@ function Dashboard({ isLightMode }) {
           };
         });
       }
+      return !!response.data.success;
     } catch (err) {
       console.error('Update volatility pct error:', err);
+      return false;
     }
   };
 
@@ -5127,7 +5086,8 @@ function Dashboard({ isLightMode }) {
           <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
             <h2 className="table-title" style={{ margin: 0 }}>Portfolio</h2>
             {renderSortNote('portfolio')}
-            {portfolioFreshness !== 'live' && <small role="status">{portfolioFreshness === 'cached' ? 'Saved snapshot · updating…' : portfolioFreshness === 'stale' ? 'Refresh unavailable · showing last snapshot' : portfolioFreshness === 'partial' ? 'Totals unavailable · showing last totals' : 'Loading snapshot…'}</small>}
+            {portfolioFreshness !== 'live' && <small role="status">{portfolioFreshness === 'cached' ? 'Saved snapshot · updating…' : portfolioFreshness === 'stale' ? 'Refresh unavailable · showing last snapshot' : portfolioFreshness === 'partial' ? 'Totals unavailable · showing last totals' : portfolioFreshness === 'incomplete' ? 'Some holdings could not be refreshed · showing last known rows' : 'Loading snapshot…'}</small>}
+            {orderSourceNotice && <small role="status" className="order-source-notice">{orderSourceNotice}</small>}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--accent-primary, #4fd1c5)', letterSpacing: '0.3px' }}>
                 Total Value: ${Number(scopedTotalValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD

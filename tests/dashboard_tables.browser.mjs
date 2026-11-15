@@ -67,9 +67,10 @@ try {
       const custom = await fixture.handle?.(pathname, route);
       if (custom) return;
       if (pathname === '/api/coin-data' || pathname === '/api/coin-data-live') {
-        return route.fulfill({ json: { portfolio: fixture.portfolio(), account_totals: { all: 1, binance: 1, webull: 1 }, pending_orders: fixture.orders } });
+        return route.fulfill({ json: { portfolio: fixture.portfolio(), account_totals: { all: 1, binance: 1, webull: 1 }, pending_orders: fixture.orders,
+          ...(fixture.sources ? { sources: fixture.sources() } : {}) } });
       }
-      if (pathname === '/api/pending-orders') return route.fulfill({ json: { pending_orders: fixture.orders } });
+      if (pathname === '/api/pending-orders') return route.fulfill({ json: fixture.pending ? fixture.pending() : { pending_orders: fixture.orders } });
       if (pathname === '/api/watchlist-live' || pathname === '/api/watchlist') return route.fulfill({ json: fixture.watchlist() });
       if (pathname === '/api/orders') return route.fulfill({ json: { orders: [] } });
       if (pathname === '/api/settings') return route.fulfill({ json: {} });
@@ -244,6 +245,106 @@ try {
     assert.equal(await page.evaluate(() => window.reverted), false, 'the saved alert never flipped back');
     await close();
     console.log('Dashboard tables scenario passed: saved-edit-survives-refresh');
+  }
+
+  // 6. A holding missing from a complete snapshot is removed; one missing from an
+  //    incomplete snapshot is kept with a notice; the last holding can leave (F08, F35).
+  {
+    const AAA = { id: 1, symbol: 'AAA', amount: 1, current_price: 1, current_value: 1 };
+    const BBB = { id: 2, symbol: 'BBB', amount: 1, current_price: 1, current_value: 1 };
+    const NVDA = webullRow('webull-6', 'NVDA', 'A');
+    let rows = [AAA, BBB, NVDA], complete = { binance: true, webull: true };
+    const fixture = { orders: [], watchlist: () => [], portfolio: () => rows,
+      sources: () => ({ binance: { complete: complete.binance }, webull: { complete: complete.webull } }) };
+    const { page, refresh, symbolsIn, close } = await open(fixture);
+    await page.locator('.portfolio-table tbody tr td.symbol-cell').nth(2).waitFor();
+    rows = [AAA, NVDA];
+    await refresh();
+    assert.deepEqual(await symbolsIn('portfolio'), ['AAA', 'NVDA'], 'a sold holding leaves when its provider answered in full');
+    rows = [NVDA]; complete = { binance: false, webull: true };
+    await refresh();
+    assert.deepEqual(await symbolsIn('portfolio'), ['AAA', 'NVDA'], 'a holding is kept while its provider could not answer in full');
+    await page.getByText('Some holdings could not be refreshed · showing last known rows', { exact: true }).waitFor();
+    rows = [AAA]; complete = { binance: true, webull: false };
+    await refresh();
+    assert.deepEqual(await symbolsIn('portfolio'), ['AAA', 'NVDA'], 'the same rule applies per provider');
+    rows = []; complete = { binance: true, webull: true };
+    await refresh();
+    await page.getByText('No portfolio data available').waitFor();
+    assert.equal(await page.getByText('Some holdings could not be refreshed').count(), 0);
+    await close();
+    console.log('Dashboard tables scenario passed: holdings-membership');
+  }
+
+  // 7. An order source that failed keeps its last highlights and says so; a source
+  //    that answered with nothing clears its highlights (F17).
+  {
+    const ethOrder = { order_id: 901, provider: 'binance', asset: 'ETH', symbol: 'ETHUSDT', side: 'SELL', quantity: 1, price: 150 };
+    const nvdaOrder = { order_id: '900', provider: 'webull', account_id: 'A', asset: 'NVDA', symbol: 'NVDA', side: 'SELL', quantity: 1, price: 150 };
+    let response = { pending_orders: [ethOrder, nvdaOrder], mode: 'production:live',
+      scopes: [{ key: 'binance', complete: true }, { key: 'synthetic', complete: true }, { key: 'webull:A', complete: true }] };
+    const fixture = { orders: [ethOrder, nvdaOrder], watchlist: () => [], pending: () => response,
+      portfolio: () => [{ id: 5, symbol: 'ETH', amount: 1, current_price: 100, current_value: 100 }, webullRow('webull-6', 'NVDA', 'A')] };
+    const { page, refresh, close } = await open(fixture);
+    const highlighted = () => page.locator('.portfolio-table tbody tr').evaluateAll(rows => rows.filter(row => row.classList.contains('pending-order')).map(row => window.symbolOf(row.querySelector('td.symbol-cell'))));
+    await page.waitForFunction(() => document.querySelectorAll('.portfolio-table tr.pending-order').length === 2);
+    response = { pending_orders: [], mode: 'production:live', scopes: [
+      { key: 'binance', complete: false, reason: 'Binance.US orders are temporarily unavailable' },
+      { key: 'synthetic', complete: true }, { key: 'webull:A', complete: true }] };
+    await refresh();
+    assert.deepEqual(await highlighted(), ['ETH'], 'the failed source keeps its order; the answering source cleared its own');
+    await page.getByText('Binance.US orders are temporarily unavailable · showing last known orders', { exact: true }).waitFor();
+    response = { pending_orders: [], mode: 'production:live', scopes: [{ key: 'binance', complete: true }, { key: 'synthetic', complete: true }, { key: 'webull:A', complete: true }] };
+    await refresh();
+    assert.deepEqual(await highlighted(), []);
+    assert.equal(await page.locator('.order-source-notice').count(), 0, 'the notice clears once every source answers');
+    await close();
+    console.log('Dashboard tables scenario passed: order-source-outage');
+  }
+
+  // 8. An alert box follows the saved value, never overwrites typing, and returns
+  //    to the saved value when a save is refused (F28).
+  {
+    let downVal = 10, accept = true, saves = [];
+    const fixture = { orders: [], portfolio: () => [], watchlist: () => [watch(1, 'BTC', { down_val: downVal })],
+      async handle(pathname, route) {
+        if (pathname !== '/api/set-watch-alert') return false;
+        const body = route.request().postDataJSON();
+        saves.push(body.value);
+        if (accept) downVal = body.value;
+        await route.fulfill({ json: { success: accept } });
+        return true;
+      } };
+    const init = () => { localStorage.setItem('crypto_watchlist_visible_columns', JSON.stringify(['symbol', 'type', 'current_price', 'down_alert', 'actions'])); };
+    const { page, refresh, close } = await open(fixture, init);
+    const box = page.getByLabel('BTC lower alert', { exact: true });
+    await box.waitFor();
+    assert.equal(await box.inputValue(), '10.00');
+    downVal = 12;
+    await refresh();
+    assert.equal(await box.inputValue(), '12.00', 'an untouched box follows the refreshed saved value');
+    await box.click();
+    await box.fill('55');
+    downVal = 13;
+    for (let i = 0; i < 2; i++) await refresh();
+    assert.equal(await box.inputValue(), '55', 'typing is not overwritten by a refresh');
+    await box.press('Enter');
+    await page.waitForFunction(() => document.querySelector('[aria-label="BTC lower alert"]').value === '55.00');
+    await refresh();
+    assert.equal(await box.inputValue(), '55.00');
+    assert.deepEqual(saves, [55], 'one save for one edit');
+    accept = false;
+    await box.click();
+    await box.fill('70');
+    await box.press('Enter');
+    await page.waitForFunction(() => document.querySelector('[aria-label="BTC lower alert"]').value === '55.00');
+    assert.deepEqual(saves, [55, 70]);
+    await box.click();
+    await page.locator('.watchlist-table h2').click();
+    await pause(150);
+    assert.deepEqual(saves, [55, 70], 'leaving the box unchanged saves nothing');
+    await close();
+    console.log('Dashboard tables scenario passed: alert-box-follows-saved-value');
   }
 } finally {
   await browser?.close();

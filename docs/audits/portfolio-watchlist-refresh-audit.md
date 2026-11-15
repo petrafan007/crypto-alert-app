@@ -2,14 +2,14 @@
 
 **Date:** November 14, 2026
 **Reviewed release:** v4.16.1, commit `99d72e5b78365882ed4c75920d814c075c0c435c`
-**Status:** Implementation authorized November 14, 2026. v4.16.2 and v4.16.3 are released; remaining findings are tracked below.
+**Status:** Implementation authorized November 14, 2026. v4.16.2, v4.16.3 and v4.16.4 are released; remaining findings are tracked below.
 
 ## Implementation ledger and handoff
 
 The user authorized implementation of this audit on November 14, 2026, including checking off completed work and preserving a handoff. The original findings below describe v4.16.1; their evidence and proposed fixes are retained as the baseline. This ledger records subsequent work and supersedes the original review-only status.
 
-**Batches:** v4.16.2 (released) — dashboard refresh/cancellation foundation; v4.16.3 (released) — row identity, stable ordering, watchlist add/remove, saved-edit protection, lifecycle cleanup.
-**Release/deployment:** v4.16.2 was published and deployed to the personal instance on November 14, 2026 (commit `5cc9eb25`; service active, port 5010 responding, checkout on the tag). The original author's session ended before recording that here; it was re-verified before v4.16.3 work began. The user approved publishing v4.16.3 on November 15, 2026; it is published as GitHub release `v4.16.3` and the personal instance is upgraded through the release routine in `AGENTS.md` (unrelated files preserved, frontend rebuilt, service restarted, port 5010 and tag checked).
+**Batches:** v4.16.2 (released) — dashboard refresh/cancellation foundation; v4.16.3 (released) — row identity, stable ordering, watchlist add/remove, saved-edit protection, lifecycle cleanup; v4.16.4 (released) — per-source completeness, holdings membership, alert boxes.
+**Release/deployment:** v4.16.2 was published and deployed to the personal instance on November 14, 2026 (commit `5cc9eb25`; service active, port 5010 responding, checkout on the tag). The original author's session ended before recording that here; it was re-verified before v4.16.3 work began. The user approved publishing v4.16.3 on November 15, 2026; it is published as GitHub release `v4.16.3` and the personal instance was upgraded through the release routine in `AGENTS.md` (unrelated files preserved, frontend rebuilt, service restarted, port 5010 and tag checked). The user approved v4.16.4 the same day; it is published as GitHub release `v4.16.4` and deployed through the same routine.
 **Database/dependencies:** No schema changes, new dependencies, live order actions, or manual portfolio/watchlist mutations in either batch. Browser tests intercept all API calls with fixtures.
 
 A checked item is complete within the stated finding's frontend scope. “Partial” means useful changes landed but the finding must remain open. Backend completeness/cache limitations are not implied to be solved by frontend race protection.
@@ -21,7 +21,7 @@ A checked item is complete within the stated finding's frontend scope. “Partia
 - [x] **F05 — Done: An empty order list is sometimes treated as “use the previous list”.** Explicit empty pending-order arrays clear highlights; absent/malformed arrays and failed HTTP reads retain the accepted list. Per-provider partial failures remain F17.
 - [x] **F06 — Done: Pending orders have multiple writable copies and cancellation uses old render values.** One publisher updates the current pending-order ref, React order state, and row flags. Cancellation reads the current ref, not a pre-await render closure.
 - [x] **F07 — Done: Outstanding dashboard reads and deferred work survive cleanup.** Main snapshot reads abort on cleanup/auth change (v4.16.2). v4.16.3: settings, trading-pair and staking reads are tied to the signed-in user and aborted on cleanup; the sentiment poller and hover timer stop on unmount; the auto-buy balance lookup only answers the most recently opened modal.
-- [ ] **F08 — Open: Refresh merging can keep holdings that are absent from the new snapshot.** Not started.
+- [x] **F08 — Done: Refresh merging can keep holdings that are absent from the new snapshot.** v4.16.4: both portfolio endpoints report, per provider, whether their rows are the whole current set. A row missing from a complete snapshot is removed; a row missing from an incomplete snapshot (or from a response with no completeness information) is kept with a notice.
 - [x] **F09 — Done: Totals have competing writers and a separate stale startup cache.** Removed unscoped financial caches and competing total readers. Totals come with the accepted row snapshot; valid zero is preserved, missing fields retain last values with a freshness message.
 - [x] **F10 — Done: Matching a pending order does not fully identify its account or instrument.** v4.16.3: one matcher compares provider, Webull account, instrument class and the exact symbol or trading pair (split on a known quote suffix, no prefix matching). An order with no account highlights a row only when one account holds that symbol. The server's Binance base-asset derivation uses the same suffix rule.
 - [x] **F11 — Done: Some local updates and React row keys identify a row too loosely.** v4.16.3: one identity per table drives React keys, hidden rows, optimistic items and every callback (favorite, alert, alert type/value, auto-buy/sell, volatility, sentiment, notes, news). Notes name their table to the server, which previously could save a watchlist note onto a portfolio coin with the same numeric id; Webull watchlist notes now save.
@@ -30,8 +30,8 @@ A checked item is complete within the stated finding's frontend scope. “Partia
 - [ ] **F14 — Open: Native OCO cash reservations can be counted as two independent purchases.** Not started.
 - [ ] **F15 — Open: Some reservations still use original quantities after partial fills.** Not started.
 - [ ] **F16 — Open: New conditional strategies are not fully represented by older pending-order formatters.** Not started.
-- [ ] **F17 — Open: Temporary broker failures can look like “all orders disappeared”.** Not started.
-- [ ] **F18 — Open: The fast and live pending sources have different mode and freshness rules.** Not started.
+- [x] **F17 — Done: Temporary broker failures can look like “all orders disappeared”.** v4.16.4: `/api/pending-orders` lists each source asked (Binance.US, synthetic strategies, each Webull account) with `complete` and a reason. The dashboard replaces the orders of every source that answered, keeps the last accepted orders of a source that failed, and names the failure above the portfolio. Confirmed local cancellations are still suppressed. A response Webull returns in an unexpected shape is still treated as empty until F33/F34.
+- [x] **F18 — Done: The fast and live pending sources have different mode and freshness rules.** v4.16.4: every pending-order reader reports the same `environment:live|paper` mode; the fast reader no longer shows live Webull orders in paper mode; the dashboard never carries orders across a mode change. There is no numeric snapshot revision: ordering inside one browser relies on the single refresh cycle (F01/F02), and cross-process freshness remains F29.
 - [ ] **F19 — Open: Yellow cash highlighting conflates several different meanings.** Not started.
 - [x] **F20 — Done: HTTP 200 can be mistaken for successful cancellation.** Explicit application success is required. Final cancellation, acknowledgement/CANCEL_PENDING, and rejection are distinct; both brokers route synthetic IDs to status-bearing strategy endpoints.
 - [x] **F21 — Done: The default BTC/ETH row order has no stable definition.** v4.16.3: with no chosen column both tables are alphabetical by symbol with a full-identity tie-break; both watchlist queries now have an explicit server order. Verified with the server order alternating on every refresh.
@@ -41,14 +41,14 @@ A checked item is complete within the stated finding's frontend scope. “Partia
 - [x] **F25 — Done: Optimistic watchlist additions are keyed only by ticker.** v4.16.3: additions are tracked by provider, symbol and instrument; only the exact row confirms, replaces or removes a pending addition.
 - [x] **F26 — Done: Watchlist removals can reappear, and removal failure is not rolled back.** v4.16.3: the latest add/remove decision per row is kept until a list requested after the server confirmed it; requests for one row are sent in order; a failed removal restores the row and reports the error. The server removes the exact Webull instrument when no id exists yet.
 - [x] **F27 — Done: Refreshes can overwrite a newly saved favorite, alert, note, or automation setting.** v4.16.3: saved fields are remembered per row and re-applied over any refresh that was requested before the save, for both tables and for the sentiment poller.
-- [ ] **F28 — Open: Editable fields do not consistently follow refreshed values.** Not started.
+- [x] **F28 — Done: Editable fields do not consistently follow refreshed values.** v4.16.4: alert and volatility boxes use one field component with a saved value and a typing state. An untouched box follows refreshes; typing is never overwritten; a refused save returns to the saved value; leaving a box unchanged saves nothing. Editor keys use full row identity.
 - [ ] **F29 — Open: Webull order caches are private to each process, including invalidation.** Not started.
 - [ ] **F30 — Open: Multiple backend jobs can write the same portfolio snapshot out of order.** Not started.
 - [ ] **F31 — Open: Older imported order records can overwrite newer terminal states or fill totals.** Not started.
 - [ ] **F32 — Open: Display GET requests also change persisted portfolio/watchlist state.** Not started.
-- [ ] **F33 — Open: Missing/malformed snapshot data is not always distinguished from a genuine empty account.** Not started.
+- [ ] **F33 — Open: Missing/malformed snapshot data is not always distinguished from a genuine empty account.** Display side only so far (v4.16.4): `/api/coin-data` no longer answers a server error with an empty portfolio and HTTP 200, and a coin that cannot be serialized marks its provider incomplete. The Webull importer's own removal rules are not yet changed.
 - [ ] **F34 — Open: A single page can be treated as the entire Webull open-order set.** Not started.
-- [ ] **F35 — Partial: A recent fill can repeatedly trigger refreshes and success toasts.** Fill notifications deduplicate full identity/fill revisions; removed the nested portfolio read. Complete-empty membership handling still depends on F08 and backend completeness.
+- [x] **F35 — Done: A recent fill can repeatedly trigger refreshes and success toasts.** Fill notifications deduplicate full identity/fill revisions; removed the nested portfolio read (v4.16.2). v4.16.4: a complete snapshot with no holdings is accepted, so the last holding leaves the table after it is sold.
 - [x] **F36 — Done: Synthetic recovery changes do not immediately synchronize every dashboard view.** Dashboard listens to synthetic updates and invalidates older reads before requesting a coordinated refresh.
 - [x] **F37 — Done: The recovery modal can receive the wrong late lookup result.** v4.16.3: each opening owns a cancellable lookup; a superseded or late answer is ignored, and the decision is submitted for the strategy on screen.
 - [ ] **F38 — Partial: Current tests and logs do not establish absence of these races.** Added deterministic coordinator tests and actual Dashboard browser fixtures (v4.16.2); row identity/sort/intent unit tests and five table browser scenarios, plus a late-lookup recovery scenario (v4.16.3). Cross-tab/worker tests, request diagnostics, and the reservation/server acceptance scenarios are still open.
@@ -83,13 +83,24 @@ The browser harness uses installed Playwright and Chromium (`CHROMIUM_PATH` over
 - Python: `python -m unittest discover -s tests -p 'test_*.py'` runs 1,152 tests. One failure and nine errors occur identically on the released v4.16.2 code and on this batch (`test_webull_service` open-order cache count, eight `test_order_replacement` cases, `test_event_recalibration` setUpClass, one `test_decision_integrity` case). They are pre-existing, not caused by this work, and are not yet fixed.
 - Not covered: a UI-driven watchlist addition (the add/re-add ordering is covered by unit tests only); no live broker or real-account run was used.
 
+### Batch v4.16.4 changes and verification
+
+- Findings closed: F08, F17, F18, F28, F35. F33 advanced on the display side. Totals after this batch: 26 done, 1 partial (F38), 11 open (F13–F16, F19, F29–F34).
+- Server: `routes/portfolio.py` (`scopes`, `complete`, `mode` on `/api/pending-orders`), `routes/market.py` (`sources`, `pending_mode` on both portfolio endpoints; error instead of an empty list), `services/portfolio_service.py` (`get_pending_order_mode`; fast reader honours paper mode).
+- Dashboard: `mergePendingOrders`/`pendingOrderScope` in `frontend/src/utils/dashboardRefresh.mjs`; `acceptPendingOrders` and source-aware `applyPortfolioUpdate` in `Dashboard.jsx`; new `frontend/src/components/CommittedInput.jsx`.
+- Behaviour the user will notice: during a Binance.US or Webull outage the affected rows keep their highlight and a line above the portfolio says which source is unavailable; a sold holding disappears on the next complete refresh.
+- Passed: 63 Node tests, including two new order-merge cases.
+- Passed: `tests/test_pending_order_completeness.py` (4 cases: failed and answering sources, genuine empty, Webull session unable to read, paper mode).
+- Passed: `tests/dashboard_tables.browser.mjs` now has eight scenarios; new ones are holdings-membership, order-source-outage and alert-box-follows-saved-value. The seven refresh scenarios and the recovery test still pass.
+- Python suite: 1,156 tests; the same ten pre-existing failures as before and no others.
+- Not covered: no real broker outage was induced; the outage behaviour is verified with fixtures and mocked providers only.
+
 ### Next work
 
-1. Implement the per-provider/account completeness contract in F17/F18 before changing membership in F08. Do not interpret a partially failed broker response as an empty account. Then F28 (editable fields) and the rest of F35.
-2. Reservations and order descriptions: F13–F16 and F19.
-3. Server caches and competing writers: F29–F34. Session-local confirmed cancellation suppression is not shared cache invalidation.
-4. Finish F38 with the remaining acceptance scenarios and request diagnostics.
-5. Update this ledger with each verified fix and release. Preserve unrelated files in the personal checkout; do not use `upgrade.sh` unchanged because it performs hard resets/forced checkouts. Neither batch needed migrations.
+1. Reservations and order descriptions: F13–F16 and F19.
+2. Server caches and competing writers: F29–F34. Session-local confirmed cancellation suppression is not shared cache invalidation. F33/F34 should also make an unexpected Webull open-order response count as unavailable rather than empty.
+3. Finish F38 with the remaining acceptance scenarios and request diagnostics.
+4. Update this ledger with each verified fix and release. Preserve unrelated files in the personal checkout; do not use `upgrade.sh` unchanged because it performs hard resets/forced checkouts. Neither batch needed migrations.
 
 Browser tests need an installed Playwright and the system Chromium, for example:
 

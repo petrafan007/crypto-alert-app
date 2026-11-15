@@ -850,10 +850,19 @@ def api_pending_orders():
     try:
         creds = Credential.query.filter_by(user_id=current_user.id).first()
         pending_orders = []
+        # One entry per order source that was asked. "complete" means the
+        # orders listed for that source are its whole current set, so an empty
+        # result really is empty. A source that failed reports complete=False
+        # and the dashboard keeps its last confirmed orders for that source.
+        scopes = []
+
+        def report_scope(key, complete, reason=None):
+            scopes.append({'key': key, 'complete': bool(complete), **({'reason': reason} if reason else {})})
 
         api_key = decrypt_secret(creds.api_key) if creds else None
         api_secret = decrypt_secret(creds.api_secret) if creds else None
         if api_key and api_secret:
+            binance_orders_listed = False
             try:
                 from binance.client import Client
                 client = Client(
@@ -924,6 +933,7 @@ def api_pending_orders():
                         'orderListId': order.get('orderListId', -1)
                     })
 
+                binance_orders_listed = True
                 try:
                     from services.portfolio_service import cache_binance_open_orders
                     cache_binance_open_orders(current_user.id, [p for p in pending_orders if p.get('provider') == 'binance'])
@@ -973,11 +983,19 @@ def api_pending_orders():
                             coin_updates = True
                 if coin_updates:
                     db.session.commit()
+                report_scope('binance', True)
             except Exception as e:
                 # A Binance outage or rate limit must not suppress Webull and
                 # synthetic highlights; the next poll retries Binance.
                 logger.error(f"Error fetching Binance pending orders: {e}\n{traceback.format_exc()}")
                 db.session.rollback()
+                if binance_orders_listed:
+                    # The exchange answered in full; only local bookkeeping failed.
+                    report_scope('binance', True)
+                else:
+                    # Orders gathered before the failure are not a complete list.
+                    pending_orders = [order for order in pending_orders if order.get('provider') != 'binance']
+                    report_scope('binance', False, 'Binance.US orders are temporarily unavailable')
 
         # Include active Trailing and Ladder Orders so portfolio/watchlist rows highlight yellow
         try:
@@ -1058,8 +1076,10 @@ def api_pending_orders():
                     'downside_trail_value': lo.downside_trail_value,
                     'stop_loss_price': lo.stop_loss_trigger_price if lo.has_stop_loss else None
                 })
+            report_scope('synthetic', True)
         except Exception as synth_err:
             logger.warning(f"Error appending synthetic orders to pending_orders: {synth_err}")
+            report_scope('synthetic', False, 'Synthetic strategies are temporarily unavailable')
 
         # Webull open orders highlight securities rows and lock USD cash exactly
         # like Binance orders highlight crypto rows. Read-only: no watchlist or
@@ -1084,6 +1104,13 @@ def api_pending_orders():
                     order for order in get_webull_test_orders(current_user.id)
                     if isinstance(order, dict) and order.get('status') in {'Working', 'Open'}
                 ]
+                report_scope('webull:*', True)
+            elif (
+                creds and creds.webull_access_token and creds.webull_token_environment == environment
+                and creds.webull_token_status != 'NORMAL'
+            ):
+                # Connected, but the session cannot read orders right now.
+                report_scope('webull:*', False, 'Webull needs to be reconnected before its orders can be read')
             elif (
                 creds and creds.webull_token_status == 'NORMAL'
                 and creds.webull_token_environment == environment and creds.webull_access_token
@@ -1094,8 +1121,10 @@ def api_pending_orders():
                             creds.webull_app_key, creds.webull_app_secret, environment,
                             creds.webull_access_token, account_id=webull_account_id,
                         ))
+                        report_scope(f'webull:{webull_account_id}', True)
                     except Exception as account_err:
                         logger.warning('Webull pending-order lookup failed for account %s: %s', webull_account_id, account_err)
+                        report_scope(f'webull:{webull_account_id}', False, 'Webull orders are temporarily unavailable')
 
             for order in webull_entries:
                 if not isinstance(order, dict):
@@ -1153,9 +1182,17 @@ def api_pending_orders():
                 })
         except Exception as webull_err:
             logger.warning(f"Error appending Webull orders to pending_orders: {webull_err}")
+            scopes[:] = [scope for scope in scopes if not scope['key'].startswith('webull:')]
+            report_scope('webull:*', False, 'Webull orders are temporarily unavailable')
 
+        from services.portfolio_service import get_pending_order_mode
         logger.info(f"Retrieved {len(pending_orders)} pending orders for user {current_user.username}")
-        return jsonify({'pending_orders': pending_orders})
+        return jsonify({
+            'pending_orders': pending_orders,
+            'scopes': scopes,
+            'complete': all(scope['complete'] for scope in scopes),
+            'mode': get_pending_order_mode(current_user.id),
+        })
 
     except Exception as e:
         logger.error(f"Error in api_pending_orders: {e}\n{traceback.format_exc()}")

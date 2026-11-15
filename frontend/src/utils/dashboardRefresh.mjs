@@ -89,3 +89,34 @@ export function recentFillRevision(order, now = Date.now()) {
   return JSON.stringify([provider(order), account(order), order.environment, Boolean(order.test_mode),
     order.symbol, primaryId(order), order.executedQty ?? order.filled_quantity ?? order.quantity, time]);
 }
+
+// Which source reported an order: 'synthetic', 'binance' or 'webull:<account>'.
+export function pendingOrderScope(order) {
+  if (synthetic(order)) return 'synthetic';
+  return provider(order) === 'webull' ? `webull:${account(order)}` : 'binance';
+}
+
+// Combine a pending-order response with the previously accepted list. A source
+// that answered replaces its orders, even with none. A source that reported
+// itself unavailable keeps its last accepted orders. Without scope information
+// (older server, cached hydration) the response is taken as it is. Orders are
+// never carried across a change of live/paper mode or environment.
+export function mergePendingOrders(previous, response, previousMode) {
+  const incoming = response?.pending_orders;
+  if (!Array.isArray(incoming)) return null; // unavailable/omitted is not an empty list
+  const unavailable = Array.isArray(response.scopes)
+    ? response.scopes.filter(scope => scope?.complete === false).map(scope => String(scope.key))
+    : [];
+  const modeChanged = response.mode !== undefined && previousMode !== undefined && response.mode !== previousMode;
+  const isUnavailable = order => {
+    const scope = pendingOrderScope(order);
+    return unavailable.includes(scope) || (scope.startsWith('webull:') && unavailable.includes('webull:*'));
+  };
+  const retained = modeChanged || !unavailable.length ? [] : (previous || [])
+    .filter(isUnavailable)
+    .filter(old => !incoming.some(order => sameDashboardOrder(order, old)));
+  const reasons = Array.isArray(response.scopes)
+    ? [...new Set(response.scopes.filter(scope => scope?.complete === false).map(scope => scope.reason || 'An order source is temporarily unavailable'))]
+    : [];
+  return { orders: [...incoming, ...retained], unavailable, reasons, mode: response.mode };
+}

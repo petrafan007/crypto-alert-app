@@ -96,3 +96,41 @@ test('fill revisions distinguish accounts and cumulative fills, and ignore old/n
   assert.equal(recentFillRevision({ ...fill, status: 'OPEN' }, now), null);
   assert.equal(recentFillRevision(fill, now + 600000), null);
 });
+
+test('a source that answered replaces its orders; a failed source keeps its last orders (F17)', async () => {
+  const { mergePendingOrders, pendingOrderScope } = await import('../frontend/src/utils/dashboardRefresh.mjs');
+  const binance = { order_id: 1, provider: 'binance', symbol: 'ETHUSDT' };
+  const webullA = { order_id: '7', provider: 'webull', account_id: 'A', symbol: 'NVDA' };
+  const webullB = { order_id: '8', provider: 'webull', account_id: 'B', symbol: 'NVDA' };
+  const ladder = { order_id: 'ladder_21', provider: 'webull', account_id: 'A', symbol: 'NVDA' };
+  const previous = [binance, webullA, webullB, ladder];
+  assert.deepEqual(previous.map(pendingOrderScope), ['binance', 'webull:A', 'webull:B', 'synthetic']);
+  const ids = result => result.orders.map(order => order.order_id).sort();
+  const scopes = (...failed) => ['binance', 'synthetic', 'webull:A', 'webull:B'].map(key => ({ key, complete: !failed.includes(key), reason: `${key} down` }));
+
+  // Everything answered with nothing: a genuine empty list clears every highlight.
+  assert.deepEqual(ids(mergePendingOrders(previous, { pending_orders: [], scopes: scopes() })), []);
+  // Binance failed: only its last order is kept, and the reason is reported.
+  const outage = mergePendingOrders(previous, { pending_orders: [webullB], scopes: scopes('binance') });
+  assert.deepEqual(ids(outage), [1, '8']);
+  assert.deepEqual(outage.reasons, ['binance down']);
+  // One Webull account failed: the other account's empty answer still clears its order.
+  assert.deepEqual(ids(mergePendingOrders(previous, { pending_orders: [], scopes: scopes('webull:B') })), ['8']);
+  // All Webull accounts unavailable at once; synthetic strategies are a separate source.
+  assert.deepEqual(ids(mergePendingOrders(previous, { pending_orders: [], scopes: [{ key: 'webull:*', complete: false }, { key: 'synthetic', complete: true }] })), ['7', '8']);
+  // A kept order is not duplicated when the partial answer already lists it.
+  assert.deepEqual(ids(mergePendingOrders(previous, { pending_orders: [binance], scopes: scopes('binance') })), [1]);
+  // No scope information: the list is taken as it is. A missing list is not an empty list.
+  assert.deepEqual(ids(mergePendingOrders(previous, { pending_orders: [] })), []);
+  assert.equal(mergePendingOrders(previous, { error: 'offline' }), null);
+});
+
+test('orders are never carried across a change of live/paper mode (F18)', async () => {
+  const { mergePendingOrders } = await import('../frontend/src/utils/dashboardRefresh.mjs');
+  const live = [{ order_id: '7', provider: 'webull', account_id: 'A', symbol: 'NVDA' }];
+  const failed = { pending_orders: [], scopes: [{ key: 'webull:*', complete: false }] };
+  assert.equal(mergePendingOrders(live, { ...failed, mode: 'production:live' }, 'production:live').orders.length, 1);
+  const switched = mergePendingOrders(live, { ...failed, mode: 'production:paper' }, 'production:live');
+  assert.deepEqual(switched.orders, []);
+  assert.equal(switched.mode, 'production:paper');
+});

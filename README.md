@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.16.3
+**Version:** 4.16.4
 
 ## Recent Updates
+
+### v4.16.4
+* **Outages no longer look like cancelled orders:** If Binance.US or a Webull account cannot be read, its rows keep their pending highlight and a line above the Portfolio says which source is unavailable. A source that answers with no orders still clears its highlights straight away.
+* **Sold holdings leave the table:** A holding that is missing from a complete refresh is removed, including the last one. If a provider could not answer in full, its rows are kept and marked as last known instead of disappearing.
+* **Alert and volatility boxes:** An untouched box follows the saved value after each refresh. Typing is never overwritten mid-edit, a refused save returns to the saved value, and leaving a box unchanged no longer sends a save.
+* **Live and paper kept apart:** Pending orders are never carried over when Webull switches between live and paper mode, and paper mode no longer briefly shows live Webull orders at startup.
+* **Audit progress:** 26 of 38 findings in the [portfolio/watchlist audit ledger](docs/audits/portfolio-watchlist-refresh-audit.md) are complete; cash-reservation accuracy and server-side cache/sync coordination remain open.
 
 ### v4.16.3
 * **Rows stay where they are:** Portfolio and Watchlist default to A–Z by symbol and say so above the table. Equal values no longer swap places, and the order returned by the server no longer decides anything. Each table has its own saved sort; sorting one never changes the other. A third click on a column header returns to A–Z.
