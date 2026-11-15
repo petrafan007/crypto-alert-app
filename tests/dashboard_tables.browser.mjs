@@ -347,9 +347,13 @@ try {
     console.log('Dashboard tables scenario passed: alert-box-follows-saved-value');
   }
 
-  // 9. Cash rows count each obligation once and say what holds the cash (F13, F14, F19).
+  // 9. Cash rows count each obligation once, and hovering one shows the app
+  //    tooltip describing what holds the cash, not a browser tooltip (F13, F14, F19).
   {
     const order = (order_id, symbol, quantity_usdt, extra = {}) => ({ order_id, provider: 'webull', account_id: 'A', asset: symbol, symbol, side: 'BUY', quantity: 1, price: quantity_usdt, quantity_usdt, ...extra });
+    const oco = { broker: 'webull', symbol: 'NVDA', side: 'BUY', status: 'ACTIVE', strategy_type: 'OCO', total_quantity: 1, filled_quantity: 0, remaining_quantity: 1,
+      trading_session: 'ALL', conditional_phase: 'SINGLE', upside_mode: 'NONE', downside_mode: 'NONE',
+      conditional_spec: { legs: [{ side: 'BUY', order_type: 'LIMIT', price: 160 }, { side: 'BUY', order_type: 'STOP_LOSS_LIMIT', stop_price: 165, price: 165.05 }] } };
     const fixture = {
       portfolio: () => [
         webullRow('webull-1', 'USD', 'A', { instrument_type: 'CASH', amount: 5000, current_price: 1, current_value: 5000 }),
@@ -358,24 +362,43 @@ try {
       ],
       watchlist: () => [watch(3, 'SOL', { auto_buy_enabled: true, auto_buy_amount: 25, auto_buy_quote_currency: 'USDT' })],
       orders: [
-        order('ladder_21', 'NVDA', 1000, { is_synthetic: true, is_ladder: true, type: 'LADDER' }),
+        order('ladder_21', 'NVDA', 1000, { is_synthetic: true, is_ladder: true, type: 'LADDER', synthetic_details: oco }),
         order('900', 'NVDA', 1010, { synthetic_parent_id: 'ladder_21' }),
-        order('901', 'AAPL', 500, { group_id: 'webull-combo-x', group_role: 'exclusive' }),
-        order('902', 'AAPL', 520, { group_id: 'webull-combo-x', group_role: 'exclusive' }),
+        order('901', 'AAPL', 500, { group_id: 'webull-combo-x', group_role: 'exclusive', type: 'LIMIT', trigger_price: 500, direction: 'drops below' }),
+        order('902', 'AAPL', 520, { group_id: 'webull-combo-x', group_role: 'exclusive', type: 'STOP', trigger_price: 520, direction: 'rises above' }),
       ] };
     const { page, close } = await open(fixture);
-    await page.waitForFunction(() => document.querySelectorAll('.portfolio-table tbody tr[title]').length >= 2);
-    const rows = await page.locator('.portfolio-table tbody tr').evaluateAll(list => list.map(row => ({
-      symbol: window.symbolOf(row.querySelector('td.symbol-cell')), title: row.getAttribute('title'), classes: row.className })));
-    const [cashA, cashB, usdt] = [rows.filter(row => row.symbol === 'USD')[0], rows.filter(row => row.symbol === 'USD')[1], rows.find(row => row.symbol === 'USDT')];
-    assert.equal(cashA.title, '3,470.00 USD available · 520.00 USD held by open broker orders · 1,010.00 USD held for synthetic strategies being monitored',
+    await page.waitForFunction(() => document.querySelectorAll('.portfolio-table tbody tr.pending-order').length >= 1);
+    const rows = page.locator('.portfolio-table tbody tr');
+    const rowFor = async (symbol, index) => rows.filter({ has: page.locator('td.symbol-cell', { hasText: symbol }) }).nth(index);
+    const hoverText = async row => {
+      await row.locator('td').nth(3).hover();
+      const tip = page.locator('.pending-order-tooltip');
+      if (!(await tip.count())) return null;
+      return tip.innerText();
+    };
+    const cashA = await rowFor('USD', 0);
+    assert.match(await cashA.getAttribute('class'), /pending-order/);
+    assert.equal(await cashA.getAttribute('title'), null, 'no browser tooltip on a cash row');
+    const textA = await hoverText(cashA);
+    assert.ok(textA.startsWith('3,470.00 USD available · 520.00 USD held by open broker orders · 1,010.00 USD held for synthetic strategies being monitored'),
       'strategy and its broker order counted once; the OCO pair counted as one branch');
-    assert.match(cashA.classes, /pending-order/);
-    assert.equal(cashB.title, null, 'another account holds nothing back');
-    assert.doesNotMatch(cashB.classes, /pending-order/);
-    assert.equal(usdt.title, '975.00 USDT available · 25.00 USDT set aside for auto-buy');
-    assert.doesNotMatch(usdt.classes, /pending-order/, 'an automation budget is not shown as a pending order');
-    assert.match(usdt.classes, /auto-buy-active/);
+    assert.match(textA, /Holds about 1,010\.00 USD:\nOCO \(one cancels the other\) BUY · Webull · synthetic · ACTIVE/, 'the strategy is described in full');
+    assert.match(textA, /Trigger: BUY limit ≤ 160\.00 USD/);
+    if (process.env.SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.SCREENSHOT_DIR, 'cash-row-tooltip.png') });
+    assert.match(textA, /Trigger: BUY stop limit ≥ 165\.00 USD \(limit 165\.05 USD\)/);
+    assert.match(textA, /Monitored in regular and extended hours/);
+    assert.match(textA, /Holds about 500\.00 USD:\nPending limit buy/); assert.match(textA, /Holds about 520\.00 USD:\nPending stop buy/);
+    assert.equal((textA.match(/Holds about/g) || []).length, 3, "the strategy's own broker order is not listed a second time");
+
+    const cashB = await rowFor('USD', 1);
+    assert.doesNotMatch(await cashB.getAttribute('class') || '', /pending-order/);
+    assert.equal(await hoverText(cashB), null, 'another account holds nothing back');
+
+    const usdt = await rowFor('USDT', 0);
+    assert.doesNotMatch(await usdt.getAttribute('class'), /pending-order/, 'an automation budget is not shown as a pending order');
+    assert.match(await usdt.getAttribute('class'), /auto-buy-active/);
+    assert.equal(await hoverText(usdt), '975.00 USDT available · 25.00 USDT set aside for auto-buy\n\n⚡ Auto-Buy for SOL: 25.00 USDT set aside');
     await close();
     console.log('Dashboard tables scenario passed: cash-reservations');
   }

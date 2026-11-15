@@ -60,28 +60,45 @@ export function reservedByOrders(orders) {
 
 const withTotal = parts => ({ ...parts, total: parts.exchange + parts.synthetic + parts.automation });
 
-// Binance.US: orders priced in this quote currency, plus auto-buy budgets set
-// aside in it on portfolio and watchlist rows.
-export function binanceCashReservation(quote, orders, rows = []) {
+const binanceQuoteOrders = (quote, orders) => {
   const clean = String(quote || '').toUpperCase();
   const matchesQuote = order => {
     const symbol = String(order?.symbol || '').toUpperCase();
     return clean === 'USDT' ? symbol.endsWith('USDT') : clean === 'USD' ? symbol.endsWith('USD') && !symbol.endsWith('USDT') : false;
   };
-  const scoped = (Array.isArray(orders) ? orders : []).filter(order => provider(order) === 'binance' && matchesQuote(order));
-  const automation = rows.reduce((sum, row) => {
-    if (!row?.auto_buy_enabled || String(row.auto_buy_quote_currency || 'USDT').toUpperCase() !== clean) return sum;
-    const amount = Number(row.auto_buy_amount || 0);
-    return Number.isFinite(amount) && amount > 0 ? sum + amount : sum;
-  }, 0);
-  return withTotal({ ...reservedByOrders(scoped), automation });
+  return (Array.isArray(orders) ? orders : []).filter(order => provider(order) === 'binance' && matchesQuote(order));
+};
+
+const webullAccountOrders = (accountId, orders) => (Array.isArray(orders) ? orders : []).filter(order => provider(order) === 'webull'
+  && (!accountId || String(order.account_id || '') === String(accountId)));
+
+// Rows whose auto-buy budget is set aside in this quote currency.
+export function autoBuyBudgets(quote, rows = []) {
+  const clean = String(quote || '').toUpperCase();
+  return rows.filter(row => row?.auto_buy_enabled && String(row.auto_buy_quote_currency || 'USDT').toUpperCase() === clean
+    && Number(row.auto_buy_amount) > 0)
+    .map(row => ({ symbol: String(row.symbol || '').toUpperCase(), amount: Number(row.auto_buy_amount) }));
+}
+
+// Binance.US: orders priced in this quote currency, plus auto-buy budgets set
+// aside in it on portfolio and watchlist rows.
+export function binanceCashReservation(quote, orders, rows = []) {
+  const automation = autoBuyBudgets(quote, rows).reduce((sum, budget) => sum + budget.amount, 0);
+  return withTotal({ ...reservedByOrders(binanceQuoteOrders(quote, orders)), automation });
 }
 
 // Webull: orders in one account, or in every account when none is named.
 export function webullCashReservation(accountId, orders) {
-  const scoped = (Array.isArray(orders) ? orders : []).filter(order => provider(order) === 'webull'
-    && (!accountId || String(order.account_id || '') === String(accountId)));
-  return withTotal({ ...reservedByOrders(scoped), automation: 0 });
+  return withTotal({ ...reservedByOrders(webullAccountOrders(accountId, orders)), automation: 0 });
+}
+
+// The orders and strategies holding a cash row's money, each listed once: a
+// broker order placed by a strategy in the list is described by its strategy.
+export function cashHoldingOrders(orders, { provider: rowProvider, quote, accountId }) {
+  const scoped = rowProvider === 'webull' ? webullAccountOrders(accountId, orders) : binanceQuoteOrders(quote, orders);
+  const buys = scoped.filter(order => isBuy(order) && orderCost(order) > 0);
+  const strategyIds = new Set(buys.filter(isSynthetic).map(order => String(order.order_id)));
+  return buys.filter(order => isSynthetic(order) || !strategyIds.has(String(order.synthetic_parent_id || '')));
 }
 
 // Says in words why less cash is available than the balance shows.

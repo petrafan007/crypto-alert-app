@@ -2,7 +2,7 @@ import {
   portfolioRowIdentity, watchlistRowIdentity, rowProvider, rowAccount, rowSymbol, orderMatchesRow,
   sortDashboardRows, parseSortPreference, nextSortPreference, createRowEditLedger, createWatchlistIntents,
 } from '../utils/dashboardRows.mjs';
-import { binanceCashReservation, webullCashReservation, describeCashReservation } from '../utils/cashReservations.mjs';
+import { binanceCashReservation, webullCashReservation, describeCashReservation, cashHoldingOrders, autoBuyBudgets, orderCost } from '../utils/cashReservations.mjs';
 import CommittedInput, { sanitizeDecimalInput, formatDecimalInput, sanitizeIntegerInput, formatIntegerInput } from '../components/CommittedInput';
 import { createDashboardRefreshCoordinator, sameDashboardOrder, cancellationOutcome, recentFillRevision, mergePendingOrders, createRefreshDiagnostics, refreshRequestId } from '../utils/dashboardRefresh.mjs';
 import { syntheticCancellationEndpoint } from '../utils/syntheticCancellation.mjs';
@@ -2017,12 +2017,7 @@ function Dashboard({ isLightMode }) {
   };
 
   // Generate tooltip text for pending orders & auto triggers
-  const generateOrderTooltipText = (coin, orders) => {
-    try {
-      const lines = [];
-
-      if (orders && orders.length > 0) {
-        const describeOrder = (order) => {
+  const describePendingOrder = (order, coin) => {
           if (['LADDER', 'TRAILING_STOP'].includes(order.type)) return syntheticOrderTooltip(order, coin?.symbol);
           const orderTypeName = (order.type || 'LIMIT').replace(/_/g, ' ').toLowerCase();
           const side = (order.side || '').toLowerCase();
@@ -2045,8 +2040,48 @@ function Dashboard({ isLightMode }) {
             : assetSymbol || 'this asset';
 
           return `Pending ${orderTypeName} ${side} for ${sizeDescription} when price ${order.direction || ''} ${trigger} ${quoteLabel}`;
-        };
-        lines.push(...orders.map(describeOrder));
+  };
+
+  // The money a USD/USDT row cannot spend, and what holds it. Null for any
+  // other row, or when nothing is held.
+  const getCashRowContext = (coin) => {
+    const sym = String(coin?.symbol || '').toUpperCase();
+    const external = coin?.is_external === true || coin?.source === 'webull';
+    if (!['USD', 'USDT'].includes(sym) || (external && sym !== 'USD')) return null;
+    const reservation = external ? webullCashReservation(coin.account_id, pendingOrders) : getQuoteReservation(sym);
+    if (!(reservation.total > 0.0001)) return null;
+    const available = external ? getWebullCashBalance(coin.account_id) : getQuoteBalance(sym);
+    if (!(available < Number(coin.amount || 0) - 0.0001)) return null;
+    return {
+      currency: sym,
+      available,
+      reservation,
+      orders: cashHoldingOrders(pendingOrders, { provider: external ? 'webull' : 'binance', quote: sym, accountId: coin.account_id }),
+      budgets: external ? [] : autoBuyBudgets(sym, [...(portfolio || []), ...(watchlist || [])]),
+    };
+  };
+
+  const cashTooltipText = (cash) => {
+    const money = value => `${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cash.currency}`;
+    const sections = [describeCashReservation(cash.available, cash.reservation, cash.currency)];
+    for (const order of cash.orders) {
+      // A strategy holds the larger of its own figure and its open broker orders, as in the summary.
+      const children = (pendingOrders || []).filter(child => String(child.synthetic_parent_id || '') === String(order.order_id));
+      const held = Math.max(orderCost(order), children.reduce((sum, child) => sum + orderCost(child), 0));
+      sections.push(`Holds about ${money(held)}:\n${describePendingOrder(order, { symbol: order.asset || order.symbol })}`);
+    }
+    for (const budget of cash.budgets) {
+      sections.push(`⚡ Auto-Buy for ${budget.symbol}: ${money(budget.amount)} set aside`);
+    }
+    return sections.join('\n\n');
+  };
+
+  const generateOrderTooltipText = (coin, orders) => {
+    try {
+      const lines = [];
+
+      if (orders && orders.length > 0) {
+        lines.push(...orders.map(order => describePendingOrder(order, coin)));
       }
 
       if (coin?.auto_buy_enabled) {
@@ -2099,6 +2134,19 @@ function Dashboard({ isLightMode }) {
 
     if (isExcluded) {
       handleRowLeave();
+      return;
+    }
+
+    const cash = getCashRowContext(coin);
+    if (cash) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const clientX = typeof event.clientX === 'number' ? event.clientX : rect.left + 50;
+      setOrderTooltip({
+        visible: true,
+        text: cashTooltipText(cash),
+        x: Math.max(10, Math.min(clientX + 15, (window?.innerWidth || 1200) - 370)),
+        y: rect.top >= 100 ? Math.max(10, rect.top - 60) : (rect.bottom + 10),
+      });
       return;
     }
 
@@ -5198,9 +5246,8 @@ function Dashboard({ isLightMode }) {
                         : isBonding
                           ? `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} locked in staking bonding)`
                           : `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} staked)`;
-                    } else if (hasLockedQuote) {
-                      rowTitle = describeCashReservation(availableQuote, cashReservation, sym);
                     }
+                    // A cash row holding money shows the app tooltip (handleRowHover), not a browser one.
 
                     return (
                       <tr

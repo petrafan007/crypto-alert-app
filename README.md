@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.16.7
+**Version:** 4.16.8
 
 ## Recent Updates
+
+### v4.16.8
+* **Cash rows explain themselves:** Hovering a yellow USD or USDT row now shows the app's own tooltip instead of a plain browser one. It lists how much is held and why, then describes each order or synthetic strategy holding that cash in full (type, legs, trigger prices, trading session) with the amount it holds, followed by any auto-buy budgets.
 
 ### v4.16.7
 * **Refreshing never changes your settings:** Portfolio refreshes only decide which rows to show. Hiding empty coins and switching off their alerts is done in one place, the background Binance.US sync, which never changes auto-buy or auto-sell and leaves coins you hid yourself alone.
