@@ -346,6 +346,39 @@ try {
     await close();
     console.log('Dashboard tables scenario passed: alert-box-follows-saved-value');
   }
+
+  // 9. Cash rows count each obligation once and say what holds the cash (F13, F14, F19).
+  {
+    const order = (order_id, symbol, quantity_usdt, extra = {}) => ({ order_id, provider: 'webull', account_id: 'A', asset: symbol, symbol, side: 'BUY', quantity: 1, price: quantity_usdt, quantity_usdt, ...extra });
+    const fixture = {
+      portfolio: () => [
+        webullRow('webull-1', 'USD', 'A', { instrument_type: 'CASH', amount: 5000, current_price: 1, current_value: 5000 }),
+        webullRow('webull-2', 'USD', 'B', { instrument_type: 'CASH', amount: 700, current_price: 1, current_value: 700 }),
+        { id: 9, symbol: 'USDT', amount: 1000, current_price: 1, current_value: 1000 },
+      ],
+      watchlist: () => [watch(3, 'SOL', { auto_buy_enabled: true, auto_buy_amount: 25, auto_buy_quote_currency: 'USDT' })],
+      orders: [
+        order('ladder_21', 'NVDA', 1000, { is_synthetic: true, is_ladder: true, type: 'LADDER' }),
+        order('900', 'NVDA', 1010, { synthetic_parent_id: 'ladder_21' }),
+        order('901', 'AAPL', 500, { group_id: 'webull-combo-x', group_role: 'exclusive' }),
+        order('902', 'AAPL', 520, { group_id: 'webull-combo-x', group_role: 'exclusive' }),
+      ] };
+    const { page, close } = await open(fixture);
+    await page.waitForFunction(() => document.querySelectorAll('.portfolio-table tbody tr[title]').length >= 2);
+    const rows = await page.locator('.portfolio-table tbody tr').evaluateAll(list => list.map(row => ({
+      symbol: window.symbolOf(row.querySelector('td.symbol-cell')), title: row.getAttribute('title'), classes: row.className })));
+    const [cashA, cashB, usdt] = [rows.filter(row => row.symbol === 'USD')[0], rows.filter(row => row.symbol === 'USD')[1], rows.find(row => row.symbol === 'USDT')];
+    assert.equal(cashA.title, '3,470.00 USD available · 520.00 USD held by open broker orders · 1,010.00 USD held for synthetic strategies being monitored',
+      'strategy and its broker order counted once; the OCO pair counted as one branch');
+    assert.match(cashA.classes, /pending-order/);
+    assert.equal(cashB.title, null, 'another account holds nothing back');
+    assert.doesNotMatch(cashB.classes, /pending-order/);
+    assert.equal(usdt.title, '975.00 USDT available · 25.00 USDT set aside for auto-buy');
+    assert.doesNotMatch(usdt.classes, /pending-order/, 'an automation budget is not shown as a pending order');
+    assert.match(usdt.classes, /auto-buy-active/);
+    await close();
+    console.log('Dashboard tables scenario passed: cash-reservations');
+  }
 } finally {
   await browser?.close();
   if (server) await new Promise(resolve => server.close(resolve));

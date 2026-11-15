@@ -2,14 +2,14 @@
 
 **Date:** November 14, 2026
 **Reviewed release:** v4.16.1, commit `99d72e5b78365882ed4c75920d814c075c0c435c`
-**Status:** Implementation authorized November 14, 2026. v4.16.2, v4.16.3 and v4.16.4 are released; remaining findings are tracked below.
+**Status:** Implementation authorized November 14, 2026. v4.16.2 through v4.16.5 are released; remaining findings are tracked below.
 
 ## Implementation ledger and handoff
 
 The user authorized implementation of this audit on November 14, 2026, including checking off completed work and preserving a handoff. The original findings below describe v4.16.1; their evidence and proposed fixes are retained as the baseline. This ledger records subsequent work and supersedes the original review-only status.
 
-**Batches:** v4.16.2 (released) — dashboard refresh/cancellation foundation; v4.16.3 (released) — row identity, stable ordering, watchlist add/remove, saved-edit protection, lifecycle cleanup; v4.16.4 (released) — per-source completeness, holdings membership, alert boxes.
-**Release/deployment:** v4.16.2 was published and deployed to the personal instance on November 14, 2026 (commit `5cc9eb25`; service active, port 5010 responding, checkout on the tag). The original author's session ended before recording that here; it was re-verified before v4.16.3 work began. The user approved publishing v4.16.3 on November 15, 2026; it is published as GitHub release `v4.16.3` and the personal instance was upgraded through the release routine in `AGENTS.md` (unrelated files preserved, frontend rebuilt, service restarted, port 5010 and tag checked). The user approved v4.16.4 the same day; it is published as GitHub release `v4.16.4` and deployed through the same routine.
+**Batches:** v4.16.2 (released) — dashboard refresh/cancellation foundation; v4.16.3 (released) — row identity, stable ordering, watchlist add/remove, saved-edit protection, lifecycle cleanup; v4.16.4 (released) — per-source completeness, holdings membership, alert boxes; v4.16.5 (released) — cash reservations and order descriptions.
+**Release/deployment:** v4.16.2 was published and deployed to the personal instance on November 14, 2026 (commit `5cc9eb25`; service active, port 5010 responding, checkout on the tag). The original author's session ended before recording that here; it was re-verified before v4.16.3 work began. The user approved publishing v4.16.3 on November 15, 2026; it is published as GitHub release `v4.16.3` and the personal instance was upgraded through the release routine in `AGENTS.md` (unrelated files preserved, frontend rebuilt, service restarted, port 5010 and tag checked). The user approved v4.16.4 the same day; it is published as GitHub release `v4.16.4` and deployed through the same routine. The user approved v4.16.5 on November 15, 2026; it is published as GitHub release `v4.16.5` and deployed through the same routine. Because it changes services the background worker imports, `crypto-dashboard-worker.service` was restarted as well as the web service.
 **Database/dependencies:** No schema changes, new dependencies, live order actions, or manual portfolio/watchlist mutations in either batch. Browser tests intercept all API calls with fixtures.
 
 A checked item is complete within the stated finding's frontend scope. “Partial” means useful changes landed but the finding must remain open. Backend completeness/cache limitations are not implied to be solved by frontend race protection.
@@ -26,13 +26,13 @@ A checked item is complete within the stated finding's frontend scope. “Partia
 - [x] **F10 — Done: Matching a pending order does not fully identify its account or instrument.** v4.16.3: one matcher compares provider, Webull account, instrument class and the exact symbol or trading pair (split on a known quote suffix, no prefix matching). An order with no account highlights a row only when one account holds that symbol. The server's Binance base-asset derivation uses the same suffix rule.
 - [x] **F11 — Done: Some local updates and React row keys identify a row too loosely.** v4.16.3: one identity per table drives React keys, hidden rows, optimistic items and every callback (favorite, alert, alert type/value, auto-buy/sell, volatility, sentiment, notes, news). Notes name their table to the server, which previously could save a watchlist note onto a portfolio coin with the same numeric id; Webull watchlist notes now save.
 - [x] **F12 — Done: Cancellation can remove more than the intended local order.** Local cancellation suppression compares provider, account, environment/mode, synthetic/native namespace, scoped ID aliases, and Binance pair.
-- [ ] **F13 — Open: A synthetic parent and its broker child can both reserve the same cash.** Not started.
-- [ ] **F14 — Open: Native OCO cash reservations can be counted as two independent purchases.** Not started.
-- [ ] **F15 — Open: Some reservations still use original quantities after partial fills.** Not started.
-- [ ] **F16 — Open: New conditional strategies are not fully represented by older pending-order formatters.** Not started.
+- [x] **F13 — Done: A synthetic parent and its broker child can both reserve the same cash.** v4.16.5: each strategy lists the broker and client ids of its still-open orders from the execution journal; both pending readers mark a broker order with `synthetic_parent_id` only on an exact id match. The dashboard holds cash once for a strategy and its linked orders (the larger figure). Unlinked look-alike orders stay separate.
+- [x] **F14 — Done: Native OCO cash reservations can be counted as two independent purchases.** v4.16.5: flattened Webull combo legs keep a group id and a role (alternative exit/OCO legs are exclusive; an entry is independent). Exclusive legs of one group hold the most expensive branch; independent legs add to it; Binance.US list ids use the same rule. Verified against the grouped-response shape already in the test suite, not against a live Webull combo order.
+- [x] **F15 — Done: Some reservations still use original quantities after partial fills.** v4.16.5: Binance.US rows report `origQty - executedQty`; synthetic strategies (fast and live) report the journal's remaining quantity; Webull rows already subtracted fills. Each row also carries `original_quantity` and `filled_quantity`.
+- [x] **F16 — Done: New conditional strategies are not fully represented by older pending-order formatters.** v4.16.5: new `services/pending_order_serializer.py` is the only formatter for both readers. Conditional strategies report the legs of their current phase, the legs waiting on the entry, a real trigger price, and the same capped reservation the engine's capacity check uses. The tooltip describes OCO/OTO/OTOCO by their legs instead of as a ladder with both sides off.
 - [x] **F17 — Done: Temporary broker failures can look like “all orders disappeared”.** v4.16.4: `/api/pending-orders` lists each source asked (Binance.US, synthetic strategies, each Webull account) with `complete` and a reason. The dashboard replaces the orders of every source that answered, keeps the last accepted orders of a source that failed, and names the failure above the portfolio. Confirmed local cancellations are still suppressed. A response Webull returns in an unexpected shape is still treated as empty until F33/F34.
 - [x] **F18 — Done: The fast and live pending sources have different mode and freshness rules.** v4.16.4: every pending-order reader reports the same `environment:live|paper` mode; the fast reader no longer shows live Webull orders in paper mode; the dashboard never carries orders across a mode change. There is no numeric snapshot revision: ordering inside one browser relies on the single refresh cycle (F01/F02), and cross-process freshness remains F29.
-- [ ] **F19 — Open: Yellow cash highlighting conflates several different meanings.** Not started.
+- [x] **F19 — Done: Yellow cash highlighting conflates several different meanings.** v4.16.5: one calculator splits held cash into open broker orders, monitored synthetic strategies and auto-buy budgets. Yellow now means an order or strategy holds cash; an auto-buy budget alone shows the auto-buy colour. The row tooltip lists each amount. No legitimate reservation was removed.
 - [x] **F20 — Done: HTTP 200 can be mistaken for successful cancellation.** Explicit application success is required. Final cancellation, acknowledgement/CANCEL_PENDING, and rejection are distinct; both brokers route synthetic IDs to status-bearing strategy endpoints.
 - [x] **F21 — Done: The default BTC/ETH row order has no stable definition.** v4.16.3: with no chosen column both tables are alphabetical by symbol with a full-identity tie-break; both watchlist queries now have an explicit server order. Verified with the server order alternating on every refresh.
 - [x] **F22 — Done: Equal sort values have no deterministic tie-breaker.** v4.16.3: every sort falls back to symbol, provider, account, instrument and id; rows with no value go last in both directions.
@@ -80,7 +80,7 @@ The browser harness uses installed Playwright and Chromium (`CHROMIUM_PATH` over
 - Passed: 15 Node tests (`tests/dashboard_rows.test.mjs`, `tests/dashboard_refresh.test.mjs`, `tests/synthetic_cancellation.test.mjs`).
 - Passed: `tests/dashboard_tables.browser.mjs` — stable-order (server order alternating, default and tied sorts, no transient swap), independent-sorts (including reload), exact-row-highlights (same ticker at two providers and two accounts), watchlist-removal (failure rollback; an older list cannot bring a removed row back), saved-edit-survives-refresh.
 - Passed: the seven existing `tests/dashboard_refresh.browser.mjs` scenarios and `tests/synthetic_recovery.browser.mjs` with the new late-lookup case.
-- Python: `python -m unittest discover -s tests -p 'test_*.py'` runs 1,152 tests. One failure and nine errors occur identically on the released v4.16.2 code and on this batch (`test_webull_service` open-order cache count, eight `test_order_replacement` cases, `test_event_recalibration` setUpClass, one `test_decision_integrity` case). They are pre-existing, not caused by this work, and are not yet fixed.
+- Python: `python -m unittest discover -s tests -p 'test_*.py'` runs 1,152 tests. One failure and nine errors occur identically on the released v4.16.2 code and on this batch (`test_webull_service` open-order cache count, seven `test_order_replacement` cases, `test_event_recalibration` setUpClass, one `test_decision_integrity` case). They are pre-existing, not caused by this work, and are not yet fixed.
 - Not covered: a UI-driven watchlist addition (the add/re-add ordering is covered by unit tests only); no live broker or real-account run was used.
 
 ### Batch v4.16.4 changes and verification
@@ -95,12 +95,21 @@ The browser harness uses installed Playwright and Chromium (`CHROMIUM_PATH` over
 - Python suite: 1,156 tests; the same ten pre-existing failures as before and no others.
 - Not covered: no real broker outage was induced; the outage behaviour is verified with fixtures and mocked providers only.
 
+### Batch v4.16.5 changes and verification
+
+- Findings closed: F13, F14, F15, F16, F19. Totals after this batch: 31 done, 1 partial (F38), 6 open (F29–F34).
+- Server: new `services/pending_order_serializer.py`; `routes/portfolio.py` and `services/portfolio_service.py` use it; `services/webull_service.py` keeps combo-group identity when flattening.
+- Dashboard: new `frontend/src/utils/cashReservations.mjs`; `Dashboard.jsx` uses it for available cash, the cash-row highlight and its tooltip; `frontend/src/utils/syntheticOrders.mjs` describes conditional strategies.
+- Behaviour the user will notice: available cash can be higher than before where a strategy and its broker order, or both legs of an OCO, were counted twice. A cash row held only by an auto-buy budget is no longer yellow. Cash-row tooltips list what holds the cash.
+- Passed: 68 Node tests (new `tests/cash_reservations.test.mjs` and a conditional-tooltip case); `tests/test_pending_order_serializer.py` (6 cases) and `tests/test_pending_order_completeness.py` (4); nine table browser scenarios including the new cash-reservations scenario; the refresh, recovery and synthetic-orders browser suites.
+- Python suite: 1,162 tests; the same ten pre-existing failures as before by name, and no others. `test_synthetic_ladder_pending_orders_formatting` fails on the released code and here for the same reason (its fixture lacks the `synthetic_recoveries` table).
+- Not covered: no live Webull combo order or live partial fill was observed; group and fill handling are verified with fixtures and the payload shapes already in the test suite.
+
 ### Next work
 
-1. Reservations and order descriptions: F13–F16 and F19.
-2. Server caches and competing writers: F29–F34. Session-local confirmed cancellation suppression is not shared cache invalidation. F33/F34 should also make an unexpected Webull open-order response count as unavailable rather than empty.
-3. Finish F38 with the remaining acceptance scenarios and request diagnostics.
-4. Update this ledger with each verified fix and release. Preserve unrelated files in the personal checkout; do not use `upgrade.sh` unchanged because it performs hard resets/forced checkouts. Neither batch needed migrations.
+1. Server caches and competing writers: F29–F34. Session-local confirmed cancellation suppression is not shared cache invalidation. F33/F34 should also make an unexpected Webull open-order response count as unavailable rather than empty.
+2. Finish F38 with the remaining acceptance scenarios and request diagnostics.
+3. Update this ledger with each verified fix and release. Preserve unrelated files in the personal checkout; do not use `upgrade.sh` unchanged because it performs hard resets/forced checkouts. Neither batch needed migrations.
 
 Browser tests need an installed Playwright and the system Chromium, for example:
 

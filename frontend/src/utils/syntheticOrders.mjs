@@ -124,8 +124,52 @@ export function strategySummary(config, currency = 'USD') {
 }
 
 // Compact portfolio hover summary, using the same strategy data as order details.
+const CONDITIONAL_TITLES = {
+  OCO: 'OCO (one cancels the other)', OTO: 'OTO (one triggers the other)', OTOCO: 'OTOCO (entry, then one-cancels-the-other exits)',
+  LIMIT: 'Limit', STOP: 'Stop',
+};
+
+// The legs that can act now and the legs waiting on the entry, from the server's
+// pending-order row when it supplies them, else from the saved strategy.
+function conditionalLegs(pending, order) {
+  if (Array.isArray(pending.legs)) return { active: pending.legs, waiting: pending.waiting_legs || [] };
+  const legs = order.conditional_spec?.legs || [];
+  if (order.conditional_phase === 'ENTRY') return { active: legs.slice(0, 1), waiting: legs.slice(1) };
+  if (order.conditional_phase === 'EXIT') return { active: legs.slice(1), waiting: [] };
+  return { active: legs, waiting: [] };
+}
+
+function conditionalLegText(leg, currency) {
+  const limit = leg.order_type === 'LIMIT';
+  const upward = limit ? leg.side === 'SELL' : leg.side === 'BUY';
+  const trigger = limit ? leg.price : leg.stop_price;
+  const kind = limit ? 'limit' : leg.order_type === 'STOP_LOSS_LIMIT' ? 'stop limit' : 'stop';
+  return `${leg.side} ${kind} ${upward ? '≥' : '≤'} ${money(trigger, currency)}${leg.order_type === 'STOP_LOSS_LIMIT' ? ` (limit ${money(leg.price, currency)})` : ''}`;
+}
+
+// OCO / OTO / OTOCO and single conditional legs have no ladder steps or
+// bracket targets; describing them as a ladder with both sides "off" was wrong.
+function conditionalTooltip(pending, order, broker, currency, base) {
+  const { active, waiting } = conditionalLegs(pending, order);
+  const total = order.total_quantity ?? order.quantity;
+  const lines = [
+    `${CONDITIONAL_TITLES[order.strategy_type] || 'Conditional order'} ${order.side} · ${broker === 'webull' ? 'Webull' : 'Binance.US'} · synthetic · ${order.status || 'ACTIVE'}`,
+    `Filled ${number(order.filled_quantity)} / ${number(total)} ${base} · Remaining ${number(order.remaining_quantity)}`,
+  ];
+  const label = order.conditional_phase === 'ENTRY' ? 'Entry' : order.conditional_phase === 'EXIT' ? 'Exit' : 'Trigger';
+  active.forEach(leg => lines.push(`${label}: ${conditionalLegText(leg, currency)}`));
+  if (waiting.length) lines.push(`After the entry fills: ${waiting.map(leg => conditionalLegText(leg, currency)).join(' · ')}`);
+  if (active.length > 1) lines.push('Only one of these can execute; the other is then cancelled.');
+  lines.push(order.trading_session === 'ALL' ? 'Monitored in regular and extended hours; a fill is not guaranteed.' : 'Monitored in regular market hours; a fill is not guaranteed.');
+  return lines.join('\n');
+}
+
 export function syntheticOrderTooltip(pending, asset = '') {
   const order = pending.synthetic_details || pending;
+  if (order.conditional_spec) {
+    const conditionalBroker = order.broker || pending.provider || pending.source || 'binance';
+    return conditionalTooltip(pending, order, conditionalBroker, quoteCurrency({ ...order, broker: conditionalBroker }), pending.asset || asset || order.symbol);
+  }
   const broker = order.broker || pending.provider || pending.source || 'binance';
   const currency = quoteCurrency({ ...order, broker });
   const base = pending.asset || asset || order.symbol;

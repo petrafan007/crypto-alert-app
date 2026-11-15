@@ -875,63 +875,14 @@ def api_pending_orders():
                 open_orders = client.get_open_orders()
 
                 # Parse and format orders for frontend
+                from services.pending_order_serializer import format_binance_open_order
                 pending_buy_assets = {}
                 for order in open_orders:
-                    symbol = order.get('symbol', '')
-                    # Extract asset from symbol (remove USDT or USD suffix)
-                    asset = next((symbol[:-len(q)] for q in ('USDT', 'USDC', 'USD') if symbol.endswith(q) and len(symbol) > len(q)), symbol)
-
-                    order_type = order.get('type', 'LIMIT')
-                    side = order.get('side', '')  # BUY or SELL
-                    price = float(order.get('price', 0))
-                    stop_price = float(order.get('stopPrice', 0)) if order.get('stopPrice') else None
-                    quantity = float(order.get('origQty', 0))
-
-                    # Determine order direction text
-                    if side == 'SELL':
-                        if stop_price:
-                            # Stop-limit sell: triggers when price drops below stop price
-                            direction = 'drops below'
-                            trigger_price = stop_price
-                        else:
-                            # Regular limit sell: executes when price rises to limit price
-                            direction = 'rises above'
-                            trigger_price = price
-                    else:  # BUY
-                        if stop_price:
-                            direction = 'rises above'
-                            trigger_price = stop_price
-                        else:
-                            direction = 'drops below'
-                            trigger_price = price
-
-                    # Check if this is an OCO order (has both stop and limit)
-                    is_oco = order.get('type') == 'STOP_LOSS_LIMIT' and order.get('stopPrice') and order.get('price')
-                    quote_amount = quantity * (trigger_price or price or 0.0)
-                    asset_upper = asset.upper()
-                    ref_price = trigger_price or price or 0.0
-                    if asset_upper and side == 'BUY':
-                        pending_buy_assets[asset_upper] = max(pending_buy_assets.get(asset_upper, 0.0), ref_price)
-
-                    pending_orders.append({
-                        'order_id': order.get('orderId'),
-                        'symbol': symbol,
-                        'asset': asset,
-                        'provider': 'binance',
-                        'source': 'binance',
-                        'side': side,
-                        'type': order_type,
-                        'price': price,
-                        'stop_price': stop_price,
-                        'quantity': quantity,
-                        'status': 'ACTIVE' if order.get('status') in ['NEW', 'PARTIALLY_FILLED', 'ACTIVE'] else order.get('status'),
-                        'time': order.get('time'),
-                        'is_oco': is_oco,
-                        'direction': direction,
-                        'trigger_price': trigger_price,
-                        'quantity_usdt': quote_amount,
-                        'orderListId': order.get('orderListId', -1)
-                    })
+                    entry = format_binance_open_order(order)
+                    if entry['asset'] and entry['side'] == 'BUY':
+                        pending_buy_assets[entry['asset']] = max(
+                            pending_buy_assets.get(entry['asset'], 0.0), entry['trigger_price'] or entry['price'] or 0.0)
+                    pending_orders.append(entry)
 
                 binance_orders_listed = True
                 try:
@@ -999,83 +950,8 @@ def api_pending_orders():
 
         # Include active Trailing and Ladder Orders so portfolio/watchlist rows highlight yellow
         try:
-            from trading_models import TrailingOrder, LadderOrder
-            from services.synthetic_execution_service import WORKING_PARENTS
-            active_trailing = TrailingOrder.query.filter(TrailingOrder.user_id == current_user.id, TrailingOrder.status.in_(WORKING_PARENTS), TrailingOrder.test_mode.is_(False)).all()
-            for to in active_trailing:
-                sym = to.symbol.upper()
-                base_asset = next((sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if sym.endswith(q)), sym)
-                pending_orders.append({
-                    'order_id': f"trail_{to.id}",
-                    'symbol': sym,
-                    'asset': base_asset,
-                    'provider': to.broker or 'binance',
-                    'source': to.broker or 'binance',
-                    'side': to.side,
-                    'type': 'TRAILING_STOP',
-                    'price': to.current_stop_price,
-                    'stop_price': to.current_stop_price,
-                    'trigger_price': to.current_stop_price,
-                    'highest_price': to.highest_price,
-                    'lowest_price': to.lowest_price,
-                    'quantity': to.quantity,
-                    'quantity_usdt': to.quantity * (to.current_stop_price or 0.0),
-                    'trail_type': to.trail_type,
-                    'trail_value': to.trail_value,
-                    'status': to.status,
-                    'account_id': to.account_id,
-                    'direction': 'drops below' if to.side == 'SELL' else 'rises above',
-                    'synthetic_details': to.to_dict(),
-                    'is_trailing': True,
-                    'is_activated': to.is_activated
-                })
-
-            active_ladders = LadderOrder.query.filter(LadderOrder.user_id == current_user.id, LadderOrder.status.in_(WORKING_PARENTS), LadderOrder.test_mode.is_(False)).all()
-            for lo in active_ladders:
-                sym = lo.symbol.upper()
-                base_asset = next((sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if sym.endswith(q)), sym)
-                details = lo.to_dict()
-                pending_rungs = [r for r in lo.rungs if r.status == 'PENDING']
-                next_rung = pending_rungs[0] if pending_rungs else None
-                target_px = next_rung.target_price if next_rung else (lo.upside_target_price or lo.downside_target_price or 0.0)
-                rem_qty = float((details.get('remaining_quantity') if details.get('remaining_quantity') is not None else lo.total_quantity) or 0.0)
-                tot_qty = float(lo.total_quantity or 1.0)
-                if lo.total_budget_usd:
-                    rem_budget = float(lo.total_budget_usd) * (rem_qty / tot_qty)
-                else:
-                    rem_budget = rem_qty * target_px
-                pending_orders.append({
-                    'order_id': f"ladder_{lo.id}",
-                    'symbol': sym,
-                    'asset': base_asset,
-                    'provider': lo.broker or 'binance',
-                    'source': lo.broker or 'binance',
-                    'side': lo.side,
-                    'type': 'LADDER',
-                    'price': target_px,
-                    'trigger_price': target_px,
-                    'quantity': details.get('remaining_quantity') if details.get('remaining_quantity') is not None else lo.total_quantity,
-                    'synthetic_details': details,
-                    'account_id': lo.account_id,
-                    'quantity_usdt': rem_budget,
-                    'status': lo.status,
-                    'direction': 'rises to' if lo.side == 'SELL' else 'drops to',
-                    'is_ladder': True,
-                    'rungs_total': lo.rungs_total,
-                    'rungs_filled': lo.rungs_filled,
-                    'next_rung_number': next_rung.rung_number if next_rung else None,
-                    'next_rung_price': target_px,
-                    'next_rung_qty': next_rung.quantity if next_rung else None,
-                    'preset_name': lo.preset_name,
-                    'strategy_type': lo.strategy_type or 'SYNTHETIC',
-                    'upside_mode': lo.upside_mode or 'LADDER',
-                    'downside_mode': lo.downside_mode or ('SINGLE' if lo.has_stop_loss else 'NONE'),
-                    'upside_target_price': lo.upside_target_price,
-                    'downside_target_price': lo.downside_target_price or lo.stop_loss_trigger_price,
-                    'upside_trail_value': lo.upside_trail_value,
-                    'downside_trail_value': lo.downside_trail_value,
-                    'stop_loss_price': lo.stop_loss_trigger_price if lo.has_stop_loss else None
-                })
+            from services.pending_order_serializer import working_synthetic_orders
+            pending_orders.extend(working_synthetic_orders(current_user.id))
             report_scope('synthetic', True)
         except Exception as synth_err:
             logger.warning(f"Error appending synthetic orders to pending_orders: {synth_err}")
@@ -1088,12 +964,6 @@ def api_pending_orders():
             from services.webull_service import get_webull_open_orders, normalize_webull_environment
             from services.webull_import_service import _webull_import_account_ids
             from services.order_history_sync_service import WEBULL_OPEN_ORDER_STATUSES
-
-            def _pending_number(value):
-                try:
-                    return float(value)
-                except (TypeError, ValueError):
-                    return 0.0
 
             setting = UserSetting.query.filter_by(user_id=current_user.id).first()
             environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
@@ -1126,66 +996,19 @@ def api_pending_orders():
                         logger.warning('Webull pending-order lookup failed for account %s: %s', webull_account_id, account_err)
                         report_scope(f'webull:{webull_account_id}', False, 'Webull orders are temporarily unavailable')
 
+            from services.pending_order_serializer import format_webull_open_order
             for order in webull_entries:
-                if not isinstance(order, dict):
-                    continue
-                symbol = str(order.get('symbol') or order.get('ticker') or '').strip().upper()
-                if not symbol:
-                    continue
-                status = str(order.get('status') or order.get('order_status') or '').strip().upper()
-                if status and status not in WEBULL_OPEN_ORDER_STATUSES:
-                    continue
-                side = str(order.get('side') or '').strip().upper()
-                order_type = str(order.get('order_type') or order.get('type') or 'LIMIT').strip().upper()
-                price = next(
-                    (_pending_number(order.get(key)) for key in ('limit_price', 'price', 'order_price', 'limitPrice', 'orderPrice')
-                     if _pending_number(order.get(key)) > 0),
-                    0.0,
-                )
-                stop_price = _pending_number(order.get('stop_price') or order.get('stopPrice'))
-                total_quantity = next(
-                    (_pending_number(order.get(key)) for key in ('total_quantity', 'quantity', 'order_quantity', 'order_qty', 'qty')
-                     if order.get(key) not in (None, '')),
-                    0.0,
-                )
-                filled_quantity = next(
-                    (_pending_number(order.get(key)) for key in ('filled_quantity', 'executed_quantity', 'filled_qty')
-                     if order.get(key) not in (None, '')),
-                    0.0,
-                )
-                quantity = max(0.0, total_quantity - filled_quantity)
-                trigger_price = stop_price or price
-                if side == 'SELL':
-                    direction = 'drops below' if stop_price else 'rises above'
-                else:
-                    direction = 'rises above' if stop_price else 'drops below'
-                pending_orders.append({
-                    'order_id': str(order.get('order_id') or order.get('orderId') or order.get('id') or ''),
-                    'client_order_id': str(order.get('client_order_id') or order.get('clientOrderId') or '').strip() or None,
-                    'symbol': symbol,
-                    'asset': symbol,
-                    'provider': 'webull',
-                    'source': 'webull',
-                    'side': side,
-                    'type': order_type,
-                    'price': price,
-                    'stop_price': stop_price or None,
-                    'quantity': quantity,
-                    'status': status or 'ACTIVE',
-                    'time': order.get('created_at') or order.get('create_time'),
-                    'is_oco': False,
-                    'direction': direction,
-                    'trigger_price': trigger_price,
-                    'quantity_usdt': quantity * (trigger_price or price),
-                    'account_id': str(order.get('_webull_account_id') or order.get('account_id') or ''),
-                    'instrument_type': order.get('instrument_type') or '',
-                })
+                entry = format_webull_open_order(order, WEBULL_OPEN_ORDER_STATUSES)
+                if entry:
+                    pending_orders.append(entry)
         except Exception as webull_err:
             logger.warning(f"Error appending Webull orders to pending_orders: {webull_err}")
             scopes[:] = [scope for scope in scopes if not scope['key'].startswith('webull:')]
             report_scope('webull:*', False, 'Webull orders are temporarily unavailable')
 
         from services.portfolio_service import get_pending_order_mode
+        from services.pending_order_serializer import link_synthetic_children
+        link_synthetic_children(pending_orders)
         logger.info(f"Retrieved {len(pending_orders)} pending orders for user {current_user.username}")
         return jsonify({
             'pending_orders': pending_orders,

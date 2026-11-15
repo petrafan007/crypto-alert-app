@@ -2,6 +2,7 @@ import {
   portfolioRowIdentity, watchlistRowIdentity, rowProvider, rowAccount, rowSymbol, orderMatchesRow,
   sortDashboardRows, parseSortPreference, nextSortPreference, createRowEditLedger, createWatchlistIntents,
 } from '../utils/dashboardRows.mjs';
+import { binanceCashReservation, webullCashReservation, describeCashReservation } from '../utils/cashReservations.mjs';
 import CommittedInput, { sanitizeDecimalInput, formatDecimalInput, sanitizeIntegerInput, formatIntegerInput } from '../components/CommittedInput';
 import { createDashboardRefreshCoordinator, sameDashboardOrder, cancellationOutcome, recentFillRevision, mergePendingOrders } from '../utils/dashboardRefresh.mjs';
 import { syntheticCancellationEndpoint } from '../utils/syntheticCancellation.mjs';
@@ -890,76 +891,14 @@ function Dashboard({ isLightMode }) {
     return found ? Math.max(0, Number(found.amount ?? found.current_value ?? 0)) : 0.0;
   };
 
+  // What is held back from a Binance.US quote balance, by kind. One
+  // calculation serves the available amount, the row highlight and its tooltip.
+  const getQuoteReservation = (quote) => binanceCashReservation(quote, pendingOrders, [...(portfolio || []), ...(watchlist || [])]);
+
   const getQuoteBalance = (quote) => {
-    const cleanQuote = (quote || '').toUpperCase();
-    const rawBal = getRawQuoteBalance(cleanQuote);
+    const rawBal = getRawQuoteBalance(quote);
     if (rawBal <= 0) return 0.0;
-
-    // Sum all quote funds locked in pending exchange and synthetic BUY orders
-    let lockedInBuyOrders = 0.0;
-    let lockedInSyntheticBuyOrders = 0.0;
-    if (Array.isArray(pendingOrders)) {
-      const ocoCosts = {};
-      pendingOrders.forEach(order => {
-        if (orderProvider(order) === 'webull') return;
-        const orderSide = (order.side || '').toUpperCase();
-        const orderSym = (order.symbol || '').toUpperCase();
-        if (orderSide === 'BUY') {
-          const matchesQuote = (cleanQuote === 'USDT' && orderSym.endsWith('USDT')) ||
-            (cleanQuote === 'USD' && orderSym.endsWith('USD') && !orderSym.endsWith('USDT'));
-          if (matchesQuote) {
-            const isSynthetic = !!(
-              order.is_synthetic ||
-              order.is_ladder ||
-              order.is_trailing ||
-              String(order.order_id || '').startsWith('ladder_') ||
-              String(order.order_id || '').startsWith('trail_')
-            );
-            const orderQty = Number(order.quantity ?? 0);
-            const refPrice = Number(order.trigger_price || order.price || 0);
-            const quoteCost = order.quantity_usdt !== undefined && order.quantity_usdt !== null
-              ? Number(order.quantity_usdt)
-              : orderQty * refPrice;
-            if (!isNaN(quoteCost) && quoteCost > 0) {
-              if (isSynthetic) {
-                lockedInSyntheticBuyOrders += quoteCost;
-              } else {
-                const listId = order.orderListId !== undefined ? order.orderListId : -1;
-                if (listId !== -1) {
-                  ocoCosts[listId] = Math.max(ocoCosts[listId] || 0, quoteCost);
-                } else {
-                  lockedInBuyOrders += quoteCost;
-                }
-              }
-            }
-          }
-        }
-      });
-      Object.values(ocoCosts).forEach(cost => { lockedInBuyOrders += cost; });
-    }
-
-    // Sum active Auto-Buy allocations across portfolio and watchlist for this quote currency
-    let reservedInAutoBuys = 0.0;
-    (portfolio || []).forEach(c => {
-      if (c && c.auto_buy_enabled) {
-        const cQuote = (c.auto_buy_quote_currency || 'USDT').toUpperCase();
-        if (cQuote === cleanQuote) {
-          const amt = Number(c.auto_buy_amount || 0);
-          if (!isNaN(amt) && amt > 0) reservedInAutoBuys += amt;
-        }
-      }
-    });
-    (watchlist || []).forEach(w => {
-      if (w && w.auto_buy_enabled) {
-        const wQuote = (w.auto_buy_quote_currency || 'USDT').toUpperCase();
-        if (wQuote === cleanQuote) {
-          const amt = Number(w.auto_buy_amount || 0);
-          if (!isNaN(amt) && amt > 0) reservedInAutoBuys += amt;
-        }
-      }
-    });
-
-    return Math.max(0, rawBal - lockedInBuyOrders - lockedInSyntheticBuyOrders - reservedInAutoBuys);
+    return Math.max(0, rawBal - getQuoteReservation(quote).total);
   };
 
   const getRawWebullCashBalance = (accountId = null) => {
@@ -983,25 +922,7 @@ function Dashboard({ isLightMode }) {
   const getWebullCashBalance = (accountId = null) => {
     const rawCash = getRawWebullCashBalance(accountId);
     if (rawCash <= 0) return 0.0;
-    let lockedInWebullBuy = 0.0;
-    if (Array.isArray(pendingOrders)) {
-      pendingOrders.forEach(order => {
-        if (orderProvider(order) !== 'webull') return;
-        if (accountId && String(order.account_id || '') !== String(accountId)) return;
-        const orderSide = (order.side || '').toUpperCase();
-        if (orderSide === 'BUY') {
-          const orderQty = Number(order.quantity ?? 0);
-          const refPrice = Number(order.trigger_price || order.price || 0);
-          const cost = order.quantity_usdt !== undefined && order.quantity_usdt !== null
-            ? Number(order.quantity_usdt)
-            : orderQty * refPrice;
-          if (!isNaN(cost) && cost > 0) {
-            lockedInWebullBuy += cost;
-          }
-        }
-      });
-    }
-    return Math.max(0, rawCash - lockedInWebullBuy);
+    return Math.max(0, rawCash - webullCashReservation(accountId, pendingOrders).total);
   };
 
   const hasSyntheticBuyOrderForSymbol = (symbol) => {
@@ -5207,14 +5128,21 @@ function Dashboard({ isLightMode }) {
 
                     const isStableQuote = ['USD', 'USDT'].includes(sym);
                     let availableQuote = null;
+                    let cashReservation = null;
                     if (isStableQuote && !isExternal) {
                       availableQuote = getQuoteBalance(sym);
+                      cashReservation = getQuoteReservation(sym);
                     } else if (isStableQuote && isExternal && sym === 'USD') {
                       availableQuote = getWebullCashBalance(coin.account_id);
+                      cashReservation = webullCashReservation(coin.account_id, pendingOrders);
                     }
                     const hasLockedQuote = isStableQuote && availableQuote !== null && availableQuote < (coin.amount || 0) - 0.0001;
-                    const hasExchangeOrder = getPendingOrdersForCoin(coin).length > 0 || hasLockedQuote;
-                    const isAutoBuy = !!coin.auto_buy_enabled;
+                    // Yellow means cash is committed to an order or a monitored strategy.
+                    // Cash that is only set aside for auto-buy is shown as automation instead.
+                    const lockedByOrders = hasLockedQuote && (cashReservation.exchange + cashReservation.synthetic) > 0.0001;
+                    const lockedByAutomation = hasLockedQuote && !lockedByOrders && cashReservation.automation > 0.0001;
+                    const hasExchangeOrder = getPendingOrdersForCoin(coin).length > 0 || lockedByOrders;
+                    const isAutoBuy = !!coin.auto_buy_enabled || lockedByAutomation;
                     const isAutoSell = !!coin.auto_sell_enabled;
                     const status = (coin.staking_status || '').toLowerCase();
                     const isStaked = !isExternal && (!!coin.is_staked || Number(coin.staked_amount || 0) > 0) && status !== 'unstaked';
@@ -5244,7 +5172,7 @@ function Dashboard({ isLightMode }) {
                           ? `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} locked in staking bonding)`
                           : `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} staked)`;
                     } else if (hasLockedQuote) {
-                      rowTitle = `${availableQuote.toFixed(2)} available`;
+                      rowTitle = describeCashReservation(availableQuote, cashReservation, sym);
                     }
 
                     return (

@@ -612,6 +612,12 @@ def _flatten_webull_order_groups(records):
             flattened.append(record)
             continue
         parent = {key: value for key, value in record.items() if key not in {'items', 'orders', 'legs'}}
+        # Legs of one combo order (OCO/OTO/OTOCO/bracket) stay identifiable as a
+        # group after flattening, so linked legs are not mistaken for
+        # independent orders. A single-leg wrapper is not a group.
+        legs = [child for child in children if isinstance(child, dict)]
+        group_id = next((str(parent.get(key)).strip() for key in ('client_combo_order_id', 'combo_order_id', 'client_order_id', 'order_id')
+                         if parent.get(key) not in (None, '')), '') if len(legs) > 1 else ''
         emitted = False
         for child in children:
             if not isinstance(child, dict):
@@ -621,6 +627,9 @@ def _flatten_webull_order_groups(records):
             # parent when it supplies a meaningful value.
             merged = dict(parent)
             merged.update({key: value for key, value in child.items() if value not in (None, '')})
+            if group_id:
+                merged['_webull_group_id'] = group_id
+                merged['_webull_group_size'] = len(legs)
             flattened.append(merged)
             emitted = True
         if not emitted:

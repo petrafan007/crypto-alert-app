@@ -736,75 +736,11 @@ def get_fast_pending_orders(user_id):
     pending_orders = []
     paper_mode = get_pending_order_mode(user_id).endswith(':paper')
 
-    # 1. Trailing and Ladder synthetic orders from DB
+    # 1. Trailing and Ladder synthetic orders from DB, in the same shape the
+    # live pending-order endpoint returns.
     try:
-        from trading_models import TrailingOrder, LadderOrder
-        from services.synthetic_execution_service import WORKING_PARENTS
-        active_trailing = TrailingOrder.query.filter(
-            TrailingOrder.user_id == user_id,
-            TrailingOrder.status.in_(WORKING_PARENTS),
-            TrailingOrder.test_mode.is_(False)
-        ).all()
-        for to in active_trailing:
-            sym = to.symbol.upper()
-            base_asset = next((sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if sym.endswith(q)), sym)
-            pending_orders.append({
-                'order_id': f"trail_{to.id}",
-                'symbol': sym,
-                'asset': base_asset,
-                'provider': to.broker or 'binance',
-                'source': to.broker or 'binance',
-                'side': to.side,
-                'type': 'TRAILING_STOP',
-                'price': to.current_stop_price,
-                'stop_price': to.current_stop_price,
-                'trigger_price': to.current_stop_price,
-                'highest_price': to.highest_price,
-                'lowest_price': to.lowest_price,
-                'quantity': to.quantity,
-                'quantity_usdt': to.quantity * (to.current_stop_price or 0.0),
-                'trail_type': to.trail_type,
-                'trail_value': to.trail_value,
-                'status': to.status,
-                'account_id': to.account_id,
-                'direction': 'drops below' if to.side == 'SELL' else 'rises above',
-                'synthetic_details': to.to_dict(),
-                'is_trailing': True,
-                'is_activated': to.is_activated
-            })
-
-        active_ladders = LadderOrder.query.filter(
-            LadderOrder.user_id == user_id,
-            LadderOrder.status.in_(WORKING_PARENTS),
-            LadderOrder.test_mode.is_(False)
-        ).all()
-        for lo in active_ladders:
-            sym = lo.symbol.upper()
-            base_asset = next((sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if sym.endswith(q)), sym)
-            details = lo.to_dict()
-            pending_rungs = [r for r in lo.rungs if r.status == 'PENDING']
-            next_rung = pending_rungs[0] if pending_rungs else None
-            target_px = next_rung.target_price if next_rung else (lo.upside_target_price or lo.downside_target_price or 0.0)
-            rem_qty = float((details.get('remaining_quantity') if details.get('remaining_quantity') is not None else lo.total_quantity) or 0.0)
-            tot_qty = float(lo.total_quantity or 1.0)
-            rem_budget = float(lo.total_budget_usd) * (rem_qty / tot_qty) if lo.total_budget_usd else rem_qty * target_px
-            pending_orders.append({
-                'order_id': f"ladder_{lo.id}",
-                'symbol': sym,
-                'asset': base_asset,
-                'provider': lo.broker or 'binance',
-                'source': lo.broker or 'binance',
-                'side': lo.side,
-                'type': 'LADDER',
-                'price': target_px,
-                'trigger_price': target_px,
-                'quantity': rem_qty,
-                'account_id': lo.account_id,
-                'quantity_usdt': rem_budget,
-                'status': lo.status,
-                'direction': 'rises to' if lo.side == 'SELL' else 'drops to',
-                'is_ladder': True,
-            })
+        from services.pending_order_serializer import working_synthetic_orders
+        pending_orders.extend(working_synthetic_orders(user_id))
     except Exception as synth_err:
         logger.warning(f"Error appending synthetic orders to fast pending_orders: {synth_err}")
 
@@ -837,6 +773,8 @@ def get_fast_pending_orders(user_id):
                 'price': px,
                 'stop_price': None,
                 'quantity': qty,
+                'original_quantity': float(wo.quantity or 0.0),
+                'filled_quantity': float(wo.filled_quantity or 0.0),
                 'status': wo.status or 'ACTIVE',
                 'time': wo.created_at.isoformat() if wo.created_at else None,
                 'is_oco': False,
@@ -856,5 +794,11 @@ def get_fast_pending_orders(user_id):
             pending_orders.extend(cached[1])
     except Exception as binance_cache_err:
         logger.warning(f"Error reading Binance cache for fast pending_orders: {binance_cache_err}")
+
+    try:
+        from services.pending_order_serializer import link_synthetic_children
+        link_synthetic_children(pending_orders)
+    except Exception as link_err:
+        logger.warning(f"Error linking synthetic child orders in fast pending_orders: {link_err}")
 
     return pending_orders

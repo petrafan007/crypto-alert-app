@@ -50,3 +50,27 @@ test('BUY breakout and dip tooltip arrows follow market direction', () => {
  assert.match(text,/Breakout entry: ≥ 110.00 USDT/);
  assert.match(text,/Dip entry: ≤ 90.00 USDT/);
 });
+
+test('conditional strategies are described by their legs and phase, not as a ladder (F16)', () => {
+  const legs = [{ side: 'BUY', order_type: 'LIMIT', price: 160 }, { side: 'SELL', order_type: 'LIMIT', price: 175 }, { side: 'SELL', order_type: 'STOP_LOSS', stop_price: 150 }];
+  const details = { broker: 'webull', symbol: 'NVDA', side: 'BUY', status: 'ACTIVE', strategy_type: 'OTOCO', total_quantity: 10, filled_quantity: 0,
+    remaining_quantity: 10, upside_mode: 'NONE', downside_mode: 'NONE', trading_session: 'ALL', conditional_phase: 'ENTRY', conditional_spec: { legs } };
+  const entry = syntheticOrderTooltip({ type: 'LADDER', asset: 'NVDA', synthetic_details: details });
+  assert.match(entry, /^OTOCO \(entry, then one-cancels-the-other exits\) BUY · Webull · synthetic · ACTIVE/);
+  assert.match(entry, /Entry: BUY limit ≤ 160\.00 USD/);
+  assert.match(entry, /After the entry fills: SELL limit ≥ 175\.00 USD · SELL stop ≤ 150\.00 USD/);
+  assert.doesNotMatch(entry, /Ladder|Breakout entry: off|Dip entry: off/);
+
+  const exit = syntheticOrderTooltip({ type: 'LADDER', asset: 'NVDA', synthetic_details: { ...details, side: 'SELL', conditional_phase: 'EXIT', filled_quantity: 0, total_quantity: 6, remaining_quantity: 6 } });
+  assert.match(exit, /Exit: SELL limit ≥ 175\.00 USD/); assert.match(exit, /Exit: SELL stop ≤ 150\.00 USD/);
+  assert.match(exit, /Only one of these can execute/);
+
+  // The server's own leg list for the current phase takes precedence.
+  const oco = syntheticOrderTooltip({ type: 'LADDER', asset: 'NVDA',
+    legs: [{ side: 'BUY', order_type: 'LIMIT', price: 100 }, { side: 'BUY', order_type: 'STOP_LOSS_LIMIT', stop_price: 110, price: 111 }], waiting_legs: [],
+    synthetic_details: { ...details, strategy_type: 'OCO', conditional_phase: 'SINGLE', trading_session: 'CORE' } });
+  assert.match(oco, /^OCO \(one cancels the other\) BUY/);
+  assert.match(oco, /Trigger: BUY limit ≤ 100\.00 USD/);
+  assert.match(oco, /Trigger: BUY stop limit ≥ 110\.00 USD \(limit 111\.00 USD\)/);
+  assert.match(oco, /regular market hours/);
+});

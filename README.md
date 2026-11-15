@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.16.4
+**Version:** 4.16.5
 
 ## Recent Updates
+
+### v4.16.5
+* **Cash counted once:** A synthetic strategy and the broker order it placed no longer both hold the same cash; they are linked by the strategy's own order records, never by a lookalike symbol or price. The two alternative legs of an OCO hold cash for one branch, not both. Partially filled orders hold cash only for the unfilled remainder.
+* **What holds your cash:** Hovering a USD or USDT row lists how much is held by open broker orders, by synthetic strategies being monitored, and by auto-buy budgets. Yellow now means an order or strategy holds cash; a row held only by an auto-buy budget shows the auto-buy colour instead.
+* **Conditional strategies described correctly:** OCO, OTO and OTOCO strategies show their real legs and trigger prices for the current phase, and what happens after the entry fills, instead of a ladder with both sides "off" and a zero price.
+* **Audit progress:** 31 of 38 findings in the [portfolio/watchlist audit ledger](docs/audits/portfolio-watchlist-refresh-audit.md) are complete; server-side cache and background-sync coordination remain open.
 
 ### v4.16.4
 * **Outages no longer look like cancelled orders:** If Binance.US or a Webull account cannot be read, its rows keep their pending highlight and a line above the Portfolio says which source is unavailable. A source that answers with no orders still clears its highlights straight away.
