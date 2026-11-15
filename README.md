@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.16.1
+**Version:** 4.16.2
 
 ## Recent Updates
+
+### v4.16.2
+* **Dashboard cancellation and refresh stability:** Polling and order-action refreshes share a mutation-aware coordinator. Older responses cannot restore a locally confirmed cancellation; an explicit empty order list clears both asset and cash highlights. Unresolved cancellations remain visible, and a failed result returned with HTTP 200 is no longer treated as success.
+* **Consistent snapshots and totals:** Saved portfolio data is used only for initial hydration and labeled while updating. Live rows and totals are accepted together, zero totals remain zero, and missing totals retain their last value with a freshness notice. Unscoped browser financial caches were removed.
+* **Audit progress and regression coverage:** The [portfolio/watchlist audit ledger](docs/audits/portfolio-watchlist-refresh-audit.md) tracks completed, partial, and remaining findings. Deterministic tests cover delayed responses, cleanup, cancellation identity, and rendered NVDA/USD highlights. Watchlist sorting and backend completeness/cache work remain open.
 
 ### v4.16.1
 * **Fix Dashboard Cancellation of Webull Synthetic Orders:** Dashboard cancellation now resolves local `ladder_` and `trail_` strategy IDs before selecting the broker endpoint. The Webull cancellation endpoint also intercepts these local IDs, validates ownership/account and live 2FA, and cancels through the synthetic engine. A local strategy ID is never transmitted to Webull as a broker order ID.

@@ -41,3 +41,7 @@ Verification uses isolated databases and mocked broker calls for sequencing, par
 ## Dashboard cancellation correction (v4.16.1)
 
 Dashboard cancellations route local `ladder_` / `trail_` identifiers to the synthetic cancellation endpoints before broker routing. The Webull broker cancellation endpoint independently intercepts these identifiers and validates ownership, account, mode and fresh live 2FA. An untriggered strategy cancels locally; a submitted child is reconciled/cancelled using its durable broker identifiers. Pending broker confirmation does not remove the strategy from the dashboard as if cancellation were complete. The confirmation names the synthetic strategy and displays its account, session and saved upper/lower triggers.
+
+## Dashboard refresh protection (v4.16.2)
+
+Successful cancellation invalidates older dashboard reads. A strategy is removed locally only after an explicit successful result with final `CANCELLED`/`CANCELED` status; acknowledgements and `CANCEL_PENDING` remain visible while the broker outcome is unresolved. Confirmed local cancellations remain suppressed for the dashboard session, even if a later cached order list contains them. Recovery and other synthetic updates trigger the same dashboard refresh coordinator. This does not replace cross-worker cache invalidation; the remaining work is tracked in the [audit ledger](audits/portfolio-watchlist-refresh-audit.md).

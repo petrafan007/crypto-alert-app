@@ -1,3 +1,4 @@
+import { createDashboardRefreshCoordinator, sameDashboardOrder, cancellationOutcome, recentFillRevision } from '../utils/dashboardRefresh.mjs';
 import { syntheticCancellationEndpoint } from '../utils/syntheticCancellation.mjs';
 import { syntheticOrderTooltip } from '../utils/syntheticOrders.mjs';
 import React, { useEffect, useState, useRef, useMemo } from 'react';
@@ -136,32 +137,10 @@ function Dashboard({ isLightMode }) {
   const MINIMUM_PORTFOLIO_AMOUNT = 0.0001;
   const { isLoggingOut, user } = useAuth();
   const navigate = useNavigate();
-  const [totalValue, setTotalValue] = useState(() => {
-    try {
-      const saved = localStorage.getItem('dashboard_totalValue');
-      return saved ? Number(saved) : null;
-    } catch (e) {
-      return null;
-    }
-  });
-  const [accountTotals, setAccountTotals] = useState(() => {
-    try {
-      const saved = localStorage.getItem('dashboard_accountTotals');
-      return saved ? JSON.parse(saved) : { all: 0, binance: 0, webull: 0 };
-    } catch (e) {
-      return { all: 0, binance: 0, webull: 0 };
-    }
-  });
-
-  useEffect(() => {
-    if (totalValue !== null) {
-      try { localStorage.setItem('dashboard_totalValue', totalValue); } catch (e) {}
-    }
-  }, [totalValue]);
-
-  useEffect(() => {
-    try { localStorage.setItem('dashboard_accountTotals', JSON.stringify(accountTotals)); } catch (e) {}
-  }, [accountTotals]);
+  // Financial snapshots belong to this authenticated mount, never browser-wide
+  // storage shared by different users/accounts/environments.
+  const [totalValue, setTotalValue] = useState(null);
+  const [accountTotals, setAccountTotals] = useState({});
   const [accountScope, setAccountScope] = useState(() => localStorage.getItem('dashboard_account_scope') || 'all');
   const [portfolio, setPortfolio] = useState([]);
   const [optimisticHiddenCoins, setOptimisticHiddenCoins] = useState(new Set());
@@ -176,14 +155,19 @@ function Dashboard({ isLightMode }) {
   // can never overwrite state with data older than what's already been rendered.
   const watchlistFetchIdRef = useRef(0);
   const watchlistAppliedIdRef = useRef(0);
-  const portfolioFetchIdRef = useRef(0);
-  const portfolioAppliedIdRef = useRef(0);
   const portfolioScrollRef = useRef(null);
   const watchlistScrollRef = useRef(null);
   const pendingOrdersRef = useRef([]);
-  const rawPortfolioRef = useRef([]);
+  const dashboardRefreshRef = useRef(null);
+  const dashboardUserRef = useRef(user?.id);
+  const confirmedCancellationsRef = useRef([]);
+  const [portfolioFreshness, setPortfolioFreshness] = useState('loading');
+  const refreshDashboard = () => {
+    // Also invalidate older standalone watchlist reads after an order action.
+    watchlistAppliedIdRef.current = ++watchlistFetchIdRef.current;
+    return dashboardRefreshRef.current?.request({ invalidate: true });
+  };
   const nextWatchlistFetchId = () => ++watchlistFetchIdRef.current;
-  const nextPortfolioFetchId = () => ++portfolioFetchIdRef.current;
 
   const pendingOrderProvider = (asset) => (
     asset && (asset.is_external === true || asset.source === 'webull') ? 'webull' : 'binance'
@@ -215,17 +199,28 @@ function Dashboard({ isLightMode }) {
     });
   };
 
-  const applyPortfolioUpdate = (incoming, fetchId, pendingOrdersList) => {
-    if (typeof fetchId === 'number' && fetchId < portfolioAppliedIdRef.current) {
-      return;
-    }
-    if (typeof fetchId === 'number') {
-      portfolioAppliedIdRef.current = fetchId;
-    }
+  const publishSnapshotTotals = (totals) => {
+    const valid = Object.fromEntries(['all', 'binance', 'webull']
+      .filter(scope => Number.isFinite(totals?.[scope]))
+      .map(scope => [scope, totals[scope]]));
+    setAccountTotals(previous => ({ ...previous, ...valid }));
+    if (Number.isFinite(valid.all)) setTotalValue(valid.all);
+    return Object.keys(valid).length === 3;
+  };
 
-    const ordersToCheck = (Array.isArray(pendingOrdersList) && pendingOrdersList.length > 0)
-      ? pendingOrdersList
-      : (pendingOrdersRef.current && pendingOrdersRef.current.length > 0 ? pendingOrdersRef.current : []);
+  const publishPendingOrders = (orders) => {
+    if (!Array.isArray(orders)) return; // unavailable/omitted is not an empty list
+    const accepted = orders.filter(order => !confirmedCancellationsRef.current.some(cancelled => sameDashboardOrder(order, cancelled)));
+    pendingOrdersRef.current = accepted;
+    setPendingOrders(accepted);
+    const updateFlags = rows => rows.map(row => ({ ...row, hasPendingOrder: getPendingOrdersForCoin(row, accepted).length > 0 }));
+    setPortfolio(updateFlags);
+    setWatchlist(updateFlags);
+  };
+
+  const applyPortfolioUpdate = (incoming) => {
+    if (!Array.isArray(incoming)) return;
+    const ordersToCheck = pendingOrdersRef.current;
 
     setPortfolio(prev => {
       const incomingMap = new Map();
@@ -328,9 +323,6 @@ function Dashboard({ isLightMode }) {
   const [trendHistoryRange, setTrendHistoryRange] = useState(null);
   const [pendingOrders, setPendingOrders] = useState([]);
 
-  useEffect(() => {
-    pendingOrdersRef.current = pendingOrders;
-  }, [pendingOrders]);
   const [orderTooltip, setOrderTooltip] = useState({ visible: false, text: '', x: 0, y: 0 });
   const [trendRange, setTrendRange] = useState('7D');
   const [showTrendRangeModal, setShowTrendRangeModal] = useState(false);
@@ -471,8 +463,8 @@ function Dashboard({ isLightMode }) {
   }, [portfolio, accountScope, optimisticHiddenCoins]);
 
   const scopedTotalValue = useMemo(() => {
-    const apiTotal = Number(accountTotals[accountScope] ?? 0);
-    if (apiTotal > 0 || accountScope === 'webull') return apiTotal;
+    const apiTotal = accountTotals[accountScope];
+    if (apiTotal != null && Number.isFinite(Number(apiTotal))) return Number(apiTotal);
     if (accountScope === 'all' && totalValue != null) return Number(totalValue) || 0;
     return scopedPortfolio.reduce((sum, item) => sum + (Number(item.current_value) || 0), 0);
   }, [accountScope, accountTotals, totalValue, scopedPortfolio]);
@@ -2219,207 +2211,104 @@ function Dashboard({ isLightMode }) {
   };
 
   useEffect(() => {
-    let refreshInterval;
-
-    async function fetchData(isInitialLoad = true) {
-      try {
-        // Don't make any API calls if we're logging out
-        if (isLoggingOut || window.globalIsLoggingOut) {
-          return;
-        }
-
-        // Background refresh - no longer need to check for actively editing since portfolio alert fields are now uncontrolled
-
-        if (isInitialLoad) {
-          setNeedsLogin(false);
-          // Don't set loading true - it clears the table!
-        }
-
-        // First, fetch portfolio data (most important) - use database for instant load (< 20ms)
-        try {
-          const portfolioResponse = await axios.get('/api/coin-data');
-          const rawPortfolio = Array.isArray(portfolioResponse.data?.portfolio)
-            ? portfolioResponse.data.portfolio
-            : [];
-          rawPortfolioRef.current = rawPortfolio;
-
-          if (portfolioResponse.data?.account_totals) {
-            setAccountTotals(portfolioResponse.data.account_totals);
-            setTotalValue(portfolioResponse.data.account_totals.all);
-          }
-
-          // If backend sent fast pending_orders with coin-data, initialize pending orders immediately for instant highlights
-          const incomingPending = Array.isArray(portfolioResponse.data?.pending_orders)
-            ? portfolioResponse.data.pending_orders
-            : (pendingOrdersRef.current && pendingOrdersRef.current.length > 0 ? pendingOrdersRef.current : []);
-          if (incomingPending.length > 0) {
-            pendingOrdersRef.current = incomingPending;
-            setPendingOrders(incomingPending);
-          }
-
-          const currentPending = pendingOrdersRef.current || [];
-          const withFlags = rawPortfolio
-            .filter(c => {
-              if (!c || !c.symbol || !String(c.symbol).trim()) return false;
-              if (c.pendingPlaceholder || String(c.id || '').startsWith('pending-')) return false;
-              const hasHoldings = Number(c.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-              const isStaked = !c.is_external && (!!c.is_staked || Number(c.staked_amount || 0) > 0);
-              return hasHoldings || isStaked || c.force_visible;
-            })
-            .map((c) => ({
-              ...c,
-              hasPendingOrder: getPendingOrdersForCoin(c, currentPending).length > 0,
-              pendingPlaceholder: false
-            }));
-
-          if (withFlags.length > 0 || isInitialLoad) {
-            setPortfolio(withFlags);
-          }
-          if (isInitialLoad) {
-            setLoading(false);
-          }
-        } catch (error) {
-          console.error('Error fetching portfolio:', error);
-          if (error.response && (error.response.status === 302 || error.response.status === 401)) {
-            setNeedsLogin(true);
-            return;
-          }
-          if (isInitialLoad) {
-            setLoading(false);
-          }
-        }
-
-        // Then fetch other data in parallel (background refresh) - don't block initial dashboard render
-        if (isInitialLoad) {
-          setTimeout(() => {
-            const wFetchId = nextWatchlistFetchId();
-            Promise.allSettled([
-              axios.get('/api/watchlist'),
-              axios.get(`/api/true-portfolio-value?ts=${Date.now()}`),
-              axios.get('/api/account-summary'),
-              axios.get('/api/pending-orders', { withCredentials: true })
-            ]).then(([watchlistResponse, portfolioValueResponse, accountSummaryResponse, ordersResponse]) => {
-              // Handle watchlist
-              if (watchlistResponse.status === 'fulfilled') {
-                console.log('Watchlist response:', watchlistResponse.value.data);
-                applyWatchlistUpdate(watchlistResponse.value.data || [], wFetchId);
-              }
-
-              // Handle portfolio value
-              if (portfolioValueResponse.status === 'fulfilled') {
-                const totalVal = portfolioValueResponse.value.data?.total_value;
-                console.log(`[DEBUG] Received Total Portfolio Value: ${totalVal}`, portfolioValueResponse.value.data);
-                setTotalValue(totalVal || 0);
-              }
-              if (accountSummaryResponse.status === 'fulfilled') {
-                setAccountTotals(accountSummaryResponse.value.data?.totals || { all: 0, binance: 0, webull: 0 });
-              }
-
-              // Handle pending orders and apply highlight flags + zero-balance rows
-              if (ordersResponse.status === 'fulfilled' && ordersResponse.value?.data?.pending_orders) {
-                const refreshedPendingOrders = ordersResponse.value.data.pending_orders || [];
-                pendingOrdersRef.current = refreshedPendingOrders;
-                setPendingOrders(refreshedPendingOrders);
-                const pFetchId = nextPortfolioFetchId();
-                applyPortfolioUpdate(rawPortfolioRef.current || [], pFetchId, refreshedPendingOrders);
-              }
-            });
-          }, 50); // Small delay to ensure initial portfolio renders first
-        } else {
-          // For background refresh, wait for all data including live portfolio data
-          const wFetchId = nextWatchlistFetchId();
-          const [watchlistResponse, portfolioValueResponse, livePortfolioResponse, ordersResponse, accountSummaryResponse] = await Promise.allSettled([
-            axios.get('/api/watchlist-live'),
-            axios.get(`/api/true-portfolio-value?ts=${Date.now()}`),
-            axios.get('/api/coin-data-live'),
-            axios.get('/api/pending-orders', { withCredentials: true }),
-            axios.get('/api/account-summary')
-            // Don't fetch trend history in background refresh - it's handled by useEffect
-          ]);
-
-          // Also check for recent filled orders
-          await checkForFilledOrders();
-
-          // Check for authentication errors in any response
-          const hasAuthError = [watchlistResponse, portfolioValueResponse, livePortfolioResponse, ordersResponse].some(
-            response => response.status === 'rejected' &&
-              response.reason.response &&
-              (response.reason.response.status === 302 || response.reason.response.status === 401)
-          );
-
-          if (hasAuthError) {
-            setNeedsLogin(true);
-            return;
-          }
-
-          // Handle watchlist
-          if (watchlistResponse.status === 'fulfilled') {
-            applyWatchlistUpdate(watchlistResponse.value.data || [], wFetchId);
-          }
-
-          // Handle portfolio value
-          if (portfolioValueResponse.status === 'fulfilled') {
-            setTotalValue(portfolioValueResponse.value.data.total_value || 0);
-          }
-          if (accountSummaryResponse.status === 'fulfilled') {
-            setAccountTotals(accountSummaryResponse.value.data?.totals || { all: 0, binance: 0, webull: 0 });
-          }
-
-          // Refresh pending orders; row matching below remains provider-aware.
-          if (ordersResponse.status === 'fulfilled' && ordersResponse.value?.data?.pending_orders) {
-            const refreshedPendingOrders = ordersResponse.value.data.pending_orders || [];
-            pendingOrdersRef.current = refreshedPendingOrders;
-            setPendingOrders(refreshedPendingOrders);
-          }
-
-          // Handle live portfolio data (update with fresh prices) – merge into existing state
-          if (livePortfolioResponse.status === 'fulfilled' && livePortfolioResponse.value.data.portfolio) {
-            const pendingOrdersList = (ordersResponse.status === 'fulfilled' && ordersResponse.value?.data?.pending_orders)
-              ? ordersResponse.value.data.pending_orders
-              : (Array.isArray(livePortfolioResponse.value.data?.pending_orders) && livePortfolioResponse.value.data.pending_orders.length > 0
-                ? livePortfolioResponse.value.data.pending_orders
-                : pendingOrdersRef.current);
-            const pFetchId = nextPortfolioFetchId();
-            applyPortfolioUpdate(livePortfolioResponse.value.data.portfolio, pFetchId, pendingOrdersList);
-            
-            if (livePortfolioResponse.value.data.account_totals) {
-              setAccountTotals(livePortfolioResponse.value.data.account_totals);
-              setTotalValue(livePortfolioResponse.value.data.account_totals.all);
-            }
-          }
-        }
-
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        if (isInitialLoad) {
-          setError('Failed to load dashboard data');
-        }
-      } finally {
-        if (isInitialLoad) {
-          setLoading(false);
-        }
-      }
+    if (dashboardUserRef.current !== user?.id) {
+      dashboardUserRef.current = user?.id;
+      confirmedCancellationsRef.current = [];
+      publishPendingOrders([]);
+      setPortfolio([]);
+      setWatchlist([]);
+      setAccountTotals({});
+      setTotalValue(null);
+      setPortfolioFreshness('loading');
+      setLoading(true);
     }
-
-    // Initial load - show data immediately
-    fetchData(true);
-
-    // Set up background refresh every 10 seconds for faster updates
-    refreshInterval = setInterval(() => {
-      fetchData(false);
-    }, 10000);
-
-    // Cleanup interval on unmount
-    const handleRefreshEvent = () => fetchData(true);
-    window.addEventListener('app:refresh-dashboard', handleRefreshEvent);
-
-    return () => {
-      if (refreshInterval) {
-        clearInterval(refreshInterval);
+    if (isLoggingOut || !user?.id) return;
+    let hydrate = true;
+    const seenFills = new Set();
+    const coordinator = createDashboardRefreshCoordinator(async ticket => {
+      if (window.globalIsLoggingOut) return;
+      const options = { withCredentials: true, signal: ticket.signal, timeout: 30000 };
+      if (hydrate) {
+        hydrate = false;
+        try {
+          const response = await axios.get('/api/coin-data', options);
+          if (!ticket.isCurrent() || window.globalIsLoggingOut) return;
+          publishPendingOrders(response.data?.pending_orders);
+          applyPortfolioUpdate(response.data?.portfolio);
+          publishSnapshotTotals(response.data?.account_totals);
+          setPortfolioFreshness('cached');
+          setLoading(false);
+        } catch (error) {
+          if (!ticket.isCurrent()) return;
+          if ([302, 401].includes(error.response?.status)) {
+            setNeedsLogin(true);
+            setLoading(false);
+            return;
+          }
+          // A failed cache read must not prevent the live read.
+        }
       }
+      if (!ticket.isCurrent()) return;
+      const wFetchId = nextWatchlistFetchId();
+      const [portfolioResponse, ordersResponse, watchlistResponse, fillsResponse] = await Promise.allSettled([
+        axios.get('/api/coin-data-live', options),
+        axios.get('/api/pending-orders', options),
+        axios.get('/api/watchlist-live', options),
+        axios.get('/api/orders', options),
+      ]);
+      if (!ticket.isCurrent() || window.globalIsLoggingOut) return;
+      if ([portfolioResponse, ordersResponse, watchlistResponse].some(response =>
+        response.status === 'rejected' && [302, 401].includes(response.reason.response?.status))) {
+        setNeedsLogin(true);
+        setLoading(false);
+        return;
+      }
+      setNeedsLogin(false);
+      // Dedicated order reads own order state after hydration. Embedded fast
+      // orders can be cached and must never override this accepted list.
+      if (ordersResponse.status === 'fulfilled') publishPendingOrders(ordersResponse.value.data?.pending_orders);
+      if (watchlistResponse.status === 'fulfilled' && Array.isArray(watchlistResponse.value.data)) {
+        applyWatchlistUpdate(watchlistResponse.value.data, wFetchId);
+      }
+      if (portfolioResponse.status === 'fulfilled' && Array.isArray(portfolioResponse.value.data?.portfolio)) {
+        const snapshot = portfolioResponse.value.data;
+        applyPortfolioUpdate(snapshot.portfolio);
+        setPortfolioFreshness(publishSnapshotTotals(snapshot.account_totals) ? 'live' : 'partial');
+        setError(null);
+      } else {
+        setPortfolioFreshness('stale');
+      }
+      if (fillsResponse.status === 'fulfilled' && Array.isArray(fillsResponse.value.data?.orders)) {
+        let hasNewFill = false;
+        for (const order of fillsResponse.value.data.orders) {
+          const revision = recentFillRevision(order);
+          if (revision && !seenFills.has(revision)) {
+            seenFills.add(revision);
+            hasNewFill = true;
+          }
+        }
+        if (hasNewFill) showAppToast('Order filled.', 'success');
+      }
+      setLoading(false);
+    }, error => {
+      console.error('Error refreshing dashboard:', error);
+      setPortfolioFreshness('stale');
+      setLoading(false);
+    });
+    dashboardRefreshRef.current = coordinator;
+    coordinator.request();
+    const interval = setInterval(() => coordinator.request(), 10000);
+    const handleRefreshEvent = () => refreshDashboard();
+    window.addEventListener('app:refresh-dashboard', handleRefreshEvent);
+    window.addEventListener('app:synthetic-updated', handleRefreshEvent);
+    return () => {
+      coordinator.stop();
+      clearInterval(interval);
+      if (dashboardRefreshRef.current === coordinator) dashboardRefreshRef.current = null;
       window.removeEventListener('app:refresh-dashboard', handleRefreshEvent);
+      window.removeEventListener('app:synthetic-updated', handleRefreshEvent);
     };
-  }, []);
+  }, [user?.id, isLoggingOut]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2468,32 +2357,6 @@ function Dashboard({ isLightMode }) {
 
   // Force refresh portfolio data
 
-
-  // Check for recent filled orders and update portfolio
-  const checkForFilledOrders = async () => {
-    try {
-      const ordersResponse = await axios.get('/api/orders');
-      if (ordersResponse.data.orders) {
-        const recentFilledOrders = ordersResponse.data.orders.filter(order =>
-          order.status === 'FILLED' &&
-          new Date(order.created_time) > new Date(Date.now() - 5 * 60 * 1000) // Last 5 minutes
-        );
-
-        if (recentFilledOrders.length > 0) {
-          console.log('Found recent filled orders, refreshing portfolio...');
-          showAppToast('Order filled! Portfolio updated.', 'success');
-
-          // Refresh portfolio data
-          const response = await axios.get('/api/coin-data-live');
-          if (response.data.portfolio && response.data.portfolio.length > 0) {
-            applyPortfolioUpdate(response.data.portfolio, nextPortfolioFetchId(), pendingOrdersRef.current);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error checking for filled orders:', error);
-    }
-  };
 
   // Toggle favorite for portfolio coins
   const toggleFavorite = async (coinId, currentFavorite) => {
@@ -3019,8 +2882,7 @@ function Dashboard({ isLightMode }) {
   const handleConfirmReplaceOrder = async (order, twoFactorCode, newConfig) => {
     if (!order || !newConfig) {
       setReplaceModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
-      axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
-      axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => { });
+      refreshDashboard();
       return { success: true };
     }
     setReplaceModalState(prev => ({ ...prev, loading: true, error: null }));
@@ -3038,11 +2900,10 @@ function Dashboard({ isLightMode }) {
       }
 
       const response = await axios.post(`/api/replace-order/${orderId}`, payload, { withCredentials: true });
-      if (response.data.success || response.status === 200) {
+      if (response.data.success === true) {
         setReplaceModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
         // Background refresh
-        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
-        axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => { });
+        refreshDashboard();
         return { success: true };
       } else {
         setReplaceModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to replace order' }));
@@ -3126,11 +2987,7 @@ function Dashboard({ isLightMode }) {
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
-          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
-          {
-            const wFetchId = nextWatchlistFetchId();
-            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
-          }
+          refreshDashboard();
           return { success: true };
         } else {
           setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel auto-buy trigger' }));
@@ -3151,11 +3008,7 @@ function Dashboard({ isLightMode }) {
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
-          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
-          {
-            const wFetchId = nextWatchlistFetchId();
-            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
-          }
+          refreshDashboard();
           return { success: true };
         } else {
           setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel auto-sell trigger' }));
@@ -3174,59 +3027,20 @@ function Dashboard({ isLightMode }) {
           payload.two_factor_code = twoFactorCode;
         }
         const response = await axios.post(syntheticCancellationEndpoint(order) || '/api/webull/orders/cancel', payload, { withCredentials: true });
-        const savedStrategy = response.data?.ladder_order || response.data?.trailing_order;
-        if (savedStrategy?.status === 'CANCEL_PENDING') {
+        if (cancellationOutcome(response.data) === 'pending') {
           window.dispatchEvent(new Event('app:synthetic-updated'));
-          setCancelModalState(prev => ({ ...prev, loading: false, error: 'Cancellation requested. The order remains visible until Webull confirms its final state. No additional cancellation is needed.' }));
+          setCancelModalState(prev => ({ ...prev, loading: false, error: 'Cancellation requested. The order remains visible until the broker confirms its final state. No additional cancellation is needed.' }));
           return response.data;
         }
 
-        if (response.data?.success || response.status === 200) {
-          setPendingOrders(prev => {
-            const next = prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
-            pendingOrdersRef.current = next;
-            return next;
-          });
-          setPortfolio(prev => {
-            const remainingOrders = pendingOrders.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
-            return prev
-              .map(c => {
-                const cSym = (c.symbol || '').toUpperCase();
-                if (pendingOrderProvider(c) === 'webull' && cSym === symbol) {
-                  return { ...c, hasPendingOrder: getPendingOrdersForCoin(c, remainingOrders).length > 0 };
-                }
-                return c;
-              })
-              .filter(c => {
-                const cSym = (c.symbol || '').toUpperCase();
-                const isTarget = pendingOrderProvider(c) === 'webull' && cSym === symbol;
-                if (isTarget && getPendingOrdersForCoin(c, remainingOrders).length === 0 && Number(c.amount || 0) <= 0.00000001) {
-                  return false;
-                }
-                return true;
-              });
-          });
-          setWatchlist(prev => {
-            const remainingOrders = pendingOrders.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
-            return prev.map(w => {
-              const wSym = (w.symbol || '').toUpperCase();
-              if (pendingOrderProvider(w) === 'webull' && wSym === symbol) {
-                return { ...w, hasPendingOrder: getPendingOrdersForCoin(w, remainingOrders).length > 0 };
-              }
-              return w;
-            });
-          });
+        if (cancellationOutcome(response.data) === 'confirmed') {
+          confirmedCancellationsRef.current.push(order);
+          publishPendingOrders(pendingOrdersRef.current);
 
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
-          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
-          axios.get('/api/pending-orders', { withCredentials: true }).then(r => {
-            if (r.data?.pending_orders) {
-              pendingOrdersRef.current = r.data.pending_orders;
-              setPendingOrders(r.data.pending_orders);
-            }
-          }).catch(() => { });
+          refreshDashboard();
 
           return { success: true };
         } else {
@@ -3239,46 +3053,22 @@ function Dashboard({ isLightMode }) {
         if (twoFactorCode) {
           payload.two_factor_code = twoFactorCode;
         }
-        const response = await axios.post(`/api/cancel-order/${orderId}`, payload, { withCredentials: true });
+        const response = await axios.post(syntheticCancellationEndpoint(order) || `/api/cancel-order/${orderId}`, payload, { withCredentials: true });
 
-        if (response.data.success || response.status === 200) {
-          const baseSymbol = (symbol || '').replace(/USDT$/i, '').replace(/USD$/i, '').toUpperCase();
-          setPendingOrders(prev => {
-            const next = prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
-            pendingOrdersRef.current = next;
-            return next;
-          });
-          setPortfolio(prev => {
-            const remainingOrders = pendingOrders.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
-            return prev
-              .map(c => {
-                const cSym = (c.symbol || '').toUpperCase();
-                const isBinanceAsset = pendingOrderProvider(c) === 'binance';
-                if (isBinanceAsset && (cSym === symbol || cSym === baseSymbol)) {
-                  return { ...c, hasPendingOrder: getPendingOrdersForCoin(c, remainingOrders).length > 0 };
-                }
-                return c;
-              })
-              .filter(c => {
-                const cSym = (c.symbol || '').toUpperCase();
-                const isTarget = pendingOrderProvider(c) === 'binance' && (cSym === symbol || cSym === baseSymbol);
-                if (isTarget && getPendingOrdersForCoin(c, remainingOrders).length === 0 && Number(c.amount || 0) <= 0.00000001) {
-                  return false;
-                }
-                return true;
-              });
-          });
+        if (cancellationOutcome(response.data) === 'pending') {
+          refreshDashboard();
+          setCancelModalState(prev => ({ ...prev, loading: false, error: 'Cancellation requested. The order remains visible until the broker confirms its final state. No additional cancellation is needed.' }));
+          return response.data;
+        }
+
+        if (cancellationOutcome(response.data) === 'confirmed') {
+          confirmedCancellationsRef.current.push(order);
+          publishPendingOrders(pendingOrdersRef.current);
 
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
-          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
-          axios.get('/api/pending-orders', { withCredentials: true }).then(r => {
-            if (r.data?.pending_orders) {
-              pendingOrdersRef.current = r.data.pending_orders;
-              setPendingOrders(r.data.pending_orders);
-            }
-          }).catch(() => { });
+          refreshDashboard();
 
           return { success: true };
         } else {
@@ -4608,7 +4398,7 @@ function Dashboard({ isLightMode }) {
       } catch (err) {
         console.error('Update alert type error:', err);
         // Revert optimistic update on error by refreshing data
-        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
+        refreshDashboard();
       }
     };
 
@@ -5108,7 +4898,7 @@ function Dashboard({ isLightMode }) {
             const wFetchId = nextWatchlistFetchId();
             axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
           } else {
-            axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
+            refreshDashboard();
           }
         }
       }, 2000);
@@ -5125,7 +4915,7 @@ function Dashboard({ isLightMode }) {
         const wFetchId = nextWatchlistFetchId();
         axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
       } else {
-        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
+        refreshDashboard();
       }
 
       showAppToast(err.response?.data?.message || err.message || 'Unable to refresh sentiment.', 'error', { symbol: cleanSymbol });
@@ -5625,6 +5415,7 @@ function Dashboard({ isLightMode }) {
         <div className="table-container portfolio-table">
           <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
             <h2 className="table-title" style={{ margin: 0 }}>Portfolio</h2>
+            {portfolioFreshness !== 'live' && <small role="status">{portfolioFreshness === 'cached' ? 'Saved snapshot · updating…' : portfolioFreshness === 'stale' ? 'Refresh unavailable · showing last snapshot' : portfolioFreshness === 'partial' ? 'Totals unavailable · showing last totals' : 'Loading snapshot…'}</small>}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--accent-primary, #4fd1c5)', letterSpacing: '0.3px' }}>
                 Total Value: ${Number(scopedTotalValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
@@ -5980,7 +5771,7 @@ function Dashboard({ isLightMode }) {
                               );
                             }
                             case 'allocation_pct': {
-                              const totVal = Number(scopedTotalValue) || (scopedPortfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0);
+                              const totVal = Number(scopedTotalValue);
                               const alloc = (totVal > 0 && coin.current_value) ? ((coin.current_value / totVal) * 100) : 0;
                               return (
                                 <td key="allocation_pct" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
