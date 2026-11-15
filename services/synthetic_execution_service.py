@@ -29,7 +29,7 @@ DEFAULT_LIMIT_CAP_PCT = 1.0
 MIN_LIMIT_CAP_PCT = 0.1
 MAX_LIMIT_CAP_PCT = 5.0
 EXTENDED_LIMIT_TIMEOUT_SECONDS = 300
-EXTENDED_TIMEOUT_MESSAGE = ('The extended-hours limit order did not fill within 5 minutes and was cancelled at Webull. '
+EXTENDED_TIMEOUT_MESSAGE = ('The synthetic limit order did not fill within 5 minutes and was cancelled at Webull. '
                             'Review any partial fill before creating a new order.')
 EQUITY_HOURS_WAIT = {
     'CORE': 'Waiting for regular market hours (9:30 AM - 4:00 PM ET on trading days).',
@@ -301,7 +301,7 @@ def check_live_funding(parent, quantity, price, rules):
         raise ValueError('The selected account no longer has sufficient available assets or cash for this execution.')
 
 
-def get_synthetic_locked_funds(user_id, symbol, side, broker='binance', test_mode=False, exclude_order_id=None):
+def get_synthetic_locked_funds(user_id, symbol, side, broker='binance', test_mode=False, exclude_order_id=None, account_id=None):
     """Calculate the total quantity (for SELL) or quote budget/cost (for BUY) tied up in working synthetic orders."""
     from trading_models import LadderOrder, TrailingOrder
     clean_sym = str(symbol or '').strip().upper()
@@ -323,6 +323,8 @@ def get_synthetic_locked_funds(user_id, symbol, side, broker='binance', test_mod
     for to in trails:
         if exclude_order_id and str(exclude_order_id) in (f"trail_{to.id}", str(to.id)):
             continue
+        if account_id and to.account_id != account_id:
+            continue
         to_broker = (to.broker or 'binance').lower()
         if clean_broker and to_broker != clean_broker:
             continue
@@ -330,9 +332,9 @@ def get_synthetic_locked_funds(user_id, symbol, side, broker='binance', test_mod
         to_base = next((to_sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if to_sym.endswith(q)), to_sym)
         to_quote = 'USD' if to_sym.endswith('USD') and not to_sym.endswith('USDT') else 'USDT' if to_sym.endswith('USDT') else 'USD'
         if clean_side == 'SELL' and to_base == base_asset:
-            total_locked += float(to.quantity or 0.0)
+            total_locked += float(to.to_dict().get('remaining_quantity') or 0.0)
         elif clean_side == 'BUY' and to_quote == quote_asset:
-            total_locked += float(to.quantity or 0.0) * float(to.current_stop_price or 0.0)
+            total_locked += float(to.to_dict().get('remaining_quantity') or 0.0) * float(to.current_stop_price or 0.0)
 
     # 2. Ladder Orders
     ladders = LadderOrder.query.filter(
@@ -343,6 +345,8 @@ def get_synthetic_locked_funds(user_id, symbol, side, broker='binance', test_mod
     ).all()
     for lo in ladders:
         if exclude_order_id and str(exclude_order_id) in (f"ladder_{lo.id}", str(lo.id)):
+            continue
+        if account_id and lo.account_id != account_id:
             continue
         lo_broker = (lo.broker or 'binance').lower()
         if clean_broker and lo_broker != clean_broker:
@@ -359,7 +363,13 @@ def get_synthetic_locked_funds(user_id, symbol, side, broker='binance', test_mod
             if lo.total_budget_usd:
                 total_locked += float(lo.total_budget_usd) * (rem_qty / tot_qty)
             else:
-                lo_px = float(lo.upside_target_price or lo.downside_target_price or 0.0)
+                if lo.conditional_spec:
+                    import json
+                    legs = json.loads(lo.conditional_spec)['legs']
+                    candidates = legs[1:] if lo.conditional_phase == 'EXIT' else legs[:1] if lo.conditional_phase == 'ENTRY' else legs
+                    lo_px = max(float(leg.get('price') or leg.get('stop_price') or 0) for leg in candidates) * (1 + (lo.limit_cap_pct or 0) / 100)
+                else:
+                    lo_px = float(lo.upside_target_price or lo.downside_target_price or 0.0)
                 total_locked += rem_qty * lo_px
 
     return total_locked
@@ -377,7 +387,7 @@ def check_synthetic_order_capacity(user_id, symbol, side, quantity, broker='bina
     clean_broker = str(broker or 'binance').strip().lower()
     qty = float(quantity or 0.0)
 
-    locked = get_synthetic_locked_funds(user_id, clean_sym, clean_side, broker=clean_broker, test_mode=False)
+    locked = get_synthetic_locked_funds(user_id, clean_sym, clean_side, broker=clean_broker, test_mode=False, account_id=account_id)
     if locked <= 0:
         return
 
@@ -454,11 +464,28 @@ def executions(parent, kind):
 
 def execution_summary(parent, kind):
     rows = executions(parent, kind)
+    if getattr(parent, 'conditional_spec', None):
+        from services.synthetic_conditional_service import phase_rows
+        summary_rows = phase_rows(parent, rows)
+    else:
+        summary_rows = rows
     total = float(parent.total_quantity if kind == 'LADDER' else parent.quantity)
-    filled = sum(float(x.filled_quantity or 0) for x in rows)
+    filled = sum(float(x.filled_quantity or 0) for x in summary_rows)
     reserved = sum(max(0, x.quantity - (x.filled_quantity or 0)) for x in rows if x.status in OPEN_EXECUTIONS)
     verified = parent.engine_version == 2
-    return {'filled_quantity': filled if verified else None, 'remaining_quantity': max(0, total - filled) if verified else None, 'pending_quantity': reserved if verified else None,
+    from trading_models import SyntheticRecovery
+    recovery = SyntheticRecovery.query.filter_by(user_id=parent.user_id, parent_kind=kind, parent_id=parent.id).first() if inspect(parent).persistent else None
+    unresolved = any(x.status in OPEN_EXECUTIONS for x in rows)
+    failed = parent.status == 'FAILED'
+    label = ('Partially filled — remainder cancelled' if filled else 'Failed — no shares filled') if failed else ('Partially filled — remainder cancelled' if filled and parent.status == 'CANCELLED' else parent.status.replace('_', ' ').title())
+    if unresolved:
+        label = 'Awaiting broker confirmation' if any(x.status in {'UNKNOWN', 'SUBMITTING'} for x in rows) else ('Cancellation pending' if parent.cancel_requested else 'Partially filled — working' if filled else 'Submitted')
+    if unresolved and any('cancellation requested' in (x.error_message or '').lower() for x in rows):
+        label = 'Cancellation pending — awaiting broker confirmation'
+    return {'status_label': label, 'recovery_available': failed and not unresolved and verified and not recovery,
+            'recovery_action': recovery.action if recovery else None,
+            'replacement_id': recovery.replacement_id if recovery else None,
+            'filled_quantity': filled if verified else None, 'remaining_quantity': max(0, total - filled) if verified else None, 'pending_quantity': reserved if verified else None,
             'execution_history_verified': verified,
             'executions': [x.to_dict() for x in rows], 'environment': parent.environment,
             'last_price': parent.last_price, 'last_checked_at': parent.last_checked_at.isoformat() if parent.last_checked_at else None,
@@ -512,7 +539,7 @@ def _binance_paper(parent, execution, price, rules):
     return {'order_id': str(record.id), 'status': 'FILLED', 'filled_quantity': qty, 'filled_price': price}
 
 
-def submit_execution(parent, kind, quantity, price, leg, rung=None):
+def submit_execution(parent, kind, quantity, price, leg, rung=None, explicit_limit=None, trigger_price=None):
     rules = quantity_rules(parent)
     quantity = normalize_quantity(quantity, rules)
     # Workers only call this while the parent's session is open; an
@@ -522,15 +549,18 @@ def submit_execution(parent, kind, quantity, price, leg, rung=None):
     if extended:
         if not float(quantity).is_integer():
             raise ValueError('Extended-hours executions require whole shares.')
-        limit_price = extended_limit_price(parent.side, price, getattr(parent, 'limit_cap_pct', None))
-    funding_price = limit_price if extended and parent.side == 'BUY' else price
+        limit_price = extended_limit_price(parent.side, trigger_price if trigger_price is not None else price, getattr(parent, 'limit_cap_pct', None))
+    if explicit_limit is not None:
+        limit_price = positive(explicit_limit, "Limit price")
+    use_limit = extended or explicit_limit is not None
+    funding_price = limit_price if use_limit and parent.side == 'BUY' else price
     check_quantity(parent, quantity, price, rules)
     check_order_limit(parent, quantity, funding_price, rules)
     check_live_funding(parent, quantity, funding_price, rules)
     row = SyntheticExecution(user_id=parent.user_id, parent_kind=kind, parent_id=parent.id,
                              rung_id=rung.id if rung else None, leg=leg, quantity=quantity,
                              client_order_id='syn' + uuid4().hex[:29], filled_quantity=0, status='SUBMITTING',
-                             order_type='LIMIT' if extended else 'MARKET', limit_price=limit_price)
+                             order_type='LIMIT' if use_limit else 'MARKET', limit_price=limit_price)
     db.session.add(row)
     db.session.flush()
     if parent.test_mode:
@@ -562,11 +592,11 @@ def submit_execution(parent, kind, quantity, price, leg, rung=None):
         if parent.broker == 'webull':
             from services.webull_service import place_webull_order
             cred, env = webull_credentials(parent)
-            if extended:
+            if use_limit:
                 result = place_webull_order(cred.webull_app_key, cred.webull_app_secret, env, cred.webull_access_token,
                     account_id=parent.account_id, symbol=parent.symbol, instrument_type=parent.instrument_type,
-                    side=parent.side, order_type='LIMIT', quantity=int(quantity), limit_price=limit_price,
-                    time_in_force='DAY', support_trading_session='ALL', client_order_id=row.client_order_id)
+                    side=parent.side, order_type='LIMIT', quantity=quantity, limit_price=limit_price,
+                    time_in_force='DAY', support_trading_session=parent.trading_session, client_order_id=row.client_order_id)
             else:
                 result = place_webull_order(cred.webull_app_key, cred.webull_app_secret, env, cred.webull_access_token,
                     account_id=parent.account_id, symbol=parent.symbol, instrument_type=parent.instrument_type,
@@ -587,7 +617,7 @@ def submit_execution(parent, kind, quantity, price, leg, rung=None):
             code = getattr(exc, 'status_code', None) or getattr(exc, 'http_status', None)
             if code and 400 <= int(code) < 500 and int(code) not in {408, 429}:
                 row.status = 'FAILED'
-                row.error_message = 'Broker rejected this execution. Check account permissions, balance and order limits.'
+                row.error_message = f'Broker rejected this execution: {exc}'
     db.session.commit()
     return row
 
@@ -624,7 +654,7 @@ def reconcile_executions(parent, kind):
                         account_id=parent.account_id, client_order_id=row.client_order_id)
                     # Cancellation acknowledgement is not final; reconcile on the next cycle.
                 if timed_out:
-                    row.error_message = EXTENDED_TIMEOUT_MESSAGE
+                    row.error_message = EXTENDED_TIMEOUT_MESSAGE if row.status == 'CANCELLED' else 'Limit order timed out; cancellation requested. Awaiting final broker confirmation.'
             except Exception:
                 row.error_message = 'Cancellation requested; waiting for the broker to confirm the final order state.'
     return rows

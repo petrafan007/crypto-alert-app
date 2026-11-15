@@ -73,7 +73,7 @@ def init_db(app=None):
         PortfolioStrategyLot, PortfolioEquitySnapshot, PortfolioAudit, PortfolioMarketObservation,
         PortfolioSignalDecision, PortfolioStrategyRevision, PortfolioAIReview, PortfolioOptionCoverage)
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
-    from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder, LadderOrder, LadderRung, SyntheticExecution
+    from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder, LadderOrder, LadderRung, SyntheticExecution, SyntheticRecovery
     
     target_app = app if app is not None else current_app
     ctx = target_app.app_context() if target_app else None
@@ -103,6 +103,8 @@ def init_db(app=None):
                   ('last_price', 'FLOAT'), ('last_checked_at', 'TIMESTAMP'),
                   ('monitoring_error', 'TEXT'), ('cancel_requested', 'BOOLEAN DEFAULT FALSE'),
                   ('limit_cap_pct', 'FLOAT'))],
+            ("ladder_orders", "conditional_spec", "TEXT"),
+            ("ladder_orders", "conditional_phase", "VARCHAR(12)"),
             ("synthetic_executions", "order_type", "VARCHAR(20)"),
             ("synthetic_executions", "limit_price", "FLOAT"),
             ("trailing_orders", "broker", "VARCHAR(20) DEFAULT 'binance'"),

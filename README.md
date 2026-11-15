@@ -1,8 +1,16 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.15.0
+**Version:** 4.16.0
 
 ## Recent Updates
+
+### v4.16.0
+* **Extended-Hours Synthetic Conditional Orders and Persistent Failure Recovery.** See [sessions, execution and recovery](docs/synthetic_orders_v4.16.0.md).
+  * **OCO, OTO and OTOCO:** Choose app-managed synthetic execution and Regular Hours or Regular + Extended Hours for whole-share stock/ETF strategies. Entered Limit and Stop Limit prices are preserved; plain stops use a capped Limit in extended hours. Overnight is unsupported.
+  * **Clear Partial Fills and Failures:** Order History on both Orders and Webull Trading now includes synthetic strategy history. Click Failed or Partially filled — remainder cancelled to review the reason and confirmed quantities.
+  * **Three Recovery Choices:** Replace / Retry with revised settings or another supported strategy, re-arm the unfilled remainder for Regular Hours, or Keep Cancelled. Live replacements require 2FA. Recovery is durable and prevents duplicate submissions across tabs or retries.
+  * **Clickable Warning Toasts:** New failures produce a brief warning that opens the same recovery modal. Missing the toast does not remove the history entry or recovery choices.
+  * **Consistent Webull Visibility:** The Webull synthetic view shows all accounts in the selected live/paper mode and identifies each account. Session labels now reflect the saved order instead of always saying CORE.
 
 ### v4.15.0
 * **Synthetic Stock & ETF Orders in Extended Hours, Synthetic OCO, and Order Ticket Layout.** See [Synthetic orders in extended hours](docs/synthetic_orders_v4.15.0.md).

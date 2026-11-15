@@ -43,7 +43,7 @@ def calculate_trailing_stop_price(side, reference_price, trail_type, trail_value
 def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT', trail_value=2.0,
                           activation_price=None, execution_type='MARKET', test_mode=False, client=None,
                           broker='binance', account_id=None, instrument_type='CRYPTO', trading_session='CORE',
-                          limit_cap_pct=None):
+                          limit_cap_pct=None, commit=True):
     """
     Validate and persist a new synthetic TrailingOrder.
     Supports both Binance.US and Webull.
@@ -143,7 +143,9 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
     execution.check_quantity(order, qty, current_price, rules)
     execution.check_order_limit(order, qty, current_price, rules)
     db.session.add(order)
-    db.session.commit()
+    db.session.flush()
+    if commit:
+        db.session.commit()
     logger.info(f"Created TrailingOrder #{order.id} [{clean_broker.upper()}]: {clean_side} {qty} {clean_symbol} (trail={t_val} {clean_trail_type}, stop={initial_stop})")
     return order.to_dict()
 
@@ -269,7 +271,7 @@ def execute_trailing_trigger(order, current_price):
     try:
         rows = execution.executions(order, 'TRAILING')
         if not rows:
-            rows = [execution.submit_execution(order, 'TRAILING', order.quantity, current_price, 'TRAILING')]
+            rows = [execution.submit_execution(order, 'TRAILING', order.quantity, current_price, 'TRAILING', trigger_price=order.current_stop_price)]
         _sync_trailing(order, rows)
         return order.status in {'SUBMITTED', 'FILLED'}
     except Exception as exc:

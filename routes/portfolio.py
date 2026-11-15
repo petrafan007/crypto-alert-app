@@ -4075,6 +4075,50 @@ def api_cancel_ladder_order(ladder_id):
 
 
 
+@portfolio_bp.route('/api/trading/synthetic-conditional-orders', methods=['POST'])
+@login_required
+def api_create_synthetic_conditional():
+    try:
+        from services.synthetic_conditional_service import create_conditional
+        from services.synthetic_execution_service import check_synthetic_order_capacity
+        data = request.get_json() or {}
+        test_mode, error = _synthetic_request_mode(data)
+        if error:
+            return error
+        data['test_mode'] = test_mode
+        check_synthetic_order_capacity(current_user.id, data.get('symbol'), data.get('side'),
+            data.get('total_quantity'), data.get('broker', 'webull'), test_mode, account_id=data.get('account_id'))
+        parent = create_conditional(current_user.id, data)
+        return jsonify(success=True, ladder_order=parent.to_dict())
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify(success=False, error=str(exc)), 400
+
+
+@portfolio_bp.route('/api/trading/synthetic-orders/<kind>/<int:identifier>/recover', methods=['POST'])
+@login_required
+def api_recover_synthetic(kind, identifier):
+    try:
+        from trading_models import LadderOrder, TrailingOrder
+        from services.synthetic_recovery_service import recover
+        model = {'LADDER': LadderOrder, 'TRAILING': TrailingOrder}.get(kind.upper())
+        if model is None:
+            return jsonify(success=False, error='Unknown strategy kind.'), 400
+        parent = model.query.filter_by(id=identifier, user_id=current_user.id).first_or_404()
+        data = request.get_json() or {}
+        # Dismissing a settled failure cannot place or cancel any broker order.
+        if data.get('action') != 'KEEP_CANCELLED' and not parent.test_mode:
+            from services.trading_2fa_service import require_live_trading_2fa
+            error = require_live_trading_2fa(current_user.id, data, 'recover this live synthetic strategy')
+            if error:
+                return jsonify(success=False, error=error, requires_2fa=True), 403
+        result = recover(current_user.id, kind.upper(), identifier, data)
+        return jsonify(success=True, **result)
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify(success=False, error=str(exc)), 400
+
+
 @portfolio_bp.route('/api/trading/fees/<symbol>', methods=['GET'])
 @login_required
 def get_trading_fees(symbol):

@@ -101,11 +101,11 @@ try {
       await page.getByRole('button',{name:'Review payload'}).click();
       assert.ok((await page.evaluate(()=>window.reviewPayload)).upside_target_price<100);
       assert.ok((await page.evaluate(()=>window.reviewPayload)).downside_target_price>100);
-      await page.getByRole('checkbox').uncheck();
+      await page.getByRole('checkbox', {name:/DOWNSIDE STRATEGY/}).uncheck();
       await page.getByRole('button',{name:'Review payload'}).click();
       assert.equal((await page.evaluate(()=>window.reviewPayload)).downside_mode,'NONE');
       await page.getByRole('button',{name:'Switch side'}).click();
-      await page.getByRole('checkbox').check();
+      await page.getByRole('checkbox', {name:/DOWNSIDE STRATEGY/}).check();
       await page.getByRole('button',{name:'Open confirmation'}).click();
       let explanation=await page.locator('.order-explanation').innerText();
       assert.ok(explanation.includes('Upside strategy')); assert.ok(explanation.includes('Downside strategy'));

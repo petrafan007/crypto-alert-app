@@ -22,6 +22,7 @@ const AcceptableUse = React.lazy(() => import('./pages/AcceptableUse'));
 const TradingRiskDisclosure = React.lazy(() => import('./pages/TradingRiskDisclosure'));
 const Support = React.lazy(() => import('./pages/Support'));
 import ToastNotifications from './components/ToastNotifications';
+import SyntheticRecoveryHost from './components/SyntheticRecoveryHost';
 import ErrorBoundary from './components/ErrorBoundary';
 import AppDialogHost from './components/AppDialog';
 import { APP_VERSION } from './version';
@@ -621,6 +622,7 @@ export default function App() {
 
       {/* Global Toast Notifications */}
       <ToastNotifications isLightMode={isLightMode} />
+      {user && <SyntheticRecoveryHost key={user.id} userId={user.id} />}
       <AppDialogHost />
     </div>
   );

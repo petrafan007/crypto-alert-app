@@ -1,3 +1,4 @@
+import { openSyntheticRecovery } from './SyntheticRecoveryHost';
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import CancelOrderModal from './CancelOrderModal';
@@ -27,16 +28,16 @@ function Strategy({ order }) {
         {mode === 'NONE' ? 'Off' : mode === 'SINGLE' ? money(order[`${prefix}_target_price`], currency) : mode === 'LADDER' ? `${rungs.length} steps` : `Trail ${trailLabel(order[`${prefix}_trail_value`], order[`${prefix}_trail_type`], currency)}`}
         {mode === 'TRAILING' && <><small>{active ? 'Activated' : 'Waiting for activation'}{activation ? ` · ${money(activation, currency)}` : ''}</small>
           <small>Stop: {money(order[`${prefix}_current_stop_price`], currency)} · {order.side === 'BUY' ? 'Trough' : 'Peak'}: {money(watermark, currency)}</small></>}
-        {prefix === 'downside' && mode === 'SINGLE' && <small>{order.stop_loss_action === 'CANCEL_REMAINING' ? 'Cancel remaining strategy only' : `Market ${order.side.toLowerCase()} remaining quantity`}</small>}
+        {prefix === 'downside' && mode === 'SINGLE' && <small>{order.stop_loss_action === 'CANCEL_REMAINING' ? 'Cancel remaining strategy only' : `${order.trading_session === 'ALL' ? 'Market in regular hours; capped Limit in extended hours:' : 'Market:'} ${order.side.toLowerCase()} remaining quantity`}</small>}
       </div>;
     })}
   </div>;
 }
 
-export default function SyntheticOrdersTable({ defaultBroker = 'all', showBrokerFilter = true, accountId, testMode, onOrderCancelled }) {
+export default function SyntheticOrdersTable({ defaultBroker = 'all', showBrokerFilter = true, accountId, testMode, onOrderCancelled, historyMode = false }) {
   const [orders, setOrders] = useState([]);
   const [broker, setBroker] = useState(defaultBroker);
-  const [status, setStatus] = useState('ACTIVE');
+  const [status, setStatus] = useState(historyMode ? 'ALL' : 'ACTIVE');
   const [kind, setKind] = useState('ALL');
   const [mode, setMode] = useState('all');
   const [search, setSearch] = useState('');
@@ -49,6 +50,7 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
   const [updated, setUpdated] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelError, setCancelError] = useState('');
+  useEffect(() => { const changed = () => setRefresh(v => v + 1); window.addEventListener('app:synthetic-updated', changed); return () => window.removeEventListener('app:synthetic-updated', changed); }, []);
   useEffect(() => setBroker(defaultBroker), [defaultBroker]);
   useEffect(() => {
     let stopped = false, running = false;
@@ -89,7 +91,7 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
     const timer = setInterval(load, 5000);
     return () => { stopped = true; controller.abort(); clearInterval(timer); };
   }, [broker, accountId, testMode, refresh]);
-  const filtered = useMemo(() => orders.filter(o => matchesStatus(o, status)
+  const filtered = useMemo(() => orders.filter(o => (!historyMode || !['ACTIVE', 'PARTIALLY_FILLED'].includes(o.status)) && matchesStatus(o, status)
     && (kind === 'ALL' || strategyKind(o) === kind)
     && (mode === 'all' || Boolean(o.test_mode) === (mode === 'paper'))
     && `${o.symbol} ${o.account_id || ''} ${o.instrument_type}`.toLowerCase().includes(search.toLowerCase())), [orders, status, kind, mode, search]);
@@ -125,16 +127,16 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
         const key = orderKey(order), open = expanded.has(key), currency = quoteCurrency(order), verified = order.execution_history_verified !== false;
         const progress = order.total_quantity > 0 ? Math.min(100, 100 * (order.filled_quantity || 0) / order.total_quantity) : 0;
         return <React.Fragment key={key}><tr>
-          <td><strong>#{order.id} · {labels[strategyKind(order)]}</strong><small>{order.broker === 'webull' ? 'Webull' : 'Binance.US'} · {order.test_mode ? 'Paper' : 'Live'}{order.environment && order.environment !== 'production' ? ` · ${order.environment}` : ''}</small>
+          <td><strong>#{order.id} · {order.conditional_spec ? order.strategy_type : labels[strategyKind(order)]}</strong><small>{order.broker === 'webull' ? 'Webull' : 'Binance.US'} · {order.test_mode ? 'Paper' : 'Live'}{order.environment && order.environment !== 'production' ? ` · ${order.environment}` : ''}</small>
             <small>Account: {order.account_id || 'Binance.US spot'}</small><small>Created: {timestamp(order.created_at)}</small></td>
-          <td><strong>{order.symbol}</strong><small>{order.instrument_type} · <span className={`synthetic-side-${order.side.toLowerCase()}`}>{order.side}</span></small><small>Total: {number(order.total_quantity)}</small><small>{order.instrument_type === 'CRYPTO' ? '24/7 monitoring' : 'Regular hours (CORE)'}</small></td>
-          <td><Strategy order={order} /></td>
+          <td><strong>{order.symbol}</strong><small>{order.instrument_type} · <span className={`synthetic-side-${order.side.toLowerCase()}`}>{order.side}</span></small><small>Total: {number(order.total_quantity)}</small><small>{order.instrument_type === 'CRYPTO' ? '24/7 monitoring' : order.trading_session === 'ALL' ? 'Regular + Extended Hours (4 AM–8 PM ET, trading days)' : 'Regular Hours (9:30 AM–4 PM ET, trading days)'}</small></td>
+          <td>{order.conditional_spec ? <><strong>Synthetic {order.strategy_type} · {order.conditional_phase}</strong>{order.conditional_spec.legs.map((leg, i) => <small key={i}>{leg.side} {leg.order_type} · limit {leg.price || '—'} · stop {leg.stop_price || '—'}</small>)}{order.conditional_spec.entry_remainder_cancelled > 0 && <small className="synthetic-warning">Entry partially filled: {number(order.conditional_spec.entry_filled_quantity)}; {number(order.conditional_spec.entry_remainder_cancelled)} cancelled. Exits sized to confirmed entry fills.</small>}</> : <Strategy order={order} />}</td>
           <td>{verified ? <><strong>{number(order.filled_quantity || 0)} / {number(order.total_quantity)} filled</strong><progress max="100" value={progress} aria-label={`Order ${order.id} quantity filled`} />
             <small>Remaining: {number(order.remaining_quantity ?? order.total_quantity)}</small><small>Awaiting broker: {number(order.pending_quantity || 0)}</small>
             {order.rungs?.length > 0 && <small>{order.rungs_filled || 0} of {order.rungs.length} steps filled</small>}</> : <small className="synthetic-warning">Legacy execution totals are unverified. Review broker history before replacing this strategy.</small>}</td>
-          <td><span className={`synthetic-status state-${order.status.toLowerCase()}`}>{order.status.replaceAll('_', ' ')}</span><small>Last price: {money(order.last_price, currency)}</small><small>Checked: {timestamp(order.last_checked_at)}</small>
+          <td><button type="button" className={`synthetic-status state-${order.status.toLowerCase()}`} onClick={() => openSyntheticRecovery(order)}>{order.status_label || order.status.replaceAll('_', ' ')}</button><small>Last price: {money(order.last_price, currency)}</small><small>Checked: {timestamp(order.last_checked_at)}</small>
             {(order.monitoring_error || order.error_message) && <small className="synthetic-warning">{order.monitoring_error || order.error_message}</small>}</td>
-          <td><div className="synthetic-actions"><button type="button" aria-expanded={open} onClick={() => setExpanded(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; })}>{open ? 'Hide details' : 'Details'}</button>
+          <td><div className="synthetic-actions">{order.recovery_available && <button type="button" onClick={() => openSyntheticRecovery(order)}>Review issue</button>}<button type="button" aria-expanded={open} onClick={() => setExpanded(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; })}>{open ? 'Hide details' : 'Details'}</button>
             {canCancel(order.status) && <button type="button" className="synthetic-cancel" disabled={busy === key} onClick={() => { setCancelTarget(order); setCancelError(''); }}>{busy === key ? 'Cancelling…' : 'Cancel'}</button>}</div></td>
         </tr>{open && <tr><td colSpan="6" className="synthetic-detail">
           <p>Updated: {timestamp(order.updated_at)} · Both sides share the total quantity. Failed strategies and strategies needing review are paused.</p>

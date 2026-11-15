@@ -11,7 +11,7 @@ from flask import Flask
 from core.extensions import db
 from credentials import User, Credential, UserSetting
 from models import WebullTestAccount, WebullTestPosition, WebullTestOrder
-from trading_models import (LadderOrder, LadderRung, TrailingOrder, SyntheticExecution,
+from trading_models import (LadderOrder, LadderRung, TrailingOrder, SyntheticExecution, SyntheticRecovery,
                             TestOrder, TestPortfolio, TradingSettings)
 from services import synthetic_execution_service as ex
 from services import ladder_order_service as ladder
@@ -25,7 +25,7 @@ class SyntheticLifecycleTests(unittest.TestCase):
         db.init_app(self.app)
         self.ctx = self.app.app_context(); self.ctx.push()
         tables = [User, Credential, UserSetting, TradingSettings, TestOrder, TestPortfolio,
-                  LadderOrder, LadderRung, TrailingOrder, SyntheticExecution,
+                  LadderOrder, LadderRung, TrailingOrder, SyntheticExecution, SyntheticRecovery,
                   WebullTestAccount, WebullTestPosition, WebullTestOrder]
         for model in tables:
             model.__table__.create(db.engine, checkfirst=True)

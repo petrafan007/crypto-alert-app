@@ -56,3 +56,12 @@ body.light-mode .synthetic-orders, body.light-mode .ladder-order-config-containe
 .synthetic-review small { color: var(--text-secondary); display: block; }
 
 .synthetic-orders .synthetic-step > strong, .synthetic-orders .synthetic-step > small { display: block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.synthetic-recovery-backdrop { position: fixed; inset: 0; z-index: 1200; background: #000b; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.synthetic-recovery-modal { position: relative; background: var(--card-bg, #1e293b); color: var(--text-primary, #f8fafc); border: 1px solid #64748b; border-radius: 14px; padding: 28px; width: min(700px, 100%); max-height: 90vh; overflow-y: auto; }
+.synthetic-recovery-modal label { display: grid; gap: 6px; margin: 12px 0; }
+.synthetic-recovery-modal input, .synthetic-recovery-modal select, .synthetic-recovery-modal button { padding: 10px; border-radius: 6px; }
+.synthetic-recovery-close { float: right; }
+.synthetic-recovery-choices { display: grid; gap: 12px; }
+button.synthetic-status { cursor: pointer; text-align: left; text-decoration: underline; }
+
+.synthetic-recovery-modal input, .synthetic-recovery-modal select, .synthetic-recovery-modal button { color: var(--text-primary, #f8fafc); background: var(--input-bg, #101a27); border: 1px solid var(--card-border, #64748b); }

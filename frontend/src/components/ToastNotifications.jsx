@@ -209,6 +209,9 @@ export default function ToastNotifications({ isLightMode }) {
             onMouseEnter={() => handleMouseEnter(toast.id)}
             onMouseLeave={() => handleMouseLeave(toast.id)}
             role="alert"
+            onClick={toast.onClick}
+            onKeyDown={e => { if (toast.onClick && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toast.onClick(); } }}
+            tabIndex={toast.onClick ? 0 : undefined}
           >
             <div className="toast-header">
               <div className="toast-header-left">
@@ -219,7 +222,7 @@ export default function ToastNotifications({ isLightMode }) {
               <button
                 type="button"
                 className="toast-close-btn"
-                onClick={() => dismissToast(toast.id)}
+                onClick={e => { e.stopPropagation(); dismissToast(toast.id); }}
                 title="Close"
               >
                 ✕

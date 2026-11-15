@@ -155,7 +155,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
                         upside_trail_value=None, upside_trail_type='PERCENT', upside_activation_price=None,
                         downside_mode='NONE', downside_target_price=None, downside_trail_value=None,
                         downside_trail_type='PERCENT', downside_activation_price=None,
-                        downside_preset='Moderate', downside_rungs=None, limit_cap_pct=None):
+                        downside_preset='Moderate', downside_rungs=None, limit_cap_pct=None, commit=True):
     """
     Validate, calculate, and persist a parent LadderOrder with child LadderRungs.
     Supports Mode A (Single), Mode B (Ladder), Mode C (Trailing) for both Upside and Downside.
@@ -335,6 +335,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         allocated = 0
         for idx, r in enumerate(group):
             r['quantity'] = execution.normalize_quantity(round(qty - allocated, 8) if idx == len(group) - 1 else r['quantity'], rules)
+            execution.require_whole_shares(r['quantity'], clean_session, clean_instrument)
             execution.check_quantity(ladder, r['quantity'], r['target_price'], rules)
             allocated = round(allocated + r['quantity'], 8)
             r['estimated_usd'] = r['quantity'] * r['target_price']
@@ -356,7 +357,9 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         )
         db.session.add(rung)
 
-    db.session.commit()
+    db.session.flush()
+    if commit:
+        db.session.commit()
     logger.info(f"Created LadderOrder #{ladder.id} [{clean_broker.upper()}]: {clean_side} {qty} {clean_symbol} [Upside: {clean_upside_mode}, Downside: {clean_downside_mode}] across {len(all_rungs_data)} rungs.")
     return ladder.to_dict()
 
@@ -381,6 +384,10 @@ def get_user_ladder_orders(user_id, symbol=None, status=None, broker=None, accou
 
 
 def _sync_parent(ladder, rows):
+    if ladder.conditional_spec:
+        from services.synthetic_conditional_service import sync, phase_rows
+        sync(ladder, rows)
+        return sum(r.filled_quantity or 0 for r in phase_rows(ladder, rows)), any(r.status in execution.OPEN_EXECUTIONS for r in rows)
     by_rung = {r.rung_id: r for r in rows if r.rung_id}
     for rung in ladder.rungs:
         row = by_rung.get(rung.id)
@@ -435,6 +442,11 @@ def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
     filled, pending = _sync_parent(ladder, rows)
     if pending or ladder.cancel_requested or ladder.status not in {'ACTIVE', 'PARTIALLY_FILLED'}:
         return True, 0
+    if ladder.conditional_spec:
+        from services.synthetic_conditional_service import evaluate
+        if execute_trigger:
+            evaluate(ladder, price)
+        return True, 0
     remaining = max(0, ladder.total_quantity - filled)
     downside = ladder.downside_mode or ('SINGLE' if ladder.has_stop_loss else 'NONE')
     # Preserve legacy safety stops whose migration supplied a default NONE mode.
@@ -475,7 +487,8 @@ def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
                     rung.status = 'TRIGGERED'
                 continue
             try:
-                row = execution.submit_execution(ladder, 'LADDER', qty, price, leg, rung=rung)
+                row = execution.submit_execution(ladder, 'LADDER', qty, price, leg, rung=rung,
+                    trigger_price=getattr(ladder, f'{prefix}_current_stop_price') if mode == 'TRAILING' else rung.target_price if rung is not None else getattr(ladder, f'{prefix}_target_price') or ladder.stop_loss_trigger_price)
                 rows.append(row)
             except Exception as exc:
                 ladder.status = 'FAILED'

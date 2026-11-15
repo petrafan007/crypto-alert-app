@@ -55,6 +55,8 @@ def main():
             connection.execute(text('SELECT id, status, result FROM staking_purchases LIMIT 0'))
             connection.execute(text('SELECT source, observed_at FROM portfolio_market_observations LIMIT 0'))
             connection.execute(text('SELECT id, status FROM webull_scheduled_orders LIMIT 0'))
+            connection.execute(text('SELECT conditional_spec, conditional_phase FROM ladder_orders LIMIT 0'))
+            connection.execute(text('SELECT action, replacement_id FROM synthetic_recoveries LIMIT 0'))
             connection.execute(text('SELECT ai_gateway_key FROM credentials LIMIT 0'))
             connection.execute(text('SELECT decision_enabled, decision_transport, decision_model, decision_endpoint, decision_timeout_seconds, decision_confidence_threshold, decision_conflict_threshold, decision_sentiment_mode, decision_quant_enabled FROM user_settings LIMIT 0'))
             connection.execute(text('SELECT subq_api_key, inception_decisions_key FROM credentials LIMIT 0'))

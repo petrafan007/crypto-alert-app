@@ -993,6 +993,8 @@ export default function Orders() {
               <div className="empty-state"><p>Loading order history…</p></div>
             ) : (
               <>
+                <h2>Synthetic Strategy History</h2>
+                <SyntheticOrdersTable historyMode />
                 <h2>All Order History</h2>
                 <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} userId={user?.id} />
                 <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={historyTotal} />

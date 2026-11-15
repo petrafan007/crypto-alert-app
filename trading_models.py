@@ -6,6 +6,7 @@ Database: exchange_logs.db (separate database binding)
 """
 
 from datetime import datetime
+import json
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, BigInteger, Index, ForeignKey
 from core.extensions import db
 
@@ -324,6 +325,9 @@ class LadderOrder(db.Model):
     monitoring_error = Column(Text, nullable=True)
     cancel_requested = Column(Boolean, default=False)
 
+    conditional_spec = Column(Text, nullable=True)  # validated JSON legs for OCO / OTO / OTOCO
+    conditional_phase = Column(String(12), nullable=True)
+
     rungs = db.relationship('LadderRung', backref='ladder_order', cascade='all, delete-orphan', lazy=True, order_by='LadderRung.rung_number')
 
     def to_dict(self):
@@ -341,6 +345,8 @@ class LadderOrder(db.Model):
             'mode': self.mode,
             'preset_name': self.preset_name,
             'strategy_type': self.strategy_type or 'SYNTHETIC',
+            'conditional_spec': json.loads(self.conditional_spec) if self.conditional_spec else None,
+            'conditional_phase': self.conditional_phase,
             'upside_mode': self.upside_mode or 'LADDER',
             'upside_target_price': self.upside_target_price,
             'upside_trail_value': self.upside_trail_value,
@@ -439,6 +445,20 @@ class SyntheticExecution(db.Model):
                             'quantity', 'filled_quantity', 'filled_price', 'status',
                             'order_type', 'limit_price', 'error_message', 'created_at', 'updated_at')
                 for value in (getattr(self, key),)}
+
+class SyntheticRecovery(db.Model):
+    """One durable recovery decision per stopped strategy; old fills stay immutable."""
+    __tablename__ = 'synthetic_recoveries'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    parent_kind = Column(String(12), nullable=False)
+    parent_id = Column(Integer, nullable=False)
+    action = Column(String(20), nullable=False)
+    replacement_kind = Column(String(12), nullable=True)
+    replacement_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    __table_args__ = (Index('ix_synthetic_recovery_parent', 'user_id', 'parent_kind', 'parent_id', unique=True),)
+
 
 class TaxCorrection(db.Model):
     """

@@ -1,6 +1,7 @@
 export const orderKey = (order) => `${order.parentKind || (order.trail_type ? 'TRAILING' : 'LADDER')}:${order.id}`;
 export const isWorking = (status) => ['ACTIVE', 'PARTIALLY_FILLED', 'SUBMITTED', 'CANCEL_PENDING', 'TRIGGERED'].includes(status);
 export const strategyKind = (order) => {
+  if (order.conditional_spec) return ['OCO', 'OTO', 'OTOCO'].includes(order.strategy_type) ? 'BRACKET' : 'SINGLE';
   if (order.parentKind === 'TRAILING' || order.trail_type) return 'TRAILING';
   if (order.downside_mode && order.downside_mode !== 'NONE') return 'BRACKET';
   return order.upside_mode === 'TRAILING' ? 'TRAILING' : order.upside_mode === 'SINGLE' ? 'SINGLE' : 'LADDER';
