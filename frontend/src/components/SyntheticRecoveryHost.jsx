@@ -53,22 +53,30 @@ export default function SyntheticRecoveryHost({ userId }) {
     return () => { stopped = true; clearInterval(timer); };
   }, [userId]);
   useEffect(() => {
+    // Each opening owns its lookup. Opening another strategy (or leaving the
+    // page) cancels the earlier lookup, so a late answer cannot replace the
+    // strategy the user is now looking at.
+    let current = 0, controller;
     const open = async event => {
       const candidate = event.detail;
+      const request = ++current;
+      controller?.abort();
+      controller = new AbortController();
       setError(''); setStep('choose'); setCode(''); setType('SAME'); setBusy(true); setOrder(candidate);
       try {
         const resource = candidate.parentKind === 'TRAILING' ? 'trailing' : 'ladder';
-        const result = await axios.get(`/api/trading/${resource}-orders`, { withCredentials: true });
+        const result = await axios.get(`/api/trading/${resource}-orders`, { withCredentials: true, signal: controller.signal });
+        if (request !== current) return;
         const fresh = (result.data[`${resource}_orders`] || []).find(o => o.id === candidate.id);
         if (!fresh) throw new Error('Strategy no longer available. Refresh Order History.');
         setOrder({ ...fresh, parentKind: candidate.parentKind });
         setLegs(initialLegs(fresh)); setSession(fresh.trading_session || 'CORE'); setCap(String(fresh.limit_cap_pct || 1));
         setEdits(Object.fromEntries(['upside_target_price', 'downside_target_price', 'upside_trail_value', 'downside_trail_value', 'trail_value'].filter(k => fresh[k] != null).map(k => [k, fresh[k]])));
-      } catch (err) { setError(err.response?.data?.error || err.message); }
-      finally { setBusy(false); }
+      } catch (err) { if (request === current) setError(err.response?.data?.error || err.message); }
+      finally { if (request === current) setBusy(false); }
     };
     window.addEventListener('app:synthetic-recovery', open);
-    return () => window.removeEventListener('app:synthetic-recovery', open);
+    return () => { current += 1; controller?.abort(); window.removeEventListener('app:synthetic-recovery', open); };
   }, []);
   useEffect(() => {
     if (!order) return;
@@ -97,9 +105,11 @@ export default function SyntheticRecoveryHost({ userId }) {
     setLegs(next === 'OCO' ? initialLegs({ ...order, conditional_spec: null }) : next === 'OTO' ? [entry, exits[0]] : next === 'OTOCO' ? [entry, ...exits] : next === 'STOP' ? [{ ...entry, order_type: 'STOP_LOSS', stop_price: base }] : [entry]);
   };
   const submit = async action => {
+    const target = order;
+    if (!target?.recovery_available) { setError('This strategy can no longer be recovered here. Refresh Order History.'); return; }
     setBusy(true); setError('');
     try {
-      const result = await axios.post(`/api/trading/synthetic-orders/${order.parentKind}/${order.id}/recover`, {
+      const result = await axios.post(`/api/trading/synthetic-orders/${target.parentKind}/${target.id}/recover`, {
         action, two_factor_code: code, strategy_type: type,
         trading_session: session, limit_cap_pct: Number(cap), legs, edits, trail_value: Number(trail), rungs,
       }, { withCredentials: true });

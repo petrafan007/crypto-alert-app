@@ -10,7 +10,7 @@ const require = createRequire(path.join(root, 'frontend/package.json'));
 const { build } = require('esbuild');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'synthetic-recovery-browser-'));
-let server, browser;
+let server, browser, route_url_of_last_recover='';
 try {
   await build({ stdin: { resolveDir: path.join(root, 'frontend'), loader: 'jsx', contents: `
     import React from 'react'; import {createRoot} from 'react-dom/client';
@@ -28,11 +28,11 @@ try {
     } else res.end('<html><head><link rel="stylesheet" href="/app.css"></head><body><div id="root"></div><script src="/app.js"></script></body></html>');
   });
   await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
-  browser = await chromium.launch({ headless:true, args:['--no-sandbox'] });
+  browser = await chromium.launch({ headless:true, executablePath:process.env.CHROMIUM_PATH||undefined, args:['--no-sandbox'] });
   for (const theme of ['dark','light']) {
     const page = await browser.newPage({ viewport:{width:theme==='dark'?1400:390,height:900} });
     const errors=[]; page.on('pageerror', e=>errors.push(e.message));
-    let payload, reject=false;
+    let payload, reject=false, holdLadders=false, heldLadders=[], trailing=[];
     let order={id:21,broker:'webull',account_id:'IRA_ACCOUNT',symbol:'NVDA',instrument_type:'EQUITY',side:'BUY',test_mode:false,
       status:'FAILED',status_label:'Partially filled — remainder cancelled',recovery_available:true,filled_quantity:4,remaining_quantity:6,
       total_quantity:10,pending_quantity:0,created_at:'2026-11-14T20:00:00',upside_mode:'SINGLE',upside_target_price:165,
@@ -40,13 +40,16 @@ try {
     await page.route('**/api/**', route=> {
       const url=route.request().url();
       if(url.includes('/recover')) {
-        payload=route.request().postDataJSON();
+        payload=route.request().postDataJSON(); route_url_of_last_recover=url;
         if(reject) return route.fulfill({status:403,json:{success:false,error:'Enter a valid authenticator code.'}});
         order={...order,recovery_available:false,recovery_action:payload.action,replacement_id:22};
         return route.fulfill({json:{success:true,replacement_id:22}});
       }
-      if(url.includes('ladder-orders')) return route.fulfill({json:{success:true,ladder_orders:[order]}});
-      if(url.includes('trailing-orders')) return route.fulfill({json:{success:true,trailing_orders:[]}});
+      if(url.includes('ladder-orders')) {
+        if(holdLadders) { heldLadders.push(route); return; }
+        return route.fulfill({json:{success:true,ladder_orders:[order]}});
+      }
+      if(url.includes('trailing-orders')) return route.fulfill({json:{success:true,trailing_orders:trailing}});
       if(url.includes('/notifications')) return route.fulfill({json:[]});
       return route.fulfill({json:{browser_notifications_enabled:true}});
     });
@@ -78,6 +81,24 @@ try {
     assert.match(await dialog.innerText(),/A\. Replace \/ Retry/);
     await dialog.getByRole('button',{name:'C. Keep Cancelled'}).click();
     await dialog.waitFor({state:'hidden'}); assert.equal(payload.action,'KEEP_CANCELLED');
+    // Open one strategy, then another before the first lookup answers. The
+    // late first answer must not replace the strategy now on screen.
+    trailing=[{id:41,broker:'webull',account_id:'IRA_ACCOUNT',symbol:'TSLA',instrument_type:'EQUITY',side:'SELL',test_mode:false,status:'FAILED',
+      status_label:'Failed — no shares filled',recovery_available:true,filled_quantity:0,remaining_quantity:3,trail_value:2,trading_session:'CORE',monitoring_error:'Rejected.'}];
+    holdLadders=true;
+    await page.evaluate(first=>window.dispatchEvent(new CustomEvent('app:synthetic-recovery',{detail:first})),{...order,parentKind:'LADDER'});
+    for(let tries=0;!heldLadders.length&&tries<100;tries++) await new Promise(resolve=>setTimeout(resolve,10));
+    assert.ok(heldLadders.length,'held the first strategy lookup');
+    await page.evaluate(second=>window.dispatchEvent(new CustomEvent('app:synthetic-recovery',{detail:second})),{...trailing[0],parentKind:'TRAILING'});
+    await dialog.getByText('Unfilled remainder: 3').waitFor();
+    holdLadders=false;
+    for(const route of heldLadders) await route.fulfill({json:{success:true,ladder_orders:[order]}}).catch(()=>{});
+    await new Promise(resolve=>setTimeout(resolve,300));
+    assert.match(await dialog.innerText(),/TSLA · SELL/);
+    assert.doesNotMatch(await dialog.innerText(),/NVDA/);
+    await dialog.getByRole('button',{name:'C. Keep Cancelled'}).click();
+    await dialog.waitFor({state:'hidden'});
+    assert.match(route_url_of_last_recover,/synthetic-orders\/TRAILING\/41\/recover/);
     assert.deepEqual(errors,[]);
     await page.close();
   }

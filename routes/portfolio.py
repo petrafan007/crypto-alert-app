@@ -870,7 +870,7 @@ def api_pending_orders():
                 for order in open_orders:
                     symbol = order.get('symbol', '')
                     # Extract asset from symbol (remove USDT or USD suffix)
-                    asset = symbol.replace('USDT', '').replace('USD', '')
+                    asset = next((symbol[:-len(q)] for q in ('USDT', 'USDC', 'USD') if symbol.endswith(q) and len(symbol) > len(q)), symbol)
 
                     order_type = order.get('type', 'LIMIT')
                     side = order.get('side', '')  # BUY or SELL
@@ -6024,7 +6024,8 @@ def api_delete_coin():
 @portfolio_bp.route("/api/watchlist")
 @login_required
 def api_watchlist():
-    wl = WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False).all()
+    wl = (WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False)
+          .order_by(WatchlistCoin.symbol.asc(), WatchlistCoin.id.asc()).all())
     news_cache = get_user_latest_news_cache(current_user.id)
     try:
         from routes.market import _get_binance_24h_tickers
@@ -6085,7 +6086,8 @@ def api_watchlist():
             "cached_news_date": w_news.get('created_at', None)
         })
 
-    for item in WebullWatchlistItem.query.filter_by(user_id=current_user.id).order_by(WebullWatchlistItem.symbol.asc()).all():
+    for item in (WebullWatchlistItem.query.filter_by(user_id=current_user.id)
+                 .order_by(WebullWatchlistItem.symbol.asc(), WebullWatchlistItem.id.asc()).all()):
         watchlist_data.append(_webull_watchlist_item_payload(item))
 
     return jsonify(watchlist_data)
@@ -6094,7 +6096,8 @@ def api_watchlist():
 @login_required
 def api_watchlist_live():
     """Live watchlist data for background refresh"""
-    wl = WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False).all()
+    wl = (WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False)
+          .order_by(WatchlistCoin.symbol.asc(), WatchlistCoin.id.asc()).all())
     news_cache = get_user_latest_news_cache(current_user.id)
     try:
         from routes.market import _get_binance_24h_tickers
@@ -6165,7 +6168,8 @@ def api_watchlist_live():
             "cached_news_date": w_news.get('created_at', None)
         })
 
-    webull_items = WebullWatchlistItem.query.filter_by(user_id=current_user.id).all()
+    webull_items = (WebullWatchlistItem.query.filter_by(user_id=current_user.id)
+                    .order_by(WebullWatchlistItem.symbol.asc(), WebullWatchlistItem.id.asc()).all())
     last_refresh = _WEBULL_WATCHLIST_REFRESHED_AT.get(current_user.id, 0)
     if webull_items and time.time() - last_refresh >= _WEBULL_WATCHLIST_REFRESH_TTL:
         _WEBULL_WATCHLIST_REFRESHED_AT[current_user.id] = time.time()
@@ -6535,7 +6539,13 @@ def api_watchlist_remove():
         try:
             item = WebullWatchlistItem.query.filter_by(id=int(raw_id), user_id=current_user.id).first()
         except (TypeError, ValueError):
-            item = WebullWatchlistItem.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+            # No server id yet (the row was removed before its add was confirmed):
+            # match the exact instrument, never just the first same-ticker row.
+            lookup = {'user_id': current_user.id, 'symbol': symbol}
+            if data.get('instrument_type') is not None:
+                lookup['instrument_type'] = str(data.get('instrument_type') or 'EQUITY').strip().upper()
+                lookup['event_outcome'] = str(data.get('event_outcome') or '').strip().upper()
+            item = WebullWatchlistItem.query.filter_by(**lookup).order_by(WebullWatchlistItem.id.asc()).first()
         if item:
             db.session.delete(item)
             db.session.commit()

@@ -5029,3 +5029,11 @@ body.light-mode .event-strategy-report-markdown tbody tr:hover td {
 .asset-type-header .table-header-cell-content { justify-content: center !important; }
 .asset-type-pill { display: inline-flex; align-items: center; justify-content: center; padding: 2px 8px; border-radius: 999px; font-size: .72rem; font-weight: 600; white-space: nowrap; background: #2563eb; color: white; border: 1px solid #3b82f6; }
 body.light-mode .asset-type-pill { background: black; color: #facc15; border-color: #1f2937; }
+
+/* States the active row order of the Portfolio and Watchlist tables. */
+.table-sort-note,
+.watchlist-adding-note {
+  color: var(--text-secondary, #94a3b8);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}

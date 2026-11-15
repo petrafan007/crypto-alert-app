@@ -4127,8 +4127,24 @@ def api_update_note():
         if not coin_id:
             return jsonify({"success": False, "error": "coin_id is required"}), 400
         
+        # Portfolio and watchlist ids come from separate tables and can be the
+        # same number. When the caller names the table, only that table is used.
+        table_type = str(data.get("table_type") or "").strip().lower()
+        if table_type == "webull_watchlist":
+            from models import WebullWatchlistItem
+            try:
+                item_id = int(str(coin_id).removeprefix("webull-watchlist-"))
+            except (TypeError, ValueError):
+                return jsonify({"success": False, "error": "Invalid watchlist item"}), 400
+            item = WebullWatchlistItem.query.filter_by(id=item_id, user_id=current_user.id).first()
+            if not item:
+                return jsonify({"success": False, "error": "Watchlist item not found"}), 404
+            item.note = note
+            db.session.commit()
+            return jsonify({"success": True, "message": "Watchlist note updated"})
+
         # First try to find in portfolio coins table
-        coin = Coin.query.filter_by(id=coin_id, user_id=current_user.id).first()
+        coin = None if table_type == "watchlist" else Coin.query.filter_by(id=coin_id, user_id=current_user.id).first()
         if coin:
             coin.note = note
             db.session.commit()
@@ -4136,7 +4152,7 @@ def api_update_note():
             return jsonify({"success": True, "message": "Portfolio note updated"})
         
         # If not found in portfolio, try watchlist table
-        watchlist_coin = WatchlistCoin.query.filter_by(id=coin_id, user_id=current_user.id).first()
+        watchlist_coin = None if table_type == "portfolio" else WatchlistCoin.query.filter_by(id=coin_id, user_id=current_user.id).first()
         if watchlist_coin:
             watchlist_coin.note = note
             db.session.commit()

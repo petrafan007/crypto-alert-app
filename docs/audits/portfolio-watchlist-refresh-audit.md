@@ -2,29 +2,29 @@
 
 **Date:** November 14, 2026
 **Reviewed release:** v4.16.1, commit `99d72e5b78365882ed4c75920d814c075c0c435c`
-**Status:** Implementation authorized November 14, 2026. First repair batch implemented and under release verification; remaining findings are tracked below.
+**Status:** Implementation authorized November 14, 2026. v4.16.2 and v4.16.3 are released; remaining findings are tracked below.
 
 ## Implementation ledger and handoff
 
 The user authorized implementation of this audit on November 14, 2026, including checking off completed work and preserving a handoff. The original findings below describe v4.16.1; their evidence and proposed fixes are retained as the baseline. This ledger records subsequent work and supersedes the original review-only status.
 
-**Current batch:** v4.16.2 — dashboard refresh/cancellation foundation.
-**Release/deployment:** Pending final verification and publication. Do not describe this batch as deployed yet.
-**Database/dependencies:** No schema changes, new dependencies, live order actions, or manual portfolio/watchlist mutations in this batch. Browser tests intercept all API calls with fixtures.
+**Batches:** v4.16.2 (released) — dashboard refresh/cancellation foundation; v4.16.3 (released) — row identity, stable ordering, watchlist add/remove, saved-edit protection, lifecycle cleanup.
+**Release/deployment:** v4.16.2 was published and deployed to the personal instance on November 14, 2026 (commit `5cc9eb25`; service active, port 5010 responding, checkout on the tag). The original author's session ended before recording that here; it was re-verified before v4.16.3 work began. The user approved publishing v4.16.3 on November 15, 2026; it is published as GitHub release `v4.16.3` and the personal instance is upgraded through the release routine in `AGENTS.md` (unrelated files preserved, frontend rebuilt, service restarted, port 5010 and tag checked).
+**Database/dependencies:** No schema changes, new dependencies, live order actions, or manual portfolio/watchlist mutations in either batch. Browser tests intercept all API calls with fixtures.
 
 A checked item is complete within the stated finding's frontend scope. “Partial” means useful changes landed but the finding must remain open. Backend completeness/cache limitations are not implied to be solved by frontend race protection.
 
 - [x] **F01 — Done: Old pending-order responses can undo a successful cancellation visually.** One refresh generation rejects pre-mutation responses; confirmed cancellations stay suppressed for the current dashboard session, including stale follow-up cache results. Cross-worker freshness remains F29.
 - [x] **F02 — Done: Portfolio freshness IDs are often assigned after the response arrives.** Snapshot tickets are allocated before I/O. Portfolio rows and totals are applied only inside the accepted cycle; post-action callbacks no longer assign freshness on arrival. Sentiment field edits remain F27.
-- [ ] **F03 — Partial: Refresh cycles can overlap, with extra refreshes inside them.** Main polling and order-action refreshes now coalesce into one cycle. Separate sentiment polling still performs its own reads; consolidate those before closing.
+- [x] **F03 — Done: Refresh cycles can overlap, with extra refreshes inside them.** Main polling and order-action refreshes coalesce into one cycle (v4.16.2). v4.16.3 replaced the per-click sentiment timers with one shared poller that never overlaps itself, reads only the tables it needs, and applies results through the same freshness and saved-edit guards.
 - [x] **F04 — Done: A normal refresh first applies an older database snapshot, then a live snapshot.** Saved snapshot is used only at mount, labeled while updating. Subsequent refreshes use live rows; embedded fast orders cannot replace dedicated order state.
 - [x] **F05 — Done: An empty order list is sometimes treated as “use the previous list”.** Explicit empty pending-order arrays clear highlights; absent/malformed arrays and failed HTTP reads retain the accepted list. Per-provider partial failures remain F17.
 - [x] **F06 — Done: Pending orders have multiple writable copies and cancellation uses old render values.** One publisher updates the current pending-order ref, React order state, and row flags. Cancellation reads the current ref, not a pre-await render closure.
-- [ ] **F07 — Partial: Outstanding dashboard reads and deferred work survive cleanup.** Main snapshot reads abort on cleanup/auth change; removed the deferred startup timer and tested StrictMode. Standalone sentiment/settings/pair/staking and other deferred actions still need a lifecycle audit.
+- [x] **F07 — Done: Outstanding dashboard reads and deferred work survive cleanup.** Main snapshot reads abort on cleanup/auth change (v4.16.2). v4.16.3: settings, trading-pair and staking reads are tied to the signed-in user and aborted on cleanup; the sentiment poller and hover timer stop on unmount; the auto-buy balance lookup only answers the most recently opened modal.
 - [ ] **F08 — Open: Refresh merging can keep holdings that are absent from the new snapshot.** Not started.
 - [x] **F09 — Done: Totals have competing writers and a separate stale startup cache.** Removed unscoped financial caches and competing total readers. Totals come with the accepted row snapshot; valid zero is preserved, missing fields retain last values with a freshness message.
-- [ ] **F10 — Open: Matching a pending order does not fully identify its account or instrument.** Not started.
-- [ ] **F11 — Open: Some local updates and React row keys identify a row too loosely.** Not started.
+- [x] **F10 — Done: Matching a pending order does not fully identify its account or instrument.** v4.16.3: one matcher compares provider, Webull account, instrument class and the exact symbol or trading pair (split on a known quote suffix, no prefix matching). An order with no account highlights a row only when one account holds that symbol. The server's Binance base-asset derivation uses the same suffix rule.
+- [x] **F11 — Done: Some local updates and React row keys identify a row too loosely.** v4.16.3: one identity per table drives React keys, hidden rows, optimistic items and every callback (favorite, alert, alert type/value, auto-buy/sell, volatility, sentiment, notes, news). Notes name their table to the server, which previously could save a watchlist note onto a portfolio coin with the same numeric id; Webull watchlist notes now save.
 - [x] **F12 — Done: Cancellation can remove more than the intended local order.** Local cancellation suppression compares provider, account, environment/mode, synthetic/native namespace, scoped ID aliases, and Binance pair.
 - [ ] **F13 — Open: A synthetic parent and its broker child can both reserve the same cash.** Not started.
 - [ ] **F14 — Open: Native OCO cash reservations can be counted as two independent purchases.** Not started.
@@ -34,13 +34,13 @@ A checked item is complete within the stated finding's frontend scope. “Partia
 - [ ] **F18 — Open: The fast and live pending sources have different mode and freshness rules.** Not started.
 - [ ] **F19 — Open: Yellow cash highlighting conflates several different meanings.** Not started.
 - [x] **F20 — Done: HTTP 200 can be mistaken for successful cancellation.** Explicit application success is required. Final cancellation, acknowledgement/CANCEL_PENDING, and rejection are distinct; both brokers route synthetic IDs to status-bearing strategy endpoints.
-- [ ] **F21 — Open: The default BTC/ETH row order has no stable definition.** Not started.
-- [ ] **F22 — Open: Equal sort values have no deterministic tie-breaker.** Not started.
-- [ ] **F23 — Open: Sorting the portfolio silently changes the watchlist sort.** Not started.
-- [ ] **F24 — Open: Changing-value sorts and temporary pinning can move rows without explaining why.** Not started.
-- [ ] **F25 — Open: Optimistic watchlist additions are keyed only by ticker.** Not started.
-- [ ] **F26 — Open: Watchlist removals can reappear, and removal failure is not rolled back.** Not started.
-- [ ] **F27 — Open: Refreshes can overwrite a newly saved favorite, alert, note, or automation setting.** Not started.
+- [x] **F21 — Done: The default BTC/ETH row order has no stable definition.** v4.16.3: with no chosen column both tables are alphabetical by symbol with a full-identity tie-break; both watchlist queries now have an explicit server order. Verified with the server order alternating on every refresh.
+- [x] **F22 — Done: Equal sort values have no deterministic tie-breaker.** v4.16.3: every sort falls back to symbol, provider, account, instrument and id; rows with no value go last in both directions.
+- [x] **F23 — Done: Sorting the portfolio silently changes the watchlist sort.** v4.16.3: separate sort state and saved preferences per table, validated against that table's sortable columns. The retired shared setting seeds the portfolio only, because it cannot say which table it was meant for; the watchlist starts from the stable default.
+- [x] **F24 — Done: Changing-value sorts and temporary pinning can move rows without explaining why.** v4.16.3: each table states its order in words ("Order: A–Z by symbol", or the chosen column with "rows move as values change" and a reset). A third header click returns to the default. A newly added row takes its alphabetical place immediately; under a value sort it is held at the top labelled "Adding…" until confirmed.
+- [x] **F25 — Done: Optimistic watchlist additions are keyed only by ticker.** v4.16.3: additions are tracked by provider, symbol and instrument; only the exact row confirms, replaces or removes a pending addition.
+- [x] **F26 — Done: Watchlist removals can reappear, and removal failure is not rolled back.** v4.16.3: the latest add/remove decision per row is kept until a list requested after the server confirmed it; requests for one row are sent in order; a failed removal restores the row and reports the error. The server removes the exact Webull instrument when no id exists yet.
+- [x] **F27 — Done: Refreshes can overwrite a newly saved favorite, alert, note, or automation setting.** v4.16.3: saved fields are remembered per row and re-applied over any refresh that was requested before the save, for both tables and for the sentiment poller.
 - [ ] **F28 — Open: Editable fields do not consistently follow refreshed values.** Not started.
 - [ ] **F29 — Open: Webull order caches are private to each process, including invalidation.** Not started.
 - [ ] **F30 — Open: Multiple backend jobs can write the same portfolio snapshot out of order.** Not started.
@@ -50,8 +50,8 @@ A checked item is complete within the stated finding's frontend scope. “Partia
 - [ ] **F34 — Open: A single page can be treated as the entire Webull open-order set.** Not started.
 - [ ] **F35 — Partial: A recent fill can repeatedly trigger refreshes and success toasts.** Fill notifications deduplicate full identity/fill revisions; removed the nested portfolio read. Complete-empty membership handling still depends on F08 and backend completeness.
 - [x] **F36 — Done: Synthetic recovery changes do not immediately synchronize every dashboard view.** Dashboard listens to synthetic updates and invalidates older reads before requesting a coordinated refresh.
-- [ ] **F37 — Open: The recovery modal can receive the wrong late lookup result.** Not started.
-- [ ] **F38 — Partial: Current tests and logs do not establish absence of these races.** Added deterministic coordinator tests and actual Dashboard browser fixtures. Cross-tab/worker tests, request diagnostics, and remaining acceptance scenarios are still open.
+- [x] **F37 — Done: The recovery modal can receive the wrong late lookup result.** v4.16.3: each opening owns a cancellable lookup; a superseded or late answer is ignored, and the decision is submitted for the strategy on screen.
+- [ ] **F38 — Partial: Current tests and logs do not establish absence of these races.** Added deterministic coordinator tests and actual Dashboard browser fixtures (v4.16.2); row identity/sort/intent unit tests and five table browser scenarios, plus a late-lookup recovery scenario (v4.16.3). Cross-tab/worker tests, request diagnostics, and the reservation/server acceptance scenarios are still open.
 
 ### Batch v4.16.2 changes and verification
 
@@ -60,7 +60,7 @@ A checked item is complete within the stated finding's frontend scope. “Partia
 - Passed: 15 Node test cases across the coordinator, cancellation routing, and existing synthetic order utilities (including delayed response rejection, coalescing, cleanup/remount, scoped aliases, result classification, and fill revisions).
 - Passed: seven browser scenarios using the actual Dashboard and confirmation modal in React StrictMode: confirmed cancellation with delayed/stale results, unresolved cancellation, HTTP-200 rejection, empty orders, HTTP source failure, genuine zero totals, and missing totals retaining last values. Both NVDA and USD highlights are observed, including transient DOM changes.
 - Passed: production frontend build (`npm run build`, 1,165 modules), `git diff --check`, and the asset-serving unittest using the personal instance virtualenv. The system Python initially lacked `flask_sqlalchemy`; rerunning with the app virtualenv passed.
-- Pending: release publication, personal-instance update, and service/endpoint/tag checks.
+- Released and deployed: GitHub release `v4.16.2` from commit `5cc9eb25`; personal instance fast-forwarded to the tag with unrelated files preserved, frontend rebuilt, service restarted, `/login` on port 5010 returned 200 serving the released bundle.
 
 Reproduce tests from the source repository:
 
@@ -72,12 +72,33 @@ cd frontend && npm run build
 
 The browser harness uses installed Playwright and Chromium (`CHROMIUM_PATH` overrides `/usr/bin/chromium`), builds its fixture bundle in the system temporary directory, and removes it on exit. It mocks authentication and the independent widget grid; dashboard rows, totals, refresh logic, order calculations, and cancellation modal run from production source.
 
+### Batch v4.16.3 changes and verification
+
+- Findings closed: F03, F07, F10, F11, F21–F27, F37. F38 advanced. Totals after this batch: 21 done, 2 partial (F35, F38), 15 open (F08, F13–F19, F28–F34).
+- Implementation: new `frontend/src/utils/dashboardRows.mjs` (row identity, order matching, ordering, saved-edit ledger, watchlist intents); `frontend/src/pages/Dashboard.jsx`; `frontend/src/components/SyntheticRecoveryHost.jsx`; `routes/portfolio.py` (watchlist order, exact Webull removal, Binance base asset); `routes/system.py` (`/api/update-note` accepts `table_type`).
+- Behaviour the user will notice: both tables default to A–Z and say so; the watchlist no longer follows the portfolio's sort; a third click on a header returns to A–Z; a failed watchlist removal or hide puts the row back with a message.
+- Passed: 15 Node tests (`tests/dashboard_rows.test.mjs`, `tests/dashboard_refresh.test.mjs`, `tests/synthetic_cancellation.test.mjs`).
+- Passed: `tests/dashboard_tables.browser.mjs` — stable-order (server order alternating, default and tied sorts, no transient swap), independent-sorts (including reload), exact-row-highlights (same ticker at two providers and two accounts), watchlist-removal (failure rollback; an older list cannot bring a removed row back), saved-edit-survives-refresh.
+- Passed: the seven existing `tests/dashboard_refresh.browser.mjs` scenarios and `tests/synthetic_recovery.browser.mjs` with the new late-lookup case.
+- Python: `python -m unittest discover -s tests -p 'test_*.py'` runs 1,152 tests. One failure and nine errors occur identically on the released v4.16.2 code and on this batch (`test_webull_service` open-order cache count, eight `test_order_replacement` cases, `test_event_recalibration` setUpClass, one `test_decision_integrity` case). They are pre-existing, not caused by this work, and are not yet fixed.
+- Not covered: a UI-driven watchlist addition (the add/re-add ordering is covered by unit tests only); no live broker or real-account run was used.
+
 ### Next work
 
-1. Finish F03/F07 lifecycle coordination and implement the per-provider/account completeness contract in F17/F18 before changing membership in F08. Do not interpret a partially failed broker response as an empty account.
-2. Continue the implementation order below. F21–F24 should use the audit's proposed alphabetical default with full-identity tie-breaks and independent table sort preferences, unless the user directs otherwise. These sorting fixes have not shipped in this batch.
-3. Keep F29–F34 open: cross-process cache/snapshot/import races are unaffected. Session-local confirmed cancellation suppression is not shared cache invalidation.
-4. Update this ledger with each verified fix and release. Preserve unrelated files in the personal checkout; do not use `upgrade.sh` unchanged because it performs hard resets/forced checkouts. This batch needs no migrations.
+1. Implement the per-provider/account completeness contract in F17/F18 before changing membership in F08. Do not interpret a partially failed broker response as an empty account. Then F28 (editable fields) and the rest of F35.
+2. Reservations and order descriptions: F13–F16 and F19.
+3. Server caches and competing writers: F29–F34. Session-local confirmed cancellation suppression is not shared cache invalidation.
+4. Finish F38 with the remaining acceptance scenarios and request diagnostics.
+5. Update this ledger with each verified fix and release. Preserve unrelated files in the personal checkout; do not use `upgrade.sh` unchanged because it performs hard resets/forced checkouts. Neither batch needed migrations.
+
+Browser tests need an installed Playwright and the system Chromium, for example:
+
+```bash
+export PLAYWRIGHT_MODULE_PATH=/var/www/html/visasentinel/node_modules/playwright CHROMIUM_PATH=/usr/bin/chromium
+node tests/dashboard_refresh.browser.mjs && node tests/dashboard_tables.browser.mjs && node tests/synthetic_recovery.browser.mjs
+```
+
+Python tests run with the personal instance's virtualenv (`/home/jcavallarojr/crypto_alert_app/venv/bin/python`); the source checkout's own `venv` lacks `flask_sqlalchemy`.
 
 ## Original audit boundaries
 

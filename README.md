@@ -1,8 +1,16 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.16.2
+**Version:** 4.16.3
 
 ## Recent Updates
+
+### v4.16.3
+* **Rows stay where they are:** Portfolio and Watchlist default to A–Z by symbol and say so above the table. Equal values no longer swap places, and the order returned by the server no longer decides anything. Each table has its own saved sort; sorting one never changes the other. A third click on a column header returns to A–Z.
+* **Exact rows only:** Pending-order highlights, alerts, favorites, notes, automation settings and sentiment updates target one row by provider, account and instrument. The same ticker on Binance.US and Webull, or in two Webull accounts, no longer affects its twin. A watchlist note can no longer be saved onto a portfolio coin that shares its internal number.
+* **Watchlist add and remove:** The latest add or remove choice wins over older background refreshes. A failed removal or hide puts the row back and shows a message instead of failing silently.
+* **Saved settings stay saved:** A refresh that was already in flight can no longer put back the old favorite, alert, note or automation value. Sentiment refreshes share one guarded poller, and background reads stop when the dashboard is left.
+* **Recovery dialog:** Opening a second failed strategy before the first lookup answers always shows the one that was opened last.
+* **Audit progress:** 21 of 38 findings in the [portfolio/watchlist audit ledger](docs/audits/portfolio-watchlist-refresh-audit.md) are complete; cash-reservation accuracy and server-side cache/sync coordination remain open.
 
 ### v4.16.2
 * **Dashboard cancellation and refresh stability:** Polling and order-action refreshes share a mutation-aware coordinator. Older responses cannot restore a locally confirmed cancellation; an explicit empty order list clears both asset and cash highlights. Unresolved cancellations remain visible, and a failed result returned with HTTP 200 is no longer treated as success.

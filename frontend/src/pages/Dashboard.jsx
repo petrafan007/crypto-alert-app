@@ -1,3 +1,7 @@
+import {
+  portfolioRowIdentity, watchlistRowIdentity, rowProvider, rowAccount, rowSymbol, orderMatchesRow,
+  sortDashboardRows, parseSortPreference, nextSortPreference, createRowEditLedger, createWatchlistIntents,
+} from '../utils/dashboardRows.mjs';
 import { createDashboardRefreshCoordinator, sameDashboardOrder, cancellationOutcome, recentFillRevision } from '../utils/dashboardRefresh.mjs';
 import { syntheticCancellationEndpoint } from '../utils/syntheticCancellation.mjs';
 import { syntheticOrderTooltip } from '../utils/syntheticOrders.mjs';
@@ -148,7 +152,17 @@ function Dashboard({ isLightMode }) {
   const [portfolioAssetFilter, setPortfolioAssetFilter] = useState(() => localStorage.getItem('dashboard_portfolio_asset_filter') || 'all');
   const [watchlistAssetFilter, setWatchlistAssetFilter] = useState(() => localStorage.getItem('dashboard_watchlist_asset_filter') || 'all');
   const [loading, setLoading] = useState(true);
-  const pendingAddedWatchlistSymbolsRef = useRef(new Map());
+  // Latest add/remove decision per watchlist row, and fields the user just
+  // saved. Both outlive individual refreshes so an older response cannot undo them.
+  const watchlistIntentsRef = useRef(null);
+  if (!watchlistIntentsRef.current) watchlistIntentsRef.current = createWatchlistIntents();
+  const rowEditsRef = useRef(null);
+  if (!rowEditsRef.current) rowEditsRef.current = createRowEditLedger();
+  const watchlistRequestsRef = useRef(new Map());
+  const sentimentWatchesRef = useRef(new Map());
+  const sentimentPollerRef = useRef(null);
+  const pollSentimentRef = useRef(null);
+  const autoBuyBalanceRequestRef = useRef(0);
   // Watchlist background fetches (poll cycles, sentiment refresh, etc.) can resolve out of
   // order over the network (a slower older request finishing after a faster newer one).
   // Track an issue counter + the highest sequence actually applied so a late/stale response
@@ -178,25 +192,23 @@ function Dashboard({ isLightMode }) {
     return provider === 'webull' ? 'webull' : 'binance';
   };
 
-  // Pending orders must stay scoped to the provider that owns the portfolio row.
-  // A Binance ETH order cannot highlight a separate Webull ETH ETF holding.
+  // A pending order highlights only the row it belongs to: same provider, same
+  // Webull account, same instrument, and the exact symbol or trading pair.
+  const portfolioRowsRef = useRef([]);
+  portfolioRowsRef.current = portfolio;
   const getPendingOrdersForCoin = (asset, orders) => {
-    const list = Array.isArray(orders) ? orders : (pendingOrdersRef.current?.length ? pendingOrdersRef.current : []);
+    const list = Array.isArray(orders) ? orders : pendingOrdersRef.current;
     if (!Array.isArray(list) || list.length === 0) return [];
-    const symbol = typeof asset === 'object' ? asset?.symbol : asset;
-    const sym = String(symbol || '').toUpperCase().trim();
-    if (!sym) return [];
-    const isObject = typeof asset === 'object' && asset !== null;
-    const provider = isObject ? pendingOrderProvider(asset) : null;
-    return list.filter(order => {
-      if (provider && orderProvider(order) !== provider) return false;
-      const orderAsset = String(order?.asset || '').toUpperCase().trim();
-      const orderSymbol = String(order?.symbol || '').toUpperCase().trim();
-      return orderAsset === sym
-        || orderSymbol === sym
-        || orderSymbol.startsWith(`${sym}USD`)
-        || orderSymbol.startsWith(`${sym}USDT`);
-    });
+    if (typeof asset !== 'object' || asset === null) {
+      const symbol = String(asset || '').toUpperCase().trim();
+      return symbol ? list.filter(order => orderMatchesRow(order, { symbol, provider: orderProvider(order) })) : [];
+    }
+    const symbol = rowSymbol(asset);
+    if (!symbol) return [];
+    const symbolAccounts = new Set(portfolioRowsRef.current
+      .filter(row => rowProvider(row) === 'webull' && rowSymbol(row) === symbol && rowAccount(row))
+      .map(rowAccount));
+    return list.filter(order => orderMatchesRow(order, asset, { symbolAccounts }));
   };
 
   const publishSnapshotTotals = (totals) => {
@@ -218,19 +230,22 @@ function Dashboard({ isLightMode }) {
     setWatchlist(updateFlags);
   };
 
-  const applyPortfolioUpdate = (incoming) => {
+  // `readMark` is rowEditsRef.current.mark() captured before the request was
+  // sent; fields saved after that point are kept over the incoming values.
+  const applyPortfolioUpdate = (incoming, readMark) => {
     if (!Array.isArray(incoming)) return;
     const ordersToCheck = pendingOrdersRef.current;
 
     setPortfolio(prev => {
       const incomingMap = new Map();
-      const portfolioRowKey = (item) => `${item?.source === 'webull' || item?.is_external ? 'webull' : 'binance'}:${item?.id || (item?.symbol || '').toUpperCase()}`;
+      const portfolioRowKey = portfolioRowIdentity;
 
       incoming.forEach(c => {
         if (!c?.symbol || !String(c.symbol).trim()) return;
         if (c.pendingPlaceholder || String(c.id || '').startsWith('pending-')) return;
         incomingMap.set(portfolioRowKey(c), {
-          ...c,
+          ...rowEditsRef.current.overlay(`portfolio:${portfolioRowKey(c)}`, c, readMark),
+          ...(sentimentWatchesRef.current.has(`portfolio:${portfolioRowKey(c)}`) ? { sentiment: 'Checking now...' } : {}),
           hasPendingOrder: getPendingOrdersForCoin(c, ordersToCheck || []).length > 0,
           pendingPlaceholder: false
         });
@@ -282,37 +297,34 @@ function Dashboard({ isLightMode }) {
     });
   };
 
-  // Helper to preserve pending optimistic watchlist items across background poll intervals
-  const mergeWatchlistPreservingPending = (newList, prevList) => {
-    if (!Array.isArray(newList)) return prevList || [];
-    const newSymbols = new Set(newList.map(c => (c.symbol || '').toUpperCase()));
-
-    // Clean up confirmed additions from the ref map if they are now present in the server's list
-    for (const [sym] of pendingAddedWatchlistSymbolsRef.current.entries()) {
-      if (newSymbols.has(sym)) {
-        pendingAddedWatchlistSymbolsRef.current.delete(sym);
-      }
-    }
-
-    // Collect all unconfirmed additions that the server's list doesn't have yet
-    const pendingItems = Array.from(pendingAddedWatchlistSymbolsRef.current.values())
-      .filter(item => !newSymbols.has((item.symbol || '').toUpperCase()));
-
-    if (pendingItems.length === 0) return newList;
-    return [...pendingItems, ...newList];
-  };
-
-  // Applies a freshly-fetched watchlist list to state, but only if fetchId is not older than
-  // the most recently applied fetch — discards stale, out-of-order responses instead of
-  // letting them clobber newer data (this is what caused newly-added coins to flicker away).
-  const applyWatchlistUpdate = (newList, fetchId) => {
+  // Applies a freshly-fetched watchlist, but only if fetchId is not older than
+  // the most recently applied fetch. The user's unconfirmed additions and
+  // removals, and fields saved after the request started, are kept on top.
+  const applyWatchlistUpdate = (newList, fetchId, readMark) => {
+    if (!Array.isArray(newList)) return;
     if (typeof fetchId === 'number' && fetchId < watchlistAppliedIdRef.current) {
       return;
     }
     if (typeof fetchId === 'number') {
       watchlistAppliedIdRef.current = fetchId;
     }
-    setWatchlist(prev => mergeWatchlistPreservingPending(newList, prev));
+    const merged = watchlistIntentsRef.current.merge(newList, readMark)
+      .map(row => rowEditsRef.current.overlay(`watchlist:${watchlistRowIdentity(row)}`, row, readMark))
+      .map(row => (sentimentWatchesRef.current.has(`watchlist:${watchlistRowIdentity(row)}`) ? { ...row, sentiment: 'Checking now...' } : row));
+    setWatchlist(merged);
+  };
+
+  // Update exactly one row (by full identity) and remember the saved fields.
+  // `transient` marks display-only states that a refresh may freely replace.
+  const patchRow = (table, target, patch, { transient = false } = {}) => {
+    const identityOf = table === 'watchlist' ? watchlistRowIdentity : portfolioRowIdentity;
+    const identity = typeof target === 'string' ? target : identityOf(target);
+    (table === 'watchlist' ? setWatchlist : setPortfolio)(prev => prev.map(row => {
+      if (identityOf(row) !== identity) return row;
+      const fields = typeof patch === 'function' ? patch(row) : patch;
+      if (!transient) rowEditsRef.current.record(`${table}:${identity}`, fields);
+      return { ...row, ...fields };
+    }));
   };
 
   const [usdPairBases, setUsdPairBases] = useState(new Set());
@@ -452,7 +464,7 @@ function Dashboard({ isLightMode }) {
     else if (accountScope === 'webull') list = portfolio.filter(item => item.is_external === true || item.source === 'webull');
     // Defensively exclude any duplicate Webull Events Cash USD holding if one was returned
     return list.filter(item => {
-      if (optimisticHiddenCoins.has(item.id)) return false;
+      if (optimisticHiddenCoins.has(portfolioRowIdentity(item))) return false;
       const isWebull = item?.is_external === true || item?.source === 'webull';
       if (!isWebull) return true;
       const isCash = String(item?.symbol || '').toUpperCase() === 'USD' || String(item?.instrument_type || '').toUpperCase() === 'CASH';
@@ -590,27 +602,19 @@ function Dashboard({ isLightMode }) {
   const [dragOverColKey, setDragOverColKey] = useState(null);
   const [isResizing, setIsResizing] = useState(false);
 
-  // Sorting state
-  const [sortConfig, setSortConfig] = useState(() => {
-    if (typeof window === 'undefined') {
-      return { key: null, direction: 'asc' };
-    }
+  // Each table keeps its own sort choice. No choice means the stable default:
+  // alphabetical by symbol. The old shared setting is retired; it seeds the
+  // portfolio only, because it cannot say which table the user meant.
+  const sortableKeys = definitions => Object.keys(definitions).filter(key => definitions[key].sortable);
+  const readSort = (storageKey, definitions, legacyKey) => {
     try {
-      const stored = window.localStorage.getItem('dashboardSortConfig');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object') {
-          return {
-            key: parsed.key ?? null,
-            direction: parsed.direction === 'desc' ? 'desc' : 'asc'
-          };
-        }
-      }
+      return parseSortPreference(window.localStorage.getItem(storageKey) ?? (legacyKey ? window.localStorage.getItem(legacyKey) : null), sortableKeys(definitions));
     } catch (err) {
-      console.warn('Failed to read saved sort config:', err);
+      return parseSortPreference(null, []);
     }
-    return { key: null, direction: 'asc' };
-  });
+  };
+  const [portfolioSort, setPortfolioSort] = useState(() => readSort('dashboardPortfolioSort', PORTFOLIO_COLUMN_DEFINITIONS, 'dashboardSortConfig'));
+  const [watchlistSort, setWatchlistSort] = useState(() => readSort('dashboardWatchlistSort', WATCHLIST_COLUMN_DEFINITIONS));
 
   // Note modal state
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -794,10 +798,15 @@ function Dashboard({ isLightMode }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Standalone reads belong to the signed-in user and are cancelled when the
+  // dashboard is left, so a late answer never lands in another session.
   useEffect(() => {
+    if (!user?.id) return undefined;
+    const controller = new AbortController();
     const fetchSettings = async () => {
       try {
-        const res = await axios.get('/api/settings', { withCredentials: true });
+        const res = await axios.get('/api/settings', { withCredentials: true, signal: controller.signal });
+        if (controller.signal.aborted) return;
         const vh = res.data?.volatility_hours ?? res.data?.settings?.volatility_hours;
         if (vh !== undefined && vh !== null && vh !== '') {
           setVolatilityHoursSetting(parseInt(vh, 10) || 24);
@@ -809,14 +818,18 @@ function Dashboard({ isLightMode }) {
       } catch (e) { }
     };
     fetchSettings();
-  }, []);
+    return () => controller.abort();
+  }, [user?.id]);
 
   // Load the set of coins that actually have a USD and/or USDT trading pair on Binance.US,
   // so Buy/Sell/Auto-Buy/Auto-Sell quote-currency options can be hidden when a pair doesn't exist.
   useEffect(() => {
+    if (!user?.id) return undefined;
+    const controller = new AbortController();
     const fetchTradingPairs = async () => {
       try {
-        const res = await axios.get('/api/trading-pairs', { withCredentials: true });
+        const res = await axios.get('/api/trading-pairs', { withCredentials: true, signal: controller.signal });
+        if (controller.signal.aborted) return;
         const pairs = Array.isArray(res.data?.pairs) ? res.data.pairs : [];
         const usdBases = new Set();
         const usdtBases = new Set();
@@ -831,11 +844,12 @@ function Dashboard({ isLightMode }) {
         setUsdtPairBases(usdtBases);
       } catch (e) {
       } finally {
-        setTradingPairsLoaded(true);
+        if (!controller.signal.aborted) setTradingPairsLoaded(true);
       }
     };
     fetchTradingPairs();
-  }, []);
+    return () => controller.abort();
+  }, [user?.id]);
 
   // Whether a coin actually has a live USD/USDT pair on Binance.US; fails "open" (true)
   // until the pairs list has loaded so options aren't hidden prematurely.
@@ -1383,35 +1397,13 @@ function Dashboard({ isLightMode }) {
       };
       const res = await axios.post('/api/portfolio/trigger-auto-sell', payload, { withCredentials: true });
       if (res.data.success) {
-        if (autoSellModal.tableType === 'watchlist') {
-          setWatchlist(prev =>
-            prev.map(c =>
-              c.symbol === autoSellModal.symbol || (autoSellModal.coin && c.id === autoSellModal.coin.id)
-                ? {
-                  ...c,
-                  auto_sell_enabled: enable,
-                  auto_sell_volatility_pct: autoSellModal.volatilityPct,
-                  auto_sell_quote_currency: autoSellModal.quoteCurrency,
-                  volatility_pct: autoSellModal.volatilityPct
-                }
-                : c
-            )
-          );
-        } else {
-          setPortfolio(prev =>
-            prev.map(c =>
-              c.symbol === autoSellModal.symbol || (autoSellModal.coin && c.id === autoSellModal.coin.id)
-                ? {
-                  ...c,
-                  auto_sell_enabled: enable,
-                  auto_sell_volatility_pct: autoSellModal.volatilityPct,
-                  auto_sell_quote_currency: autoSellModal.quoteCurrency,
-                  volatility_pct: autoSellModal.volatilityPct
-                }
-                : c
-            )
-          );
-        }
+        patchRow(autoSellModal.tableType === 'watchlist' ? 'watchlist' : 'portfolio',
+          autoSellModal.coin || { symbol: autoSellModal.symbol }, {
+            auto_sell_enabled: enable,
+            auto_sell_volatility_pct: autoSellModal.volatilityPct,
+            auto_sell_quote_currency: autoSellModal.quoteCurrency,
+            volatility_pct: autoSellModal.volatilityPct
+          });
         showAppToast(
           res.data.message || (enable ? `Auto-sell activated for ${autoSellModal.symbol}!` : `Auto-sell disabled for ${autoSellModal.symbol}`),
           'success',
@@ -1467,6 +1459,8 @@ function Dashboard({ isLightMode }) {
       error: ''
     });
 
+    const balanceRequest = ++autoBuyBalanceRequestRef.current;
+    const isCurrentBalanceRequest = () => balanceRequest === autoBuyBalanceRequestRef.current && !!dashboardRefreshRef.current;
     try {
       const res = await axios.get('/api/portfolio/auto-buy-balance-info', {
         params: {
@@ -1477,6 +1471,7 @@ function Dashboard({ isLightMode }) {
         },
         withCredentials: true
       });
+      if (!isCurrentBalanceRequest()) return;
       if (res.data?.success) {
         setAutoBuyModal(prev => ({
           ...prev,
@@ -1490,6 +1485,7 @@ function Dashboard({ isLightMode }) {
         setAutoBuyModal(prev => ({ ...prev, loadingBalance: false, error: res.data?.error || '' }));
       }
     } catch (e) {
+      if (!isCurrentBalanceRequest()) return;
       setAutoBuyModal(prev => ({ ...prev, loadingBalance: false, error: 'Could not fetch live balance info' }));
     }
   };
@@ -1529,37 +1525,14 @@ function Dashboard({ isLightMode }) {
       };
       const res = await axios.post('/api/portfolio/trigger-auto-buy', payload, { withCredentials: true });
       if (res.data.success) {
-        if (autoBuyModal.tableType === 'watchlist') {
-          setWatchlist(prev =>
-            prev.map(c =>
-              c.symbol === autoBuyModal.symbol || (autoBuyModal.coin && c.id === autoBuyModal.coin.id)
-                ? {
-                  ...c,
-                  auto_buy_enabled: enable,
-                  auto_buy_amount: parseFloat(autoBuyModal.amount) || 0,
-                  auto_buy_quote_currency: autoBuyModal.quoteCurrency,
-                  auto_buy_volatility_pct: autoBuyModal.volatilityPct,
-                  volatility_pct: autoBuyModal.volatilityPct
-                }
-                : c
-            )
-          );
-        } else {
-          setPortfolio(prev =>
-            prev.map(c =>
-              c.symbol === autoBuyModal.symbol || (autoBuyModal.coin && c.id === autoBuyModal.coin.id)
-                ? {
-                  ...c,
-                  auto_buy_enabled: enable,
-                  auto_buy_amount: parseFloat(autoBuyModal.amount) || 0,
-                  auto_buy_quote_currency: autoBuyModal.quoteCurrency,
-                  auto_buy_volatility_pct: autoBuyModal.volatilityPct,
-                  volatility_pct: autoBuyModal.volatilityPct
-                }
-                : c
-            )
-          );
-        }
+        patchRow(autoBuyModal.tableType === 'watchlist' ? 'watchlist' : 'portfolio',
+          autoBuyModal.coin || { symbol: autoBuyModal.symbol }, {
+            auto_buy_enabled: enable,
+            auto_buy_amount: parseFloat(autoBuyModal.amount) || 0,
+            auto_buy_quote_currency: autoBuyModal.quoteCurrency,
+            auto_buy_volatility_pct: autoBuyModal.volatilityPct,
+            volatility_pct: autoBuyModal.volatilityPct
+          });
         showAppToast(
           res.data.message || (enable ? `Auto-buy activated for ${autoBuyModal.symbol}!` : `Auto-buy disabled for ${autoBuyModal.symbol}`),
           'success',
@@ -1914,6 +1887,7 @@ function Dashboard({ isLightMode }) {
 
 
   const hoverTimeoutRef = useRef(null);
+  useEffect(() => () => clearTimeout(hoverTimeoutRef.current), []);
 
   // Hover popup functions
   const handleSymbolHover = (symbol, event) => {
@@ -2214,6 +2188,8 @@ function Dashboard({ isLightMode }) {
     if (dashboardUserRef.current !== user?.id) {
       dashboardUserRef.current = user?.id;
       confirmedCancellationsRef.current = [];
+      watchlistIntentsRef.current.clear();
+      rowEditsRef.current.clear();
       publishPendingOrders([]);
       setPortfolio([]);
       setWatchlist([]);
@@ -2231,10 +2207,11 @@ function Dashboard({ isLightMode }) {
       if (hydrate) {
         hydrate = false;
         try {
+          const hydrateMark = rowEditsRef.current.mark();
           const response = await axios.get('/api/coin-data', options);
           if (!ticket.isCurrent() || window.globalIsLoggingOut) return;
           publishPendingOrders(response.data?.pending_orders);
-          applyPortfolioUpdate(response.data?.portfolio);
+          applyPortfolioUpdate(response.data?.portfolio, hydrateMark);
           publishSnapshotTotals(response.data?.account_totals);
           setPortfolioFreshness('cached');
           setLoading(false);
@@ -2250,6 +2227,7 @@ function Dashboard({ isLightMode }) {
       }
       if (!ticket.isCurrent()) return;
       const wFetchId = nextWatchlistFetchId();
+      const readMark = rowEditsRef.current.mark();
       const [portfolioResponse, ordersResponse, watchlistResponse, fillsResponse] = await Promise.allSettled([
         axios.get('/api/coin-data-live', options),
         axios.get('/api/pending-orders', options),
@@ -2268,11 +2246,11 @@ function Dashboard({ isLightMode }) {
       // orders can be cached and must never override this accepted list.
       if (ordersResponse.status === 'fulfilled') publishPendingOrders(ordersResponse.value.data?.pending_orders);
       if (watchlistResponse.status === 'fulfilled' && Array.isArray(watchlistResponse.value.data)) {
-        applyWatchlistUpdate(watchlistResponse.value.data, wFetchId);
+        applyWatchlistUpdate(watchlistResponse.value.data, wFetchId, readMark);
       }
       if (portfolioResponse.status === 'fulfilled' && Array.isArray(portfolioResponse.value.data?.portfolio)) {
         const snapshot = portfolioResponse.value.data;
-        applyPortfolioUpdate(snapshot.portfolio);
+        applyPortfolioUpdate(snapshot.portfolio, readMark);
         setPortfolioFreshness(publishSnapshotTotals(snapshot.account_totals) ? 'live' : 'partial');
         setError(null);
       } else {
@@ -2303,6 +2281,8 @@ function Dashboard({ isLightMode }) {
     window.addEventListener('app:synthetic-updated', handleRefreshEvent);
     return () => {
       coordinator.stop();
+      stopSentimentPoller();
+      sentimentWatchesRef.current.clear();
       clearInterval(interval);
       if (dashboardRefreshRef.current === coordinator) dashboardRefreshRef.current = null;
       window.removeEventListener('app:refresh-dashboard', handleRefreshEvent);
@@ -2344,88 +2324,62 @@ function Dashboard({ isLightMode }) {
 
   // Fetch stakeable coins
   useEffect(() => {
+    if (!user?.id) return undefined;
+    const controller = new AbortController();
     async function fetchStakeableCoins() {
       try {
-        const response = await axios.get('/api/staking/stakeable-coins', { withCredentials: true });
-        setStakeableCoins(response.data || []);
+        const response = await axios.get('/api/staking/stakeable-coins', { withCredentials: true, signal: controller.signal });
+        if (!controller.signal.aborted) setStakeableCoins(response.data || []);
       } catch (err) {
-        setStakeableCoins([]);
+        if (!controller.signal.aborted) setStakeableCoins([]);
       }
     }
     fetchStakeableCoins();
-  }, []);
+    return () => controller.abort();
+  }, [user?.id]);
 
   // Force refresh portfolio data
 
 
   // Toggle favorite for portfolio coins
-  const toggleFavorite = async (coinId, currentFavorite) => {
+  const toggleFavorite = async (coin) => {
+    const favorite = !coin.favorite;
     try {
-      const response = await axios.post('/api/set-favorite', {
-        id: coinId,
-        favorite: !currentFavorite
-      }, { withCredentials: true });
-
-      if (response.data.success) {
-        setPortfolio(prev => prev.map(coin =>
-          coin.id === coinId ? { ...coin, favorite: !currentFavorite } : coin
-        ));
-      }
+      const response = await axios.post('/api/set-favorite', { id: coin.id, favorite }, { withCredentials: true });
+      if (response.data.success) patchRow('portfolio', coin, { favorite });
     } catch (err) {
       console.error('Toggle favorite error:', err);
     }
   };
 
   // Toggle favorite for watchlist coins
-  const toggleWatchlistFavorite = async (symbol, currentFavorite) => {
+  const toggleWatchlistFavorite = async (item) => {
+    const favorite = !item.favorite;
     try {
-      const response = await axios.post('/api/set-watchlist-favorite', {
-        symbol: symbol,
-        favorite: !currentFavorite
-      }, { withCredentials: true });
-
-      if (response.data.success) {
-        setWatchlist(prev => prev.map(coin =>
-          coin.symbol === symbol ? { ...coin, favorite: !currentFavorite } : coin
-        ));
-      }
+      const response = await axios.post('/api/set-watchlist-favorite', { symbol: item.symbol, favorite }, { withCredentials: true });
+      if (response.data.success) patchRow('watchlist', item, { favorite });
     } catch (err) {
       console.error('Toggle watchlist favorite error:', err);
     }
   };
 
   // Toggle alert for portfolio coins
-  const toggleAlert = async (coinId, currentAlertEnabled, symbol) => {
+  const toggleAlert = async (coin) => {
+    const alert_enabled = !coin.alert_enabled;
     try {
-      const response = await axios.post('/api/set-alert', {
-        id: coinId,
-        symbol: symbol,
-        alert_enabled: !currentAlertEnabled
-      }, { withCredentials: true });
-
-      if (response.data.success) {
-        setPortfolio(prev => prev.map(coin =>
-          (coin.id === coinId || (symbol && coin.symbol === symbol)) ? { ...coin, alert_enabled: !currentAlertEnabled } : coin
-        ));
-      }
+      const response = await axios.post('/api/set-alert', { id: coin.id, symbol: coin.symbol, alert_enabled }, { withCredentials: true });
+      if (response.data.success) patchRow('portfolio', coin, { alert_enabled });
     } catch (err) {
       console.error('Toggle alert error:', err);
     }
   };
 
   // Toggle alert for watchlist coins
-  const toggleWatchlistAlert = async (symbol, currentAlertEnabled) => {
+  const toggleWatchlistAlert = async (item) => {
+    const alert_enabled = !item.alert_enabled;
     try {
-      const response = await axios.post('/api/set-watch-alert', {
-        symbol: symbol,
-        alert_enabled: !currentAlertEnabled
-      }, { withCredentials: true });
-
-      if (response.data.success) {
-        setWatchlist(prev => prev.map(coin =>
-          coin.symbol === symbol ? { ...coin, alert_enabled: !currentAlertEnabled } : coin
-        ));
-      }
+      const response = await axios.post('/api/set-watch-alert', { symbol: item.symbol, alert_enabled }, { withCredentials: true });
+      if (response.data.success) patchRow('watchlist', item, { alert_enabled });
     } catch (err) {
       console.error('Toggle watchlist alert error:', err);
     }
@@ -2446,21 +2400,7 @@ function Dashboard({ isLightMode }) {
       if (response.data.success) {
         const alertKey = direction === 'down' ? 'down_alert' : 'up_alert';
 
-        if (isWatchlist) {
-          setWatchlist(prev => prev.map(coin =>
-            coin.symbol === item.symbol ? {
-              ...coin,
-              [alertKey]: response.data.value
-            } : coin
-          ));
-        } else {
-          setPortfolio(prev => prev.map(coin =>
-            coin.id === item.id ? {
-              ...coin,
-              [alertKey]: response.data.value
-            } : coin
-          ));
-        }
+        patchRow(isWatchlist ? 'watchlist' : 'portfolio', item, { [alertKey]: response.data.value });
       }
     } catch (err) {
       console.error('Get auto alert error:', err);
@@ -2486,156 +2426,67 @@ function Dashboard({ isLightMode }) {
       if (response.data.success) {
         const typeKey = direction === 'down' ? 'custom_lower_type' : 'custom_upper_type';
 
-        if (isWatchlist) {
-          setWatchlist(prev => prev.map(coin =>
-            coin.symbol === item.symbol ? {
-              ...coin,
-              [typeKey]: newType
-            } : coin
-          ));
-        } else {
-          setPortfolio(prev => prev.map(coin =>
-            coin.id === item.id ? {
-              ...coin,
-              [typeKey]: newType
-            } : coin
-          ));
-        }
+        patchRow(isWatchlist ? 'watchlist' : 'portfolio', item, { [typeKey]: newType });
       }
     } catch (err) {
       console.error('Update alert type error:', err);
     }
   };
 
-  // Sorting functionality
-  const handleSort = (key) => {
-    let direction = 'asc';
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
-    const nextConfig = { key, direction };
-    setSortConfig(nextConfig);
+  // Sorting functionality: clicking a header cycles ascending, descending,
+  // then back to the default order. Each table saves its own choice.
+  const handleSort = (table, key) => {
+    const isWatchlist = table === 'watchlist';
+    const next = nextSortPreference(isWatchlist ? watchlistSort : portfolioSort, key);
+    (isWatchlist ? setWatchlistSort : setPortfolioSort)(next);
     try {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('dashboardSortConfig', JSON.stringify(nextConfig));
-      }
+      window.localStorage.setItem(isWatchlist ? 'dashboardWatchlistSort' : 'dashboardPortfolioSort', JSON.stringify(next));
+      window.localStorage.removeItem('dashboardSortConfig');
     } catch (err) {
       console.warn('Failed to persist sort config:', err);
     }
   };
 
-  const sortData = (data, key) => {
-    if (!key || !Array.isArray(data)) return data || [];
-
-    const isNumericColumn = [
-      'amount',
-      'current_price',
-      'current_value',
-      'avg_entry',
-      'pct_change',
-      'change_24h',
-      'volatility_pct',
-      'high_low_24h',
-      'volume_24h',
-      'market_cap',
-      'pnl_usd',
-      'allocation_pct',
-      'target_price',
-      'down_alert',
-      'up_alert'
-    ].includes(key);
-
-    const getSortValue = (item) => {
-      if (!item) return null;
-      if (key === 'pnl_usd') {
-        if (item.current_price && item.avg_entry && item.amount) {
-          return item.amount * (item.current_price - item.avg_entry);
-        }
-        if (item.current_value !== undefined && item.cost_basis !== undefined && item.cost_basis > 0) {
-          return item.current_value - item.cost_basis;
-        }
-        return null;
-      }
-      if (key === 'allocation_pct') {
-        return item.current_value !== undefined && item.current_value !== null ? Number(item.current_value) : null;
-      }
-      if (key === 'avg_entry') {
-        const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes((item.symbol || '').toUpperCase())
-          || ((item.is_external === true || item.source === 'webull') && (item.instrument_type || '').toUpperCase() === 'CASH');
-        if (isStable) return 1.0;
-        return item.avg_entry !== undefined && item.avg_entry !== null ? Number(item.avg_entry) : null;
-      }
-      if (key === 'current_price') {
-        const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes((item.symbol || '').toUpperCase())
-          || ((item.is_external === true || item.source === 'webull') && (item.instrument_type || '').toUpperCase() === 'CASH');
-        if (isStable) return 1.0;
-        return item.current_price !== undefined && item.current_price !== null ? Number(item.current_price) : null;
-      }
-      if (key === 'pct_change') {
-        return item.pct_change !== undefined && item.pct_change !== null ? Number(item.pct_change) : null;
-      }
-      if (key === 'change_24h') {
-        return item.change_24h !== undefined && item.change_24h !== null ? Number(item.change_24h) : null;
-      }
-      if (key === 'current_value') {
-        return item.current_value !== undefined && item.current_value !== null ? Number(item.current_value) : null;
-      }
-      if (key === 'sentiment') {
-        return typeof item.sentiment === 'object' ? (item.sentiment?.score ?? item.sentiment?.label ?? '') : (item.sentiment || '');
-      }
-      return item[key];
-    };
-
-    return [...data].sort((a, b) => {
-      const aVal = getSortValue(a);
-      const bVal = getSortValue(b);
-
-      if (isNumericColumn) {
-        const isANull = aVal === null || aVal === undefined || aVal === '' || isNaN(Number(aVal));
-        const isBNull = bVal === null || bVal === undefined || bVal === '' || isNaN(Number(bVal));
-
-        if (isANull && isBNull) return 0;
-        if (isANull) return 1; // nulls always at the bottom
-        if (isBNull) return -1;
-
-        const numA = Number(aVal);
-        const numB = Number(bVal);
-        return sortConfig.direction === 'asc' ? numA - numB : numB - numA;
-      }
-
-      const strA = (aVal ?? '').toString().toLowerCase();
-      const strB = (bVal ?? '').toString().toLowerCase();
-      return sortConfig.direction === 'asc' ? strA.localeCompare(strB) : strB.localeCompare(strA);
-    });
-  };
-
-  // Newly-added watchlist coins are still missing most server-computed fields (current_value,
-  // 24h stats, etc.), so running them through sortData alongside confirmed rows can shove them
-  // to the bottom (or anywhere) depending on the active sort column, making them look like they
-  // "disappeared". Pin any still-unconfirmed additions to the top, unsorted, and only sort the
-  // rest of the list.
+  // A row the user just added has no prices yet, so under a value sort it
+  // would land at the bottom and look lost. It is held at the top, labelled
+  // "Adding…", until the server confirms it. Under the default alphabetical
+  // order it simply takes its permanent place immediately.
   const getDisplayWatchlist = (list = displayedWatchlist) => {
     if (!Array.isArray(list)) return [];
-    const pendingSymbols = new Set(pendingAddedWatchlistSymbolsRef.current.keys());
-    if (pendingSymbols.size === 0) return sortData(list, sortConfig.key);
-    const pendingRows = list.filter(w => pendingSymbols.has((w.symbol || '').toUpperCase()));
-    const confirmedRows = list.filter(w => !pendingSymbols.has((w.symbol || '').toUpperCase()));
-    return [...pendingRows, ...sortData(confirmedRows, sortConfig.key)];
+    const adding = watchlistSort.key ? watchlistIntentsRef.current.pendingAdds() : new Set();
+    if (adding.size === 0) return sortDashboardRows(list, watchlistSort);
+    const isAdding = row => adding.has(watchlistRowIdentity(row));
+    return [...sortDashboardRows(list.filter(isAdding), null), ...sortDashboardRows(list.filter(row => !isAdding(row)), watchlistSort)];
   };
 
-  const getSortIcon = (key) => {
-    if (sortConfig.key !== key) return '';
-    return sortConfig.direction === 'asc' ? '▲' : '▼';
-  };
-
-  const renderHeaderLabel = (key, label) => {
-    const icon = getSortIcon(key);
-    if (!icon) return label;
+  const renderHeaderLabel = (table, key, label) => {
+    const config = table === 'watchlist' ? watchlistSort : portfolioSort;
+    if (config.key !== key) return label;
     return (
       <span className="header-label">
         {label}
-        <span className="sort-icon">{icon}</span>
+        <span className="sort-icon">{config.direction === 'asc' ? '▲' : '▼'}</span>
       </span>
+    );
+  };
+
+  // States the active order of a table in words, so a row that moves is never unexplained.
+  const renderSortNote = (table) => {
+    const config = table === 'watchlist' ? watchlistSort : portfolioSort;
+    const definitions = table === 'watchlist' ? WATCHLIST_COLUMN_DEFINITIONS : PORTFOLIO_COLUMN_DEFINITIONS;
+    if (!config.key) return <small className="table-sort-note" data-sort-table={table}>Order: A–Z by symbol</small>;
+    const label = definitions[config.key]?.label || config.key;
+    return (
+      <small className="table-sort-note" data-sort-table={table}>
+        Order: {label} {config.direction === 'asc' ? '▲' : '▼'} · rows move as values change ·{' '}
+        <button
+          type="button"
+          onClick={() => handleSort(table, null)}
+          style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}
+        >
+          Reset to A–Z
+        </button>
+      </small>
     );
   };
 
@@ -2982,8 +2833,7 @@ function Dashboard({ isLightMode }) {
 
         const response = await axios.post('/api/portfolio/trigger-auto-buy', payload, { withCredentials: true });
         if (response.data.success) {
-          setPortfolio(prev => prev.map(c => ((c.symbol || '').toUpperCase() === symbol ? { ...c, auto_buy_enabled: false } : c)));
-          setWatchlist(prev => prev.map(w => ((w.symbol || '').toUpperCase() === symbol ? { ...w, auto_buy_enabled: false } : w)));
+          patchRow(payload.table_type === 'watchlist' ? 'watchlist' : 'portfolio', cancelModalState.coin || { symbol }, { auto_buy_enabled: false });
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
@@ -3003,8 +2853,7 @@ function Dashboard({ isLightMode }) {
 
         const response = await axios.post('/api/portfolio/trigger-auto-sell', payload, { withCredentials: true });
         if (response.data.success) {
-          setPortfolio(prev => prev.map(c => ((c.symbol || '').toUpperCase() === symbol ? { ...c, auto_sell_enabled: false } : c)));
-          setWatchlist(prev => prev.map(w => ((w.symbol || '').toUpperCase() === symbol ? { ...w, auto_sell_enabled: false } : w)));
+          patchRow(payload.table_type === 'watchlist' ? 'watchlist' : 'portfolio', cancelModalState.coin || { symbol }, { auto_sell_enabled: false });
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
@@ -3104,8 +2953,8 @@ function Dashboard({ isLightMode }) {
   }, [cancelContextMenu.isOpen, replaceContextMenu.isOpen]);
 
   // Note functions
-  const openNoteModal = (coin) => {
-    setEditingNote(coin);
+  const openNoteModal = (coin, table) => {
+    setEditingNote({ ...coin, noteTable: table });
     setNoteText(coin.note || '');
     setShowNoteModal(true);
   };
@@ -3114,18 +2963,15 @@ function Dashboard({ isLightMode }) {
     if (!editingNote) return;
 
     try {
+      const isWatchlistNote = editingNote.noteTable === 'watchlist';
       const response = await axios.post('/api/update-note', {
         coin_id: editingNote.id,
+        table_type: isWatchlistNote ? (rowProvider(editingNote) === 'webull' ? 'webull_watchlist' : 'watchlist') : 'portfolio',
         note: noteText
       }, { withCredentials: true });
 
       if (response.data.success) {
-        setPortfolio(prev => prev.map(coin =>
-          coin.id === editingNote.id ? { ...coin, note: noteText } : coin
-        ));
-        setWatchlist(prev => prev.map(item =>
-          item.id === editingNote.id ? { ...item, note: noteText } : item
-        ));
+        patchRow(isWatchlistNote ? 'watchlist' : 'portfolio', editingNote, { note: noteText });
         setShowNoteModal(false);
         setEditingNote(null);
         setNoteText('');
@@ -3178,16 +3024,16 @@ function Dashboard({ isLightMode }) {
           <div className="actions-bottom-sheet__body">
             <button
               onClick={() => {
-                if (isPortfolio && !isPlaceholder) toggleAlert(coin.id, coin.alert_enabled, coin.symbol);
-                if (isWatchlist) toggleWatchlistAlert(item.symbol, item.alert_enabled);
+                if (isPortfolio && !isPlaceholder) toggleAlert(coin);
+                if (isWatchlist) toggleWatchlistAlert(item);
                 closeActionMenu();
               }}
               disabled={isPortfolio ? isPlaceholder : false}
             >
               {isPortfolio ? (coin.alert_enabled ? 'Disable Alerts' : 'Enable Alerts') : (item.alert_enabled ? 'Disable Alerts' : 'Enable Alerts')}
             </button>
-            <button onClick={() => { openNews(isPortfolio ? coin.symbol : item.symbol); closeActionMenu(); }}>News</button>
-            <button onClick={() => { openNoteModal(isPortfolio ? coin : item); closeActionMenu(); }}>Notes</button>
+            <button onClick={() => { openNews(isPortfolio ? coin : item); closeActionMenu(); }}>News</button>
+            <button onClick={() => { openNoteModal(isPortfolio ? coin : item, isPortfolio ? 'portfolio' : 'watchlist'); closeActionMenu(); }}>Notes</button>
             {/* Buy button */}
             {(() => {
               const sym = isPortfolio ? coin.symbol : item.symbol;
@@ -3651,7 +3497,7 @@ function Dashboard({ isLightMode }) {
             })()}
             <button
               onClick={() => {
-                if (isPortfolio && !isPlaceholder) hideCoin(coin.id, coin.symbol);
+                if (isPortfolio && !isPlaceholder) hideCoin(coin);
                 if (isWatchlist) deleteWatchlistItem(item);
                 closeActionMenu();
               }}
@@ -3711,18 +3557,18 @@ function Dashboard({ isLightMode }) {
         <button
           role="menuitem"
           onClick={() => {
-            if (isPortfolio && !isPlaceholder) toggleAlert(coin.id, coin.alert_enabled, coin.symbol);
-            if (isWatchlist) toggleWatchlistAlert(item.symbol, item.alert_enabled);
+            if (isPortfolio && !isPlaceholder) toggleAlert(coin);
+            if (isWatchlist) toggleWatchlistAlert(item);
             closeActionMenu();
           }}
           disabled={isPlaceholder}
         >
           <span>🔔</span>{subject.alert_enabled ? 'Disable Alerts' : 'Enable Alerts'}
         </button>
-        <button role="menuitem" onClick={() => { openNews(symbol); closeActionMenu(); }}>
+        <button role="menuitem" onClick={() => { openNews(subject); closeActionMenu(); }}>
           <span>📰</span>News
         </button>
-        <button role="menuitem" onClick={() => { openNoteModal(subject); closeActionMenu(); }}>
+        <button role="menuitem" onClick={() => { openNoteModal(subject, isPortfolio ? 'portfolio' : 'watchlist'); closeActionMenu(); }}>
           <span>✏️</span>Notes
         </button>
         {(isWebullAsset(subject) || subject.asset_type === 'stock') && isNonTradableWebullCashAsset(subject) ? (
@@ -3845,7 +3691,7 @@ function Dashboard({ isLightMode }) {
         <button
           role="menuitem"
           onClick={() => {
-            if (isPortfolio && !isPlaceholder) hideCoin(coin.id, coin.symbol);
+            if (isPortfolio && !isPlaceholder) hideCoin(coin);
             if (isWatchlist) deleteWatchlistItem(item);
             closeActionMenu();
           }}
@@ -3952,8 +3798,19 @@ function Dashboard({ isLightMode }) {
     return dateStr ? `[${dateStr}] ${preview}` : preview;
   };
 
+  // The news request is keyed by ticker, so its result belongs to the rows of
+  // the provider it was opened from, not to a same-ticker row elsewhere.
+  const newsProviderRef = useRef('binance');
+  const applyNewsToRows = (symbol, fields) => {
+    const matches = row => rowSymbol(row) === String(symbol || '').toUpperCase().trim() && rowProvider(row) === newsProviderRef.current;
+    setPortfolio(prev => prev.map(row => (matches(row) ? { ...row, ...fields } : row)));
+    setWatchlist(prev => prev.map(row => (matches(row) ? { ...row, ...fields } : row)));
+  };
+
   // News function - Show cached/today's analysis (NEWS button)
-  const openNews = async (symbol) => {
+  const openNews = async (symbolOrRow) => {
+    const symbol = typeof symbolOrRow === 'object' ? symbolOrRow?.symbol : symbolOrRow;
+    newsProviderRef.current = typeof symbolOrRow === 'object' ? rowProvider(symbolOrRow) : 'binance';
     try {
       setNewsLoading(true);
       setNewsAnalysisSymbol(symbol);
@@ -3982,16 +3839,7 @@ function Dashboard({ isLightMode }) {
         });
 
         // Update cached_news in portfolio and watchlist state
-        setPortfolio(prev => prev.map(c => c.symbol === symbol ? {
-          ...c,
-          cached_news: analysis,
-          cached_news_date: nowIso
-        } : c));
-        setWatchlist(prev => prev.map(w => w.symbol === symbol ? {
-          ...w,
-          cached_news: analysis,
-          cached_news_date: nowIso
-        } : w));
+        applyNewsToRows(symbol, { cached_news: analysis, cached_news_date: nowIso });
       }
     } catch (error) {
       console.error('Error fetching news analysis:', error);
@@ -4036,16 +3884,7 @@ function Dashboard({ isLightMode }) {
         });
 
         // Update cached_news in portfolio and watchlist state
-        setPortfolio(prev => prev.map(c => c.symbol === symbol ? {
-          ...c,
-          cached_news: analysis,
-          cached_news_date: nowIso
-        } : c));
-        setWatchlist(prev => prev.map(w => w.symbol === symbol ? {
-          ...w,
-          cached_news: analysis,
-          cached_news_date: nowIso
-        } : w));
+        applyNewsToRows(symbol, { cached_news: analysis, cached_news_date: nowIso });
       }
     } catch (error) {
       console.error('Error refreshing news analysis:', error);
@@ -4059,38 +3898,29 @@ function Dashboard({ isLightMode }) {
   };
 
   // Hide coin function
-  const hideCoin = async (coinId, symbol) => {
-    try {
-      console.log('Hiding coin with ID:', coinId, 'symbol:', symbol);
-      
-      // Optimistically hide immediately
-      setOptimisticHiddenCoins(prev => new Set(prev).add(coinId));
-      setPortfolio(prev => prev.filter(coin => coin.id !== coinId));
-      
-      const response = await axios.post('/api/hide-coin', {
-        coin_id: coinId,
-        symbol: symbol,
-      }, { withCredentials: true });
-
-      console.log('Hide response:', response.data);
-      if (response.data.success) {
-        console.log('Coin hidden successfully');
-      } else {
-        // Revert if failed
-        setOptimisticHiddenCoins(prev => {
-          const next = new Set(prev);
-          next.delete(coinId);
-          return next;
-        });
-      }
-    } catch (err) {
-      console.error('Hide coin error:', err);
-      // Revert if failed
+  const hideCoin = async (coin) => {
+    const identity = portfolioRowIdentity(coin);
+    const unhide = () => {
       setOptimisticHiddenCoins(prev => {
         const next = new Set(prev);
-        next.delete(coinId);
+        next.delete(identity);
         return next;
       });
+      showAppToast(`Could not hide ${coin.symbol}. It is still in your portfolio.`, 'error', { symbol: coin.symbol });
+    };
+    // The row stays in state and is only filtered from view, so a failed
+    // request can put it back exactly where it was.
+    setOptimisticHiddenCoins(prev => new Set(prev).add(identity));
+    try {
+      const response = await axios.post('/api/hide-coin', {
+        coin_id: coin.id,
+        symbol: coin.symbol,
+      }, { withCredentials: true });
+      if (response.data.success) refreshDashboard();
+      else unhide();
+    } catch (err) {
+      console.error('Hide coin error:', err);
+      unhide();
     }
   };
 
@@ -4131,23 +3961,48 @@ function Dashboard({ isLightMode }) {
     }
   };
 
-  // Delete watchlist item function
+  // Requests for one watchlist row run one after another, so the server
+  // receives the user's decisions in the order they were made.
+  const queueWatchlistRequest = (identity, send) => {
+    const requests = watchlistRequestsRef.current;
+    const next = (requests.get(identity) || Promise.resolve()).catch(() => { }).then(send);
+    requests.set(identity, next);
+    const done = () => {
+      if (requests.get(identity) === next) requests.delete(identity);
+    };
+    next.then(done, done);
+    return next;
+  };
+
+  // Delete watchlist item function. The row stays removed until a list read
+  // that began after the server confirmed it; a failure puts the row back.
   const deleteWatchlistItem = async (itemOrSymbol) => {
-    const item = typeof itemOrSymbol === 'object' ? itemOrSymbol : null;
-    const cleanSym = (item?.symbol || itemOrSymbol || '').toUpperCase().trim();
-    const isWebull = item?.provider === 'webull' || item?.source === 'webull';
-    pendingAddedWatchlistSymbolsRef.current.delete(cleanSym);
-    setWatchlist(prev => prev.filter((current) => isWebull
-      ? current.id !== item?.id
-      : (current.symbol || '').toUpperCase().trim() !== cleanSym));
+    const item = itemOrSymbol && typeof itemOrSymbol === 'object'
+      ? itemOrSymbol
+      : watchlist.find(row => rowProvider(row) === 'binance' && rowSymbol(row) === String(itemOrSymbol || '').toUpperCase().trim());
+    if (!item) return;
+    const identity = watchlistRowIdentity(item);
+    const isWebull = rowProvider(item) === 'webull';
+    const intents = watchlistIntentsRef.current;
+    const seq = rowEditsRef.current.tick();
+    intents.begin(identity, 'remove', item, seq);
+    setWatchlist(prev => prev.filter(row => watchlistRowIdentity(row) !== identity));
     try {
-      await axios.post('/api/watchlist/remove', {
-        symbol: cleanSym,
+      const response = await queueWatchlistRequest(identity, () => axios.post('/api/watchlist/remove', {
+        symbol: rowSymbol(item),
         provider: isWebull ? 'webull' : undefined,
-        id: item?.id,
-      }, { withCredentials: true });
+        id: item.id,
+        instrument_type: isWebull ? (item.instrument_type || 'EQUITY') : undefined,
+        event_outcome: isWebull ? (item.event_outcome || '') : undefined,
+      }, { withCredentials: true }));
+      if (response.data?.success === false) throw new Error(response.data.error || 'The removal was not accepted.');
+      intents.settle(identity, seq, rowEditsRef.current.tick());
     } catch (err) {
       console.error('Delete watchlist item error:', err);
+      if (!intents.isCurrent(identity, seq)) return; // a newer decision for this row replaced this one
+      intents.drop(identity, seq);
+      setWatchlist(prev => (prev.some(row => watchlistRowIdentity(row) === identity) ? prev : [...prev, item]));
+      showAppToast(`Could not remove ${item.symbol} from your watchlist. It has been put back.`, 'error', { symbol: item.symbol });
     }
   };
 
@@ -4156,13 +4011,18 @@ function Dashboard({ isLightMode }) {
     const { symbol: rawSym, asset_type = 'crypto', name, provider } = selection || {};
     const cleanSym = (rawSym || '').trim().toUpperCase();
     if (!cleanSym) return;
+    const isWebull = String(provider || '').toLowerCase() === 'webull';
+    const instrument = isWebull ? {
+      instrument_type: String(selection.instrument_type || 'EQUITY').trim().toUpperCase(),
+      event_outcome: String(selection.event_outcome || '').trim().toUpperCase(),
+    } : {};
 
     // Optimistic item to render immediately (0ms latency)
-    const tempId = `temp-${Date.now()}`;
     const tempItem = {
-      id: tempId,
+      id: `temp-${Date.now()}`,
       symbol: cleanSym,
       asset_type,
+      ...(isWebull ? { provider: 'webull', source: 'webull', is_external: true, name, ...instrument } : {}),
       current_price: 0,
       current_value: 0,
       pct_change: 0,
@@ -4176,69 +4036,53 @@ function Dashboard({ isLightMode }) {
       down_val: null,
       up_val: null,
       note: '',
-      hidden: false
+      hidden: false,
+      pendingAdd: true
     };
-
-    // Track in ref so background poll intervals (/api/watchlist-live) cannot wipe it out before the server responds
-    pendingAddedWatchlistSymbolsRef.current.set(cleanSym, tempItem);
-
-    setWatchlist(prev => {
-      if (prev.some(c => (c.symbol || '').toUpperCase().trim() === cleanSym)) return prev;
-      return [tempItem, ...prev];
-    });
+    const identity = watchlistRowIdentity(tempItem);
+    const intents = watchlistIntentsRef.current;
+    const seq = rowEditsRef.current.tick();
+    // Recorded so that background refreshes cannot wipe the row before the server responds.
+    intents.begin(identity, 'add', tempItem, seq);
+    setWatchlist(prev => (prev.some(row => watchlistRowIdentity(row) === identity) ? prev : [tempItem, ...prev]));
 
     setAddingToWatchlist(true);
     try {
-      const response = await axios.post('/api/watchlist/add', {
+      const response = await queueWatchlistRequest(identity, () => axios.post('/api/watchlist/add', {
         symbol: cleanSym,
         asset_type,
         name,
         provider,
-      }, { withCredentials: true });
-
-      if (response.data && response.data.success) {
-        const itemFromServer = response.data.item || {
-          id: response.data.id || tempId,
-          symbol: cleanSym,
-          current_price: response.data.current_price || 0,
-          current_value: 0,
-          pct_change: 0,
-          change_24h: 0,
-          alert_enabled: false,
-          favorite: false,
-          sentiment: 'Checking now...',
-          sentiment_reason: '',
-          sentiment_last_updated: null,
-          volatility_pct: null,
-          down_val: null,
-          up_val: null,
-          note: '',
-          hidden: false
-        };
-        // Update ref with server-confirmed item
-        pendingAddedWatchlistSymbolsRef.current.set(cleanSym, itemFromServer);
-        setWatchlist(prev => {
-          const index = prev.findIndex(c => c.id === tempId || (c.symbol || '').toUpperCase().trim() === cleanSym);
-          if (index !== -1) {
-            const copy = [...prev];
-            copy[index] = { ...copy[index], ...itemFromServer };
-            return copy;
-          }
-          return [itemFromServer, ...prev];
-        });
-      } else {
-        // Revert on failure
-        pendingAddedWatchlistSymbolsRef.current.delete(cleanSym);
-        setWatchlist(prev => prev.filter(c => c.id !== tempId && (c.symbol || '').toUpperCase().trim() !== cleanSym));
-      }
+        ...instrument,
+      }, { withCredentials: true }));
+      if (!response.data?.success) throw new Error(response.data?.error || 'The watchlist did not accept this symbol.');
+      const itemFromServer = {
+        ...(response.data.item || { ...tempItem, id: response.data.id || tempItem.id, current_price: response.data.current_price || 0 }),
+        pendingAdd: false,
+      };
+      // Removed or decided again while the request was in flight: that newer decision stands.
+      if (!intents.settle(identity, seq, rowEditsRef.current.tick(), itemFromServer)) return;
+      if (watchlistRowIdentity(itemFromServer) !== identity) intents.drop(identity, seq);
+      setWatchlist(prev => {
+        const confirmed = watchlistRowIdentity(itemFromServer);
+        const others = prev.filter(row => watchlistRowIdentity(row) !== identity && watchlistRowIdentity(row) !== confirmed);
+        const existing = prev.find(row => watchlistRowIdentity(row) === confirmed) || prev.find(row => watchlistRowIdentity(row) === identity);
+        return [{ ...existing, ...itemFromServer }, ...others];
+      });
     } catch (err) {
       console.error('Add to watchlist error:', err);
-      pendingAddedWatchlistSymbolsRef.current.delete(cleanSym);
-      setWatchlist(prev => prev.filter(c => c.id !== tempId && (c.symbol || '').toUpperCase().trim() !== cleanSym));
+      if (!intents.isCurrent(identity, seq)) return;
+      intents.drop(identity, seq);
+      setWatchlist(prev => prev.filter(row => !(row.pendingAdd && watchlistRowIdentity(row) === identity)));
+      showAppToast(err.response?.data?.error || `Could not add ${cleanSym} to your watchlist.`, 'error', { symbol: cleanSym });
     } finally {
       setAddingToWatchlist(false);
     }
   };
+
+  const customAlertFields = data => Object.fromEntries(
+    ['custom_lower_type', 'custom_upper_type', 'custom_lower_val', 'custom_upper_val', 'custom_lower_pct', 'custom_upper_pct']
+      .filter(key => data[key] !== undefined).map(key => [key, data[key]]));
 
   // Render alert cell for portfolio (uncontrolled inputs like watchlist)
   const renderPortfolioAlertCell = (item, direction) => {
@@ -4278,34 +4122,7 @@ function Dashboard({ isLightMode }) {
 
         if (response.data.success) {
           // Update portfolio state with response data
-          setPortfolio(prev => prev.map(coin => {
-            if (coin.id === item.id) {
-              const updatedCoin = { ...coin };
-
-              // Update the correct fields based on response
-              if (response.data.custom_lower_type !== undefined) {
-                updatedCoin.custom_lower_type = response.data.custom_lower_type;
-              }
-              if (response.data.custom_upper_type !== undefined) {
-                updatedCoin.custom_upper_type = response.data.custom_upper_type;
-              }
-              if (response.data.custom_lower_val !== undefined) {
-                updatedCoin.custom_lower_val = response.data.custom_lower_val;
-              }
-              if (response.data.custom_upper_val !== undefined) {
-                updatedCoin.custom_upper_val = response.data.custom_upper_val;
-              }
-              if (response.data.custom_lower_pct !== undefined) {
-                updatedCoin.custom_lower_pct = response.data.custom_lower_pct;
-              }
-              if (response.data.custom_upper_pct !== undefined) {
-                updatedCoin.custom_upper_pct = response.data.custom_upper_pct;
-              }
-
-              return updatedCoin;
-            }
-            return coin;
-          }));
+          patchRow('portfolio', item, customAlertFields(response.data));
         }
       } catch (err) {
         console.error('Save alert error:', err);
@@ -4332,27 +4149,9 @@ function Dashboard({ isLightMode }) {
     const handleTypeChange = async (newType) => {
       try {
         // OPTIMISTIC UPDATE: Immediately update the UI before API call
-        setPortfolio(prev => prev.map(coin => {
-          if (coin.id === item.id) {
-            const updatedCoin = { ...coin };
-
-            // Immediately update the type field
-            if (direction === 'down') {
-              updatedCoin.custom_lower_type = newType;
-              // Clear the value fields when changing type
-              updatedCoin.custom_lower_val = null;
-              updatedCoin.custom_lower_pct = null;
-            } else {
-              updatedCoin.custom_upper_type = newType;
-              // Clear the value fields when changing type
-              updatedCoin.custom_upper_val = null;
-              updatedCoin.custom_upper_pct = null;
-            }
-
-            return updatedCoin;
-          }
-          return coin;
-        }));
+        patchRow('portfolio', item, direction === 'down'
+          ? { custom_lower_type: newType, custom_lower_val: null, custom_lower_pct: null }
+          : { custom_upper_type: newType, custom_upper_val: null, custom_upper_pct: null });
 
         const data = {
           id: item.id,
@@ -4366,34 +4165,7 @@ function Dashboard({ isLightMode }) {
 
         if (response.data.success) {
           // Update portfolio state with confirmed response data from backend
-          setPortfolio(prev => prev.map(coin => {
-            if (coin.id === item.id) {
-              const updatedCoin = { ...coin };
-
-              // Update the correct fields based on response
-              if (response.data.custom_lower_type !== undefined) {
-                updatedCoin.custom_lower_type = response.data.custom_lower_type;
-              }
-              if (response.data.custom_upper_type !== undefined) {
-                updatedCoin.custom_upper_type = response.data.custom_upper_type;
-              }
-              if (response.data.custom_lower_val !== undefined) {
-                updatedCoin.custom_lower_val = response.data.custom_lower_val;
-              }
-              if (response.data.custom_upper_val !== undefined) {
-                updatedCoin.custom_upper_val = response.data.custom_upper_val;
-              }
-              if (response.data.custom_lower_pct !== undefined) {
-                updatedCoin.custom_lower_pct = response.data.custom_lower_pct;
-              }
-              if (response.data.custom_upper_pct !== undefined) {
-                updatedCoin.custom_upper_pct = response.data.custom_upper_pct;
-              }
-
-              return updatedCoin;
-            }
-            return coin;
-          }));
+          patchRow('portfolio', item, customAlertFields(response.data));
         }
       } catch (err) {
         console.error('Update alert type error:', err);
@@ -4482,15 +4254,7 @@ function Dashboard({ isLightMode }) {
         const response = await axios.post('/api/set-watch-alert', data, { withCredentials: true });
 
         if (response.data.success) {
-          setWatchlist(prev => prev.map(coin => {
-            if (coin.symbol === item.symbol) {
-              return {
-                ...coin,
-                [alertKey]: roundedValue
-              };
-            }
-            return coin;
-          }));
+          patchRow('watchlist', item, { [alertKey]: roundedValue });
         }
       } catch (err) {
         console.error('Save watchlist alert error:', err);
@@ -4659,15 +4423,14 @@ function Dashboard({ isLightMode }) {
           ...(coin.auto_buy_enabled ? { auto_buy_volatility_pct: value } : {}),
           ...(coin.auto_sell_enabled ? { auto_sell_volatility_pct: value } : {})
         });
-        if (tableType === 'portfolio' || tableType === 'webull') {
-          setPortfolio(prev => prev.map(coin =>
-            coin.id === item.id ? applyUpdate(coin) : coin
-          ));
-        } else {
-          setWatchlist(prev => prev.map(coin =>
-            coin.symbol === item.symbol ? applyUpdate(coin) : coin
-          ));
-        }
+        patchRow(tableType === 'watchlist' ? 'watchlist' : 'portfolio', item, coin => {
+          const { volatility_pct, auto_buy_volatility_pct, auto_sell_volatility_pct } = applyUpdate(coin);
+          return {
+            volatility_pct,
+            ...(coin.auto_buy_enabled ? { auto_buy_volatility_pct } : {}),
+            ...(coin.auto_sell_enabled ? { auto_sell_volatility_pct } : {}),
+          };
+        });
       }
     } catch (err) {
       console.error('Update volatility pct error:', err);
@@ -4695,11 +4458,10 @@ function Dashboard({ isLightMode }) {
           sentiment_tracking_enabled: nextEnabled,
           sentiment: response.data.sentiment || coin.sentiment
         });
-        if (isWatchlist) {
-          setWatchlist(prev => prev.map(coin => coin.symbol === item.symbol ? applyUpdate(coin) : coin));
-        } else {
-          setPortfolio(prev => prev.map(coin => coin.id === item.id ? applyUpdate(coin) : coin));
-        }
+        patchRow(isWatchlist ? 'watchlist' : 'portfolio', item, coin => {
+          const { sentiment_tracking_enabled, sentiment } = applyUpdate(coin);
+          return { sentiment_tracking_enabled, sentiment };
+        });
       }
     } catch (err) {
       console.error('Toggle sentiment tracking error:', err);
@@ -4730,77 +4492,120 @@ function Dashboard({ isLightMode }) {
     return `${prefix}:${idPart}`;
   };
 
+  // One shared poller follows every sentiment refresh the user started. It
+  // never overlaps itself, applies results through the same freshness guards
+  // as the main refresh, and stops when the dashboard unmounts or signs out.
+  const SENTIMENT_FIELDS = ['sentiment', 'sentiment_reason', 'sentiment_last_updated', 'sentiment_provider', 'sentiment_model',
+    'sentiment_tier', 'sentiment_search_status', 'sentiment_failover_history', 'sentiment_tracking_enabled'];
+  const clearSentimentRefreshing = (itemKey) => setRefreshingSentiment(prev => {
+    const next = { ...prev };
+    delete next[itemKey];
+    return next;
+  });
+  const stopSentimentPoller = () => {
+    const poller = sentimentPollerRef.current;
+    if (!poller) return;
+    clearInterval(poller.timer);
+    poller.controller.abort();
+    sentimentPollerRef.current = null;
+  };
+  const pollSentimentWatches = async () => {
+    const poller = sentimentPollerRef.current;
+    if (!poller || poller.busy) return;
+    const watches = [...sentimentWatchesRef.current.values()];
+    if (!watches.length) {
+      stopSentimentPoller();
+      return;
+    }
+    poller.busy = true;
+    try {
+      const options = { withCredentials: true, signal: poller.controller.signal, timeout: 30000 };
+      const needsWatchlist = watches.some(watch => watch.table === 'watchlist');
+      const needsPortfolio = watches.some(watch => watch.table === 'portfolio');
+      const readMark = rowEditsRef.current.mark();
+      const wFetchId = needsWatchlist ? nextWatchlistFetchId() : null;
+      const [watchlistResult, portfolioResult] = await Promise.allSettled([
+        needsWatchlist ? axios.get('/api/watchlist-live', options) : null,
+        needsPortfolio ? axios.get('/api/coin-data-live', options) : null,
+      ]);
+      if (sentimentPollerRef.current !== poller) return;
+      const lists = {
+        watchlist: watchlistResult.status === 'fulfilled' && Array.isArray(watchlistResult.value?.data) ? watchlistResult.value.data : null,
+        portfolio: portfolioResult.status === 'fulfilled' && Array.isArray(portfolioResult.value?.data?.portfolio) ? portfolioResult.value.data.portfolio : null,
+      };
+      for (const watch of watches) {
+        watch.attempts += 1;
+        const identityOf = watch.table === 'watchlist' ? watchlistRowIdentity : portfolioRowIdentity;
+        const found = lists[watch.table]?.find(row => identityOf(row) === watch.identity);
+        const finished = found && found.sentiment !== 'Checking now...'
+          && ((found.sentiment_last_updated && found.sentiment_last_updated !== watch.initialLastUpdated) || watch.attempts > 4);
+        if (!finished && watch.attempts < 20) continue;
+        sentimentWatchesRef.current.delete(watch.key);
+        clearSentimentRefreshing(watch.itemKey);
+        if (found && watch.table === 'portfolio') {
+          patchRow('portfolio', watch.identity, Object.fromEntries(SENTIMENT_FIELDS.map(field => [field, found[field]])), { transient: true });
+        } else if (!found) {
+          patchRow(watch.table, watch.identity, { sentiment: watch.previousSentiment }, { transient: true });
+        }
+      }
+      // Rows still being analysed keep "Checking now..." inside applyWatchlistUpdate.
+      if (lists.watchlist) applyWatchlistUpdate(lists.watchlist, wFetchId, readMark);
+    } finally {
+      poller.busy = false;
+      if (sentimentPollerRef.current === poller && !sentimentWatchesRef.current.size) stopSentimentPoller();
+    }
+  };
+  pollSentimentRef.current = pollSentimentWatches;
+
   const handleSingleSentimentRefresh = async (target, isWatchlist = false, e) => {
     if (e) {
       e.stopPropagation();
     }
-    const externalHolding = target && typeof target === 'object' && (target.source === 'webull' || target.is_external || target.provider === 'webull') ? target : null;
-    const symbol = externalHolding ? externalHolding.symbol : (typeof target === 'object' ? target?.symbol : target);
-    if (!symbol) return;
-    const cleanSymbol = String(symbol).toUpperCase().trim();
+    const table = isWatchlist ? 'watchlist' : 'portfolio';
+    const rows = isWatchlist ? watchlist : portfolio;
+    const identityOf = isWatchlist ? watchlistRowIdentity : portfolioRowIdentity;
+    const requested = String(typeof target === 'object' ? target?.symbol || '' : target || '').toUpperCase().trim();
+    const row = target && typeof target === 'object'
+      ? target
+      : rows.find(candidate => rowProvider(candidate) === 'binance' && rowSymbol(candidate) === requested);
+    if (!row || !requested) return;
+    const cleanSymbol = requested;
     if (['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(cleanSymbol)) return;
 
-    const itemKey = typeof target === 'object' ? getItemIdentityKey(target, isWatchlist) : `${isWatchlist ? 'watchlist' : 'binance'}:${cleanSymbol}`;
-
-    // Find initial timestamp so we know when a fresh analysis has landed
-    const currentCoin = isWatchlist
-      ? watchlist.find(x => (x.symbol || '').toUpperCase() === cleanSymbol)
-      : portfolio.find(x => {
-        if (externalHolding) {
-          return (x.id && externalHolding.id && x.id === externalHolding.id) || ((x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol);
-        }
-        return !(x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol;
-      });
-    const initialLastUpdated = currentCoin?.sentiment_last_updated || null;
+    const identity = identityOf(row);
+    const itemKey = getItemIdentityKey(row, isWatchlist);
+    const current = rows.find(candidate => identityOf(candidate) === identity) || row;
+    const initialLastUpdated = current.sentiment_last_updated || null;
+    const previousSentiment = current.sentiment;
 
     setRefreshingSentiment(prev => ({ ...prev, [itemKey]: true }));
+    patchRow(table, identity, { sentiment: 'Checking now...' }, { transient: true });
 
-    if (externalHolding) {
-      setPortfolio(prev => prev.map(coin => (coin.id === externalHolding.id || ((coin.source === 'webull' || coin.is_external) && (coin.symbol || '').toUpperCase() === cleanSymbol)) ? { ...coin, sentiment: 'Checking now...' } : coin));
+    if (rowProvider(row) === 'webull') {
       try {
         const response = await axios.post('/api/webull/ai-analysis', {
-          holding_id: externalHolding.id,
+          holding_id: row.id,
         }, { withCredentials: true });
         const signal = response.data?.signal;
-        if (response.data?.success && signal) {
-          setPortfolio(prev => prev.map(coin => coin.id === externalHolding.id ? {
-            ...coin,
-            sentiment: signal.recommendation,
-            sentiment_reason: signal.reason || '',
-            sentiment_last_updated: signal.created_at || new Date().toISOString(),
-            sentiment_provider: signal.ai_provider,
-            sentiment_model: signal.provider_model,
-            sentiment_tier: signal.ai_tier,
-            sentiment_search_status: signal.search_status,
-            sentiment_failover_history: signal.failover_history,
-          } : coin));
-        } else {
-          throw new Error(response.data?.message || 'Unable to refresh Webull sentiment.');
-        }
+        if (!response.data?.success || !signal) throw new Error(response.data?.message || 'Unable to refresh Webull sentiment.');
+        patchRow(table, identity, {
+          sentiment: signal.recommendation,
+          sentiment_reason: signal.reason || '',
+          sentiment_last_updated: signal.created_at || new Date().toISOString(),
+          sentiment_provider: signal.ai_provider,
+          sentiment_model: signal.provider_model,
+          sentiment_tier: signal.ai_tier,
+          sentiment_search_status: signal.search_status,
+          sentiment_failover_history: signal.failover_history,
+        });
       } catch (err) {
         console.error('Failed to trigger Webull sentiment refresh:', err);
+        patchRow(table, identity, { sentiment: previousSentiment }, { transient: true });
         showAppToast(err.response?.data?.message || err.message || 'Unable to refresh Webull sentiment.', 'error', { symbol: cleanSymbol });
       } finally {
-        setRefreshingSentiment(prev => {
-          const next = { ...prev };
-          delete next[itemKey];
-          return next;
-        });
+        clearSentimentRefreshing(itemKey);
       }
       return;
-    }
-
-    // Optimistically update local state to "Checking now..."
-    if (isWatchlist) {
-      setWatchlist(prev => prev.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item));
-    } else {
-      setPortfolio(prev => prev.map(c => {
-        const isExt = c.source === 'webull' || c.is_external;
-        if (!isExt && (c.symbol || '').toUpperCase() === cleanSymbol) {
-          return { ...c, sentiment: 'Checking now...' };
-        }
-        return c;
-      }));
     }
 
     try {
@@ -4809,115 +4614,21 @@ function Dashboard({ isLightMode }) {
         target: isWatchlist ? 'watchlist' : 'portfolio',
         source: isWatchlist ? 'watchlist' : 'binance'
       }, { withCredentials: true });
-
-      // Poll until the result updates with a newer sentiment_last_updated or moves past "Checking now..."
-      let attempts = 0;
-      const pollInterval = setInterval(async () => {
-        attempts++;
-        try {
-          if (isWatchlist) {
-            const wFetchId = nextWatchlistFetchId();
-            const res = await axios.get('/api/watchlist-live', { withCredentials: true });
-            if (res.data) {
-              const found = res.data.find(x => (x.symbol || '').toUpperCase() === cleanSymbol);
-              if (found) {
-                const isFinished = (found.sentiment_last_updated && found.sentiment_last_updated !== initialLastUpdated && found.sentiment !== 'Checking now...')
-                  || (attempts > 4 && found.sentiment !== 'Checking now...');
-
-                if (found.sentiment === 'Checking now...' || !isFinished) {
-                  applyWatchlistUpdate(res.data.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item), wFetchId);
-                } else {
-                  applyWatchlistUpdate(res.data, wFetchId);
-                  clearInterval(pollInterval);
-                  setRefreshingSentiment(prev => {
-                    const next = { ...prev };
-                    delete next[itemKey];
-                    return next;
-                  });
-                }
-              }
-            }
-          } else {
-            const res = await axios.get('/api/coin-data-live');
-            if (res.data?.portfolio) {
-              const found = res.data.portfolio.find(x => !(x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol);
-              if (found) {
-                const isFinished = (found.sentiment_last_updated && found.sentiment_last_updated !== initialLastUpdated && found.sentiment !== 'Checking now...')
-                  || (attempts > 4 && found.sentiment !== 'Checking now...');
-
-                if (found.sentiment === 'Checking now...' || !isFinished) {
-                  setPortfolio(prev => prev.map(c => {
-                    const isExt = c.source === 'webull' || c.is_external;
-                    if (!isExt && (c.symbol || '').toUpperCase() === cleanSymbol) {
-                      return { ...c, sentiment: 'Checking now...' };
-                    }
-                    return c;
-                  }));
-                } else {
-                  setPortfolio(prev => prev.map(c => {
-                    const isExt = c.source === 'webull' || c.is_external;
-                    if (!isExt && (c.symbol || '').toUpperCase() === cleanSymbol) {
-                      return {
-                        ...c,
-                        sentiment: found.sentiment,
-                        sentiment_reason: found.sentiment_reason,
-                        sentiment_last_updated: found.sentiment_last_updated,
-                        sentiment_provider: found.sentiment_provider,
-                        sentiment_model: found.sentiment_model,
-                        sentiment_tier: found.sentiment_tier,
-                        sentiment_search_status: found.sentiment_search_status,
-                        sentiment_failover_history: found.sentiment_failover_history,
-                        sentiment_tracking_enabled: found.sentiment_tracking_enabled,
-                      };
-                    }
-                    return c;
-                  }));
-                  clearInterval(pollInterval);
-                  setRefreshingSentiment(prev => {
-                    const next = { ...prev };
-                    delete next[itemKey];
-                    return next;
-                  });
-                }
-              }
-            }
-          }
-        } catch (pollErr) {
-          console.error('Error polling after sentiment refresh:', pollErr);
-        }
-
-        if (attempts >= 20) {
-          clearInterval(pollInterval);
-          setRefreshingSentiment(prev => {
-            const next = { ...prev };
-            delete next[itemKey];
-            return next;
-          });
-          // Final fetch
-          if (isWatchlist) {
-            const wFetchId = nextWatchlistFetchId();
-            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
-          } else {
-            refreshDashboard();
-          }
-        }
-      }, 2000);
+      if (!dashboardRefreshRef.current) return; // the dashboard was left meanwhile
+      const key = `${table}:${identity}`;
+      sentimentWatchesRef.current.set(key, { key, table, identity, itemKey, initialLastUpdated, previousSentiment, attempts: 0 });
+      if (!sentimentPollerRef.current) {
+        sentimentPollerRef.current = {
+          controller: new AbortController(),
+          busy: false,
+          timer: setInterval(() => pollSentimentRef.current?.(), 2000),
+        };
+      }
     } catch (err) {
       console.error('Failed to trigger single sentiment refresh:', err);
-      setRefreshingSentiment(prev => {
-        const next = { ...prev };
-        delete next[itemKey];
-        return next;
-      });
-
-      // Roll back optimistic state by fetching the real data
-      if (isWatchlist) {
-        const wFetchId = nextWatchlistFetchId();
-        axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
-      } else {
-        refreshDashboard();
-      }
-
+      clearSentimentRefreshing(itemKey);
+      patchRow(table, identity, { sentiment: previousSentiment }, { transient: true });
+      refreshDashboard();
       showAppToast(err.response?.data?.message || err.message || 'Unable to refresh sentiment.', 'error', { symbol: cleanSymbol });
     }
   };
@@ -5415,6 +5126,7 @@ function Dashboard({ isLightMode }) {
         <div className="table-container portfolio-table">
           <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
             <h2 className="table-title" style={{ margin: 0 }}>Portfolio</h2>
+            {renderSortNote('portfolio')}
             {portfolioFreshness !== 'live' && <small role="status">{portfolioFreshness === 'cached' ? 'Saved snapshot · updating…' : portfolioFreshness === 'stale' ? 'Refresh unavailable · showing last snapshot' : portfolioFreshness === 'partial' ? 'Totals unavailable · showing last totals' : 'Loading snapshot…'}</small>}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--accent-primary, #4fd1c5)', letterSpacing: '0.3px' }}>
@@ -5463,7 +5175,7 @@ function Dashboard({ isLightMode }) {
                       return (
                         <th
                           key={colKey}
-                          onClick={isSortable ? () => handleSort(colKey) : undefined}
+                          onClick={isSortable ? () => handleSort('portfolio', colKey) : undefined}
                           className={`portfolio-header ${colKey === 'symbol' ? 'symbol-header' : ''} ${colKey === 'type' ? 'asset-type-header' : ''} ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && portfolioActionsCollapsed ? 'actions-header--collapsed' : ''}`}
                           draggable={isDraggable && !isResizing}
                           onDragStart={(e) => handleColDragStart('portfolio', colKey, e)}
@@ -5490,7 +5202,7 @@ function Dashboard({ isLightMode }) {
                               ...(colKey === 'symbol' ? { display: 'flex', justifyContent: 'flex-start', alignItems: 'center' } : {})
                             }}
                           >
-                            {isSortable ? renderHeaderLabel(colKey, colDef.label) : colDef.label}
+                            {isSortable ? renderHeaderLabel('portfolio', colKey, colDef.label) : colDef.label}
                           </div>
                           <div
                             className="col-resizer-handle"
@@ -5517,7 +5229,7 @@ function Dashboard({ isLightMode }) {
                     </td>
                   </tr>
                 ) : (
-                  sortData(displayedPortfolio, sortConfig.key).map((coin) => {
+                  sortDashboardRows(displayedPortfolio, portfolioSort).map((coin) => {
                     const sym = (coin.symbol || '').toUpperCase().trim();
                     const isExternal = coin.is_external === true || coin.source === 'webull';
                     const isCryptoAsset = !isExternal || /crypto|coin|token/i.test(coin.instrument_type || '');
@@ -5577,7 +5289,7 @@ function Dashboard({ isLightMode }) {
 
                     return (
                       <tr
-                        key={coin.id || coin.symbol}
+                        key={portfolioRowIdentity(coin)}
                         className={rowClass}
                         title={rowTitle}
                         onMouseEnter={(e) => handleRowHover(coin, e)}
@@ -5812,7 +5524,7 @@ function Dashboard({ isLightMode }) {
                                     <div className="actions-cell-content">
                                       <button
                                         type="button"
-                                        onClick={!isPlaceholder ? () => toggleAlert(coin.id, coin.alert_enabled, coin.symbol) : undefined}
+                                        onClick={!isPlaceholder ? () => toggleAlert(coin) : undefined}
                                         className={`action-icon-btn alert-btn ${coin.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
                                         title={alertTitle}
                                         disabled={isPlaceholder}
@@ -5824,7 +5536,7 @@ function Dashboard({ isLightMode }) {
                                         type="button"
                                         className="action-icon-btn news-btn"
                                         title={getNewsTooltip(coin)}
-                                        onClick={() => openNews(coin.symbol)}
+                                        onClick={() => openNews(coin)}
                                       >
                                         📰
                                       </button>
@@ -5832,7 +5544,7 @@ function Dashboard({ isLightMode }) {
                                         type="button"
                                         className="action-icon-btn note-btn"
                                         title={coin.note ? `Note: ${coin.note}` : 'Add note'}
-                                        onClick={() => openNoteModal(coin)}
+                                        onClick={() => openNoteModal(coin, 'portfolio')}
                                       >
                                         ✏️
                                       </button>
@@ -5960,7 +5672,7 @@ function Dashboard({ isLightMode }) {
                                       <button
                                         type="button"
                                         className="trade-action-btn hide"
-                                        onClick={() => { hideCoin(coin.id, coin.symbol); }}
+                                        onClick={() => { hideCoin(coin); }}
                                         title={isPlaceholder ? 'Cannot hide pending-only entries' : 'Hide coin'}
                                         disabled={isPlaceholder}
                                       >
@@ -6019,6 +5731,7 @@ function Dashboard({ isLightMode }) {
         <div className="table-container watchlist-table">
           <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <h2 className="table-title" style={{ margin: 0 }}>Watchlist</h2>
+            {renderSortNote('watchlist')}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <label title="Filter watchlist assets by type" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', color: 'var(--text-secondary, #94a3b8)' }}>
                 {watchlistAssetFilter === 'traditional' ? <FaDollarSign /> : watchlistAssetFilter === 'crypto' ? <FaBitcoin /> : '◉'}
@@ -6073,7 +5786,7 @@ function Dashboard({ isLightMode }) {
                       return (
                         <th
                           key={colKey}
-                          onClick={isSortable ? () => handleSort(colKey) : undefined}
+                          onClick={isSortable ? () => handleSort('watchlist', colKey) : undefined}
                           className={`watchlist-header ${colKey === 'symbol' ? 'symbol-header' : ''} ${colKey === 'type' ? 'asset-type-header' : ''} ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && watchlistActionsCollapsed ? 'actions-header--collapsed' : ''}`}
                           draggable={isDraggable && !isResizing}
                           onDragStart={(e) => handleColDragStart('watchlist', colKey, e)}
@@ -6100,7 +5813,7 @@ function Dashboard({ isLightMode }) {
                               ...(colKey === 'symbol' ? { display: 'flex', justifyContent: 'flex-start', alignItems: 'center' } : {})
                             }}
                           >
-                            {isSortable ? renderHeaderLabel(colKey, colDef.label) : colDef.label}
+                            {isSortable ? renderHeaderLabel('watchlist', colKey, colDef.label) : colDef.label}
                           </div>
                           <div
                             className="col-resizer-handle"
@@ -6149,7 +5862,7 @@ function Dashboard({ isLightMode }) {
 
                     return (
                       <tr
-                        key={item.symbol}
+                        key={watchlistRowIdentity(item)}
                         className={rowClass}
                         onMouseEnter={(e) => handleRowHover(item, e)}
                         onMouseMove={(e) => handleRowHover(item, e)}
@@ -6171,6 +5884,7 @@ function Dashboard({ isLightMode }) {
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-start' }}>
                                     <CryptoIcon symbol={item.symbol} size={20} isStock={isTraditionalAsset(item)} />
                                     <span>{item.symbol}</span>
+                                    {item.pendingAdd && <small className="watchlist-adding-note" role="status">Adding…</small>}
                                     <span
                                       className={`asset-class-icon ${isTraditionalAsset(item) ? 'traditional-asset-icon' : 'crypto-asset-icon'}`}
                                       title={isTraditionalAsset(item) ? 'Traditional asset' : 'Crypto asset'}
@@ -6279,7 +5993,7 @@ function Dashboard({ isLightMode }) {
                                     <div className="actions-cell-content">
                                       <button
                                         type="button"
-                                        onClick={() => toggleWatchlistAlert(item.symbol, item.alert_enabled)}
+                                        onClick={() => toggleWatchlistAlert(item)}
                                         className={`action-icon-btn alert-btn ${item.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
                                         title={item.alert_enabled ? 'Alerts enabled' : 'Alerts disabled'}
                                       >
@@ -6289,7 +6003,7 @@ function Dashboard({ isLightMode }) {
                                         type="button"
                                         className="action-icon-btn news-btn"
                                         title={getNewsTooltip(item)}
-                                        onClick={() => openNews(item.symbol)}
+                                        onClick={() => openNews(item)}
                                       >
                                         📰
                                       </button>
@@ -6297,7 +6011,7 @@ function Dashboard({ isLightMode }) {
                                         type="button"
                                         className="action-icon-btn note-btn"
                                         title={item.note ? `Note: ${item.note}` : 'Add note'}
-                                        onClick={() => openNoteModal(item)}
+                                        onClick={() => openNoteModal(item, 'watchlist')}
                                       >
                                         ✏️
                                       </button>
