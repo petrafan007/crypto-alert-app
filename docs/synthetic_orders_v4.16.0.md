@@ -37,3 +37,7 @@ Live replacement/re-arming requires a fresh authenticator code. Ownership, accou
 Startup adds nullable conditional-specification/phase fields to `ladder_orders` and creates `synthetic_recoveries` with a unique per-user/per-strategy decision key. It does not rewrite existing strategy terms. Runtime initialization explicitly verifies both additions.
 
 Verification uses isolated databases and mocked broker calls for sequencing, partial fills, timeouts, session routing, price preservation, ownership, 2FA and idempotent recovery. Browser checks exercise history, all recovery choices, rejected 2FA, clickable warning toasts and light/dark/mobile rendering. No verification test places live trades.
+
+## Dashboard cancellation correction (v4.16.1)
+
+Dashboard cancellations route local `ladder_` / `trail_` identifiers to the synthetic cancellation endpoints before broker routing. The Webull broker cancellation endpoint independently intercepts these identifiers and validates ownership, account, mode and fresh live 2FA. An untriggered strategy cancels locally; a submitted child is reconciled/cancelled using its durable broker identifiers. Pending broker confirmation does not remove the strategy from the dashboard as if cancellation were complete. The confirmation names the synthetic strategy and displays its account, session and saved upper/lower triggers.

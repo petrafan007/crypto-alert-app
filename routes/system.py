@@ -3568,6 +3568,31 @@ def api_webull_cancel_order():
         account_id = data.get('account_id') or data.get('_webull_account_id')
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         paper_mode_enabled = bool(getattr(setting, 'webull_test_mode_enabled', False))
+        # App strategy identifiers are never Webull client/order identifiers.
+        # Keep this server guard even when a caller uses the broker endpoint.
+        import re
+        synthetic = re.fullmatch(r'(ladder|trail)[_-](\d+)', order_id)
+        if synthetic:
+            from trading_models import LadderOrder, TrailingOrder
+            from services.synthetic_execution_service import cancel_parent
+            model, kind = (LadderOrder, 'LADDER') if synthetic[1] == 'ladder' else (TrailingOrder, 'TRAILING')
+            parent = model.query.filter_by(id=int(synthetic[2]), user_id=current_user.id).first()
+            if parent is None or parent.broker != 'webull':
+                return jsonify(success=False, error='Webull synthetic strategy not found.'), 404
+            if account_id and str(account_id) != str(parent.account_id):
+                return jsonify(success=False, error='The account does not match this synthetic strategy.'), 400
+            if data.get('symbol') and str(data['symbol']).upper() != parent.symbol.upper():
+                return jsonify(success=False, error='The symbol does not match this synthetic strategy.'), 400
+            if bool(parent.test_mode) != paper_mode_enabled:
+                return jsonify(success=False, error='Switch to the strategy\'s live/paper mode before cancelling.'), 409
+            if not parent.test_mode:
+                two_factor_error = _cancellation_2fa_error(data)
+                if two_factor_error:
+                    return jsonify(success=False, error=two_factor_error, requires_2fa=True), 403
+            saved = cancel_parent(model, kind, parent.id, current_user.id)
+            key = 'ladder_order' if kind == 'LADDER' else 'trailing_order'
+            return jsonify(success=True, status=saved['status'], **{key: saved},
+                message='Cancellation requested; awaiting broker confirmation.' if saved['status'] == 'CANCEL_PENDING' else 'Synthetic strategy cancelled.')
         paper_requested = order_id.startswith('SIM_') or account_id == 'TEST_PAPER_ACCOUNT' or data.get('test_mode')
         if paper_requested and not paper_mode_enabled:
             return jsonify({
@@ -3622,6 +3647,9 @@ def api_webull_cancel_order():
             'result': result,
             'message': 'Webull order cancelled successfully.',
         })
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify(success=False, error=str(exc), message=str(exc)), 400
     except WebullConnectionError as exc:
         logger.warning('Webull order cancellation failed: %s', exc)
         return jsonify({'success': False, 'message': str(exc), 'error': str(exc)}), 400

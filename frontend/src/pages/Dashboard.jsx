@@ -1,3 +1,4 @@
+import { syntheticCancellationEndpoint } from '../utils/syntheticCancellation.mjs';
 import { syntheticOrderTooltip } from '../utils/syntheticOrders.mjs';
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -3172,7 +3173,13 @@ function Dashboard({ isLightMode }) {
         if (twoFactorCode) {
           payload.two_factor_code = twoFactorCode;
         }
-        const response = await axios.post('/api/webull/orders/cancel', payload, { withCredentials: true });
+        const response = await axios.post(syntheticCancellationEndpoint(order) || '/api/webull/orders/cancel', payload, { withCredentials: true });
+        const savedStrategy = response.data?.ladder_order || response.data?.trailing_order;
+        if (savedStrategy?.status === 'CANCEL_PENDING') {
+          window.dispatchEvent(new Event('app:synthetic-updated'));
+          setCancelModalState(prev => ({ ...prev, loading: false, error: 'Cancellation requested. The order remains visible until Webull confirms its final state. No additional cancellation is needed.' }));
+          return response.data;
+        }
 
         if (response.data?.success || response.status === 200) {
           setPendingOrders(prev => {

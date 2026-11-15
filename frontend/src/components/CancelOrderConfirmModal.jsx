@@ -30,7 +30,9 @@ export default function CancelOrderConfirmModal({
   const isAutoTrigger = isAutoBuy || isAutoSell;
 
   const side = isAutoBuy ? 'AUTO-BUY' : isAutoSell ? 'AUTO-SELL' : (order.side || 'ORDER').toUpperCase();
-  const type = isAutoBuy
+  const synthetic = /^(ladder|trail)[_-]\d+$/.test(String(order.order_id || order.orderId || order.id || ''));
+  const details = order.synthetic_details || {};
+  const type = synthetic ? `Synthetic ${details.strategy_type === 'BRACKET' ? 'OCO / bracket' : details.strategy_type || (order.is_trailing ? 'trailing stop' : 'strategy')}` : isAutoBuy
     ? 'Volatility Surge Trigger'
     : isAutoSell
     ? 'Volatility Drop Trigger'
@@ -106,6 +108,11 @@ export default function CancelOrderConfirmModal({
           <p className="cancel-confirm-main-text">
             You are canceling <strong>{orderDescription}</strong>.
           </p>
+          {synthetic && <div role="note"><p>This stops the app-managed strategy. Any submitted broker child must reach a confirmed final state before cancellation is complete. Shares already filled are retained.</p>
+            <p>Account: {order.account_id || '—'} · Session: {details.trading_session === 'ALL' ? 'Regular + Extended Hours' : 'Regular Hours'}</p>
+            {details.upside_target_price && <p>Upper trigger: ${details.upside_target_price}</p>}
+            {details.downside_target_price && <p>Lower trigger: ${details.downside_target_price}</p>}
+          </div>}
           <p className="cancel-confirm-question">
             Are you sure you want to do this?
           </p>

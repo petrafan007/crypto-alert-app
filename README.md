@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.16.0
+**Version:** 4.16.1
 
 ## Recent Updates
+
+### v4.16.1
+* **Fix Dashboard Cancellation of Webull Synthetic Orders:** Dashboard cancellation now resolves local `ladder_` and `trail_` strategy IDs before selecting the broker endpoint. The Webull cancellation endpoint also intercepts these local IDs, validates ownership/account and live 2FA, and cancels through the synthetic engine. A local strategy ID is never transmitted to Webull as a broker order ID.
+* **Accurate Cancellation Confirmation:** Dashboard keeps cancellation-pending strategies visible until final broker confirmation. The confirmation identifies synthetic strategies and explains retained fills, account, session and saved upper/lower triggers.
 
 ### v4.16.0
 * **Extended-Hours Synthetic Conditional Orders and Persistent Failure Recovery.** See [sessions, execution and recovery](docs/synthetic_orders_v4.16.0.md).
