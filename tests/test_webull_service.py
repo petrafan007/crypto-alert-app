@@ -1086,6 +1086,7 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(preview, [{
             'account_id': '1234', 'account_type': 'STOCK', 'account_name': 'Individual',
             'balance': {'total_cash_balance': '10'}, 'positions': [{'symbol': 'AAPL'}],
+            'positions_complete': True, 'balance_complete': True,
         }])
 
     def test_event_balance_uses_nested_webull_buying_power(self):

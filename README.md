@@ -1,8 +1,17 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.16.5
+**Version:** 4.16.6
 
 ## Recent Updates
+
+### v4.16.6
+* **Odd broker replies never empty your account:** If Webull answers in an unexpected format, that account keeps its holdings and cash instead of looking empty, and other accounts still refresh. Holdings are removed only after a complete reply, and an account is removed only when you disable it.
+* **Every open Webull order is read:** More than one page of open orders is followed to the end; if the list cannot be completed, the account is reported as unavailable instead of showing part of it.
+* **Orders only move forward:** An older copy of an order can no longer reopen one that already filled or was cancelled, or shrink its filled amount.
+* **Background syncs no longer collide:** Only one Webull portfolio refresh and one Binance.US sync run per user at a time, and an older refresh never overwrites a newer one. Binance.US balances are read again right before they are saved.
+* **Caches clear everywhere:** Cancelling or replacing an order clears cached order lists in every part of the app, not just the one that handled the request.
+* **Refreshes no longer switch off automation:** The pending-order refresh no longer hides coins or turns off their alerts, auto-buy or auto-sell; it disagreed with the portfolio refresh about staked balances.
+* **Audit progress:** 36 of 38 findings in the [portfolio/watchlist audit ledger](docs/audits/portfolio-watchlist-refresh-audit.md) are complete; two are partly done.
 
 ### v4.16.5
 * **Cash counted once:** A synthetic strategy and the broker order it placed no longer both hold the same cash; they are linked by the strategy's own order records, never by a lookalike symbol or price. The two alternative legs of an OCO hold cash for one branch, not both. Partially filled orders hold cash only for the unfilled remainder.

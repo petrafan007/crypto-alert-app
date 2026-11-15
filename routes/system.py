@@ -2439,7 +2439,7 @@ def api_webull_portfolio_sync():
             credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
             account_ids=allowed_account_ids or None,
         )
-        result = import_webull_portfolio_snapshot(current_user.id, preview)
+        result = import_webull_portfolio_snapshot(current_user.id, preview, expected_account_ids=allowed_account_ids or None)
         return jsonify({
             'success': True, 'accounts': result['accounts'], 'positions': result['positions'], 'orders': 0,
             'history_warning': None,

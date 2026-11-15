@@ -13,6 +13,7 @@ from credentials import Credential, User, UserSetting
 from log import logger
 from models import BinanceOrder, Coin, OrderHistorySyncState
 from trading_models import RealOrder
+from services.order_reconcile import accept_status, fill_advances, later, normalise_status
 from services.webull_import_service import import_webull_orders
 from services.webull_service import (
     get_webull_accounts,
@@ -100,13 +101,21 @@ def import_binance_orders(user_id, orders):
         record.symbol = symbol
         record.side = str(order.get('side') or '').upper() or None
         record.order_type = str(order.get('type') or order.get('order_type') or '').upper() or None
+        # Stored state only moves forward: an older copy cannot reopen a
+        # filled/cancelled order or shrink its filled quantity.
+        incoming_updated_at = _provider_datetime(order.get('updateTime') or order.get('time'))
+        status_accepted = accept_status(record.status, record.updated_at, order.get('status'), incoming_updated_at)
+        incoming_filled = _number(order.get('executedQty', order.get('filled_quantity')))
+        fill_accepted = fill_advances(record.filled_quantity, incoming_filled)
         record.quantity = _number(order.get('origQty', order.get('quantity')))
-        record.filled_quantity = _number(order.get('executedQty', order.get('filled_quantity')))
-        record.price = _number(order.get('price'), None)
-        cumulative_quote = _number(order.get('cummulativeQuoteQty', order.get('cumulativeQuoteQty')), 0.0)
-        record.filled_price = cumulative_quote / record.filled_quantity if record.filled_quantity and cumulative_quote > 0 else record.price
+        if status_accepted or record.price is None:
+            record.price = _number(order.get('price'), None)
+        if fill_accepted:
+            record.filled_quantity = incoming_filled
+            cumulative_quote = _number(order.get('cummulativeQuoteQty', order.get('cumulativeQuoteQty')), 0.0)
+            record.filled_price = cumulative_quote / record.filled_quantity if record.filled_quantity and cumulative_quote > 0 else record.price
         commission = order.get('commission', order.get('fee'))
-        if commission not in (None, ''):
+        if commission not in (None, '') and (fill_accepted or record.commission is None):
             record.commission = _number(commission, None)
         commission_asset = order.get('commissionAsset', order.get('commission_asset', order.get('fee_asset')))
         if commission_asset not in (None, ''):
@@ -135,9 +144,10 @@ def import_binance_orders(user_id, orders):
                     record.commission = round(fq * fp * 0.001, 6)
                     if not record.commission_asset:
                         record.commission_asset = 'USD'
-        record.status = str(order.get('status') or '').upper() or None
+        if status_accepted:
+            record.status = normalise_status(order.get('status'))
         record.created_at = _provider_datetime(order.get('time') or order.get('transactTime')) or record.created_at
-        record.updated_at = _provider_datetime(order.get('updateTime') or order.get('time')) or record.updated_at
+        record.updated_at = later(record.updated_at, incoming_updated_at)
         record.synced_at = now
         if record.updated_at and (latest_updated_at is None or record.updated_at > latest_updated_at):
             latest_updated_at = record.updated_at

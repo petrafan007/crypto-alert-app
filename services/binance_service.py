@@ -247,7 +247,20 @@ def fetch_binance_price(symbol):
         return None
 
 def sync_binance_account(user_id, username, client, cred):
-    """Synchronize Binance account data with rate limiting"""
+    """Synchronize Binance account data with rate limiting.
+
+    One sync per user at a time across processes; a second request while one
+    is running is skipped, because the running sync will apply current data.
+    """
+    from services.sync_locks import user_sync_lock
+    with user_sync_lock('binance-account', user_id) as locked:
+        if not locked:
+            logger.info(f"Binance sync for user {user_id} skipped: another sync is already running")
+            return
+        return _sync_binance_account(user_id, username, client, cred)
+
+
+def _sync_binance_account(user_id, username, client, cred):
     try:
         logger.info(f"Starting Binance sync for user {user_id} with conservative rate limiting")
         
@@ -281,7 +294,14 @@ def sync_binance_account(user_id, username, client, cred):
         
         if all_trades:
             process_binance_trades(user_id, all_trades)
-        
+
+        # The trade-history reads above take minutes; balances read before them
+        # could be older than a trade made meanwhile. Read balances again right
+        # before applying them, and keep the first read only if that fails.
+        try:
+            account_info = client.get_account()
+        except Exception as e:
+            logger.warning(f"Could not re-read Binance balances for user {user_id}; applying the earlier read: {e}")
         update_coins_from_binance_balances(user_id, account_info['balances'], client=client)
         
         try:

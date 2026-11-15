@@ -87,11 +87,61 @@ WEBULL_EVENT_TRADING_HOURS = {
 }
 
 
+WEBULL_ORDER_CACHE_REVISION = 'webull-orders'
+
+
 def clear_webull_order_cache():
-    """Invalidate cached accounts, open orders, and order history."""
+    """Invalidate cached accounts, open orders, and order history in every process.
+
+    The local dictionaries are cleared here; other web workers and the
+    background scheduler see the bumped shared revision and stop using what
+    they cached before it.
+    """
+    from services.shared_state import bump_revision
     _WEBULL_ACCOUNTS_CACHE.clear()
     _WEBULL_OPEN_ORDERS_CACHE.clear()
     _WEBULL_ORDER_HISTORY_CACHE.clear()
+    bump_revision(WEBULL_ORDER_CACHE_REVISION)
+
+
+def _cached_orders(cache, key, max_age):
+    """Return cached order records if still fresh and not invalidated anywhere."""
+    from services.shared_state import revision
+    entry = cache.get(key)
+    if not entry:
+        return None
+    cached_time, records, cached_revision = entry
+    if time.time() - cached_time >= max_age or cached_revision != revision(WEBULL_ORDER_CACHE_REVISION):
+        return None
+    return [dict(record) for record in records]
+
+
+def _store_cached_orders(cache, key, records, started_revision, started_at):
+    """Cache a result only if nothing was invalidated while it was being fetched."""
+    from services.shared_state import revision
+    if started_revision == revision(WEBULL_ORDER_CACHE_REVISION):
+        cache[key] = (started_at, records, started_revision)
+
+
+class WebullIncompleteResponse(Exception):
+    """Webull answered, but not in a shape that can be trusted as a complete list."""
+
+
+def _webull_list(payload, keys, action):
+    """Return the record list in a Webull reply, or raise if the reply is not a list.
+
+    A list, or an object holding a list under one of `keys`, is authoritative
+    (an empty list means "none"). Anything else is reported as incomplete so a
+    caller never mistakes an unexpected reply for an empty account.
+    """
+    data = payload.get('data', payload) if isinstance(payload, dict) else payload
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in keys:
+            if isinstance(data.get(key), list):
+                return data[key]
+    raise WebullIncompleteResponse(f'Webull returned an unexpected {action} reply; it was not treated as empty.')
 
 
 def clear_webull_event_cache():
@@ -551,10 +601,7 @@ def get_webull_account_positions(app_key, app_secret, environment, access_token,
         app_key, app_secret, environment, access_token, account_id,
         '/trading/assets/positions/list', '/openapi/assets/positions',
     )
-    positions = payload.get('data', payload) if isinstance(payload, dict) else payload
-    if isinstance(positions, dict):
-        positions = positions.get('positions') or positions.get('items') or []
-    return positions if isinstance(positions, list) else []
+    return _webull_list(payload, ('positions', 'items', 'list', 'holdings'), 'positions')
 
 
 def get_webull_portfolio_preview(app_key, app_secret, environment='production', access_token=None, *, account_ids=None):
@@ -582,15 +629,27 @@ def get_webull_portfolio_preview(app_key, app_secret, environment='production', 
         # Space every account-resource request rather than bursting balance and
         # position reads together at the start of each account.
         time.sleep(1.05)
-        positions = load_with_rate_limit_retry(
-            lambda: get_webull_account_positions(app_key, app_secret, environment, access_token, account_id)
-        )
+        # One account answering in an unexpected shape must not stop the others
+        # from refreshing, and must not look like an account with no holdings.
+        try:
+            positions = load_with_rate_limit_retry(
+                lambda: get_webull_account_positions(app_key, app_secret, environment, access_token, account_id)
+            )
+            positions_complete = True
+        except WebullIncompleteResponse as exc:
+            logger.warning('Webull positions for account %s were incomplete: %s', account_id, exc)
+            positions, positions_complete = [], False
         if index + 1 < len(accounts):
             time.sleep(1.05)
         preview.append({
             **account,
             'balance': balance,
             'positions': positions,
+            'positions_complete': positions_complete,
+            'balance_complete': isinstance(balance, dict) and any(
+                balance.get(key) not in (None, '')
+                for key in ('total_net_liquidation_value', 'total_cash_balance', 'total_market_value')
+            ),
         })
     return preview
 
@@ -3220,12 +3279,13 @@ def get_webull_order_history(app_key, app_secret, environment='production', acce
     """
     normalized_env = normalize_webull_environment(environment)
     safe_account_id = str(account_id or '').strip() or None
+    from services.shared_state import revision
     cache_key = (app_key, normalized_env, _webull_cache_principal(access_token), safe_account_id)
     now = time.time()
-    if cache_key in _WEBULL_ORDER_HISTORY_CACHE:
-        cached_time, cached_records = _WEBULL_ORDER_HISTORY_CACHE[cache_key]
-        if now - cached_time < 15:
-            return [dict(r) for r in cached_records]
+    cached = _cached_orders(_WEBULL_ORDER_HISTORY_CACHE, cache_key, 15)
+    if cached is not None:
+        return cached
+    started_revision = revision(WEBULL_ORDER_CACHE_REVISION)
 
     if safe_account_id:
         # The caller already selected one authorized account. Avoid an
@@ -3258,24 +3318,35 @@ def get_webull_order_history(app_key, app_secret, environment='production', acce
             if isinstance(order, dict):
                 records.append({**order, '_webull_account_id': acc_id, '_webull_account_type': account.get('account_type')})
 
-    _WEBULL_ORDER_HISTORY_CACHE[cache_key] = (now, records)
+    _store_cached_orders(_WEBULL_ORDER_HISTORY_CACHE, cache_key, records, started_revision, now)
     return records
 
 
+WEBULL_OPEN_ORDER_MAX_PAGES = 20
+
+
 def get_webull_open_orders(app_key, app_secret, environment='production', access_token=None, page_size=100, account_id=None):
-    """Return open orders for Webull accounts, read-only.
+    """Return every open order for Webull accounts, read-only.
 
     If account_id is provided, fetches only for that specific account.
-    Caches results in memory for 45 seconds to prevent rate-limit thrashing.
+    Caches results for 45 seconds to prevent rate-limit thrashing; an
+    invalidation in any process discards the cache.
+
+    The list is complete or the call raises. A full page is followed by the
+    next page, continuing after the last order's client order id. A reply in an
+    unexpected shape, a repeated page, or too many pages raises
+    WebullIncompleteResponse, so a caller never treats a partial list as
+    "these are all the open orders".
     """
+    from services.shared_state import revision
     normalized_env = normalize_webull_environment(environment)
     safe_account_id = str(account_id or '').strip() or None
     cache_key = (app_key, normalized_env, _webull_cache_principal(access_token), safe_account_id)
     now = time.time()
-    if cache_key in _WEBULL_OPEN_ORDERS_CACHE:
-        cached_time, cached_records = _WEBULL_OPEN_ORDERS_CACHE[cache_key]
-        if now - cached_time < 45:
-            return [dict(r) for r in cached_records]
+    cached = _cached_orders(_WEBULL_OPEN_ORDERS_CACHE, cache_key, 45)
+    if cached is not None:
+        return cached
+    started_revision = revision(WEBULL_ORDER_CACHE_REVISION)
 
     if safe_account_id:
         # Combined Orders now requests accounts independently so each result
@@ -3289,31 +3360,43 @@ def get_webull_open_orders(app_key, app_secret, environment='production', access
     safe_page_size = max(1, min(int(page_size or 100), 100))
     for account in target_accounts:
         acc_id = account['account_id']
-        params = {'account_id': acc_id, 'page_size': safe_page_size}
-        response = _rate_limited_order_request(
-            app_key, app_secret, environment, 'GET', '/trading/orders/open-orders/list',
-            query_params=params, access_token=access_token,
-        )
-        if getattr(response, 'status_code', None) == 404:
+        cursor = None
+        seen_cursors = set()
+        for _page in range(WEBULL_OPEN_ORDER_MAX_PAGES):
+            params = {'account_id': acc_id, 'page_size': safe_page_size}
+            if cursor:
+                params['last_client_order_id'] = cursor
             response = _rate_limited_order_request(
-                app_key, app_secret, environment, 'GET', '/openapi/trade/order/open',
+                app_key, app_secret, environment, 'GET', '/trading/orders/open-orders/list',
                 query_params=params, access_token=access_token,
             )
-        payload = _response_payload(response, 'open-orders request')
-        items = payload.get('data', payload) if isinstance(payload, dict) else payload
-        if isinstance(items, dict):
-            items = items.get('orders') or items.get('items') or items.get('list') or []
-        if not isinstance(items, list):
-            continue
-        for order in _flatten_webull_order_groups(items):
-            if isinstance(order, dict):
-                records.append({
-                    **order,
-                    '_webull_account_id': acc_id,
-                    '_webull_account_type': account.get('account_type'),
-                })
+            if getattr(response, 'status_code', None) == 404:
+                response = _rate_limited_order_request(
+                    app_key, app_secret, environment, 'GET', '/openapi/trade/order/open',
+                    query_params=params, access_token=access_token,
+                )
+            payload = _response_payload(response, 'open-orders request')
+            items = _webull_list(payload, ('orders', 'items', 'list'), 'open-orders')
+            for order in _flatten_webull_order_groups(items):
+                if isinstance(order, dict):
+                    records.append({
+                        **order,
+                        '_webull_account_id': acc_id,
+                        '_webull_account_type': account.get('account_type'),
+                    })
+            if len(items) < safe_page_size:
+                break
+            last = items[-1] if isinstance(items[-1], dict) else {}
+            next_cursor = str(last.get('client_order_id') or last.get('clientOrderId') or '').strip()
+            if not next_cursor or next_cursor in seen_cursors:
+                raise WebullIncompleteResponse(
+                    f'Webull returned a full page of open orders for account {acc_id} without a usable next page.')
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        else:
+            raise WebullIncompleteResponse(f'Webull returned more than {WEBULL_OPEN_ORDER_MAX_PAGES} pages of open orders for account {acc_id}.')
 
-    _WEBULL_OPEN_ORDERS_CACHE[cache_key] = (now, records)
+    _store_cached_orders(_WEBULL_OPEN_ORDERS_CACHE, cache_key, records, started_revision, now)
     return records
 
 

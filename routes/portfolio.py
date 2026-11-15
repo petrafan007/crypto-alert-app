@@ -872,6 +872,9 @@ def api_pending_orders():
                     tld='us'
                 )
                 # Fetch all open orders (no symbol filter = get all)
+                from services.portfolio_service import binance_orders_revision
+                binance_revision = binance_orders_revision()
+                binance_observed_at = time.time()
                 open_orders = client.get_open_orders()
 
                 # Parse and format orders for frontend
@@ -887,53 +890,17 @@ def api_pending_orders():
                 binance_orders_listed = True
                 try:
                     from services.portfolio_service import cache_binance_open_orders
-                    cache_binance_open_orders(current_user.id, [p for p in pending_orders if p.get('provider') == 'binance'])
+                    cache_binance_open_orders(current_user.id, [p for p in pending_orders if p.get('provider') == 'binance'],
+                                              observed_at=binance_observed_at, revision_at_start=binance_revision)
                 except Exception as cache_err:
                     logger.debug(f"Could not cache Binance open orders: {cache_err}")
 
-                coin_updates = False
                 # An unfilled BUY is a watch target, not a portfolio position. This
-                # also captures BUY orders created directly on Binance.US.
-                for asset_symbol, price_hint in pending_buy_assets.items():
-                    coin = Coin.query.filter_by(user_id=current_user.id, symbol=asset_symbol).first()
-                    if coin and float(coin.amount or 0) >= 0.0001:
-                        continue
-
-                    watch = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=asset_symbol).first()
-                    if watch:
-                        if watch.hidden:
-                            watch.hidden = False
-                            coin_updates = True
-                        if price_hint and (not watch.current_price or watch.current_price == 0):
-                            watch.current_price = price_hint
-                            coin_updates = True
-                    else:
-                        db.session.add(WatchlistCoin(
-                            user_id=current_user.id,
-                            symbol=asset_symbol,
-                            current_price=price_hint or 0.0,
-                            hidden=False,
-                            alert_enabled=False,
-                            action='Watch',
-                            sentiment='Watch'
-                        ))
-                        coin_updates = True
-
-                # A zero/dust Coin record may exist from older versions. Never let
-                # it surface as a pending-order Portfolio row; the Watchlist above
-                # is the home for an unfilled BUY instead.
-                all_user_coins = Coin.query.filter_by(user_id=current_user.id).all()
-                for c in all_user_coins:
-                    if float(c.amount or 0) < 0.0001:
-                        if not c.hidden and not getattr(c, 'force_visible', False):
-                            c.hidden = True
-                            c.auto_hidden = True
-                            c.alert_enabled = False
-                            c.auto_sell_enabled = False
-                            c.auto_buy_enabled = False
-                            coin_updates = True
-                if coin_updates:
-                    db.session.commit()
+                # also captures BUY orders created directly on Binance.US. This is
+                # the only visibility change this read makes; hiding empty Coin
+                # rows belongs to the portfolio read, which also counts staking.
+                from services.portfolio_service import place_pending_buys_on_watchlist
+                place_pending_buys_on_watchlist(current_user.id, pending_buy_assets)
                 report_scope('binance', True)
             except Exception as e:
                 # A Binance outage or rate limit must not suppress Webull and
@@ -1232,6 +1199,8 @@ def api_cancel_order(order_id):
         try:
             order_num_id = int(order_id) if str_order_id.isdigit() else order_id
             result = client.cancel_order(symbol=symbol, orderId=order_num_id)
+            from services.portfolio_service import invalidate_binance_open_orders
+            invalidate_binance_open_orders(current_user.id)
 
             try:
                 order_record = RealOrder.query.filter(
@@ -1417,6 +1386,8 @@ def api_replace_order(order_id):
             # Cancel the existing order
             try:
                 cancel_result = client.cancel_order(symbol=symbol, orderId=int(order_id))
+                from services.portfolio_service import invalidate_binance_open_orders
+                invalidate_binance_open_orders(current_user.id)
 
                 try:
                     order_record = RealOrder.query.filter(

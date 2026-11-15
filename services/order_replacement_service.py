@@ -198,6 +198,8 @@ def cancel_any_order(replacing_order_id, user_id, symbol=None, test_mode=None, b
                     target_symbol = symbol or (real_order.symbol if real_order else None)
                     if target_symbol:
                         client.cancel_order(symbol=target_symbol.upper(), orderId=num_id)
+                        from services.portfolio_service import invalidate_binance_open_orders
+                        invalidate_binance_open_orders(user_id)
             except Exception as e:
                 logger.warning(f"Could not cancel Binance order {num_id} during replacement: {e}")
 

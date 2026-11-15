@@ -702,14 +702,85 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
         db.session.rollback()
 
 
-_FAST_BINANCE_ORDERS_CACHE = {}  # {user_id: (timestamp, orders)}
+# Binance.US open orders seen by the most recent live pending-order read. The
+# copy is shared by every process through services.shared_state, so a newer
+# read in one web worker is not hidden by an older copy in another.
+BINANCE_ORDERS_REVISION = 'binance-orders'
+BINANCE_ORDERS_MAX_AGE = 60
 
-def cache_binance_open_orders(user_id, orders):
-    """Cache Binance open orders in memory for fast portfolio pending order highlights."""
+
+def binance_orders_revision():
+    from services.shared_state import revision
+    return revision(BINANCE_ORDERS_REVISION)
+
+
+def cache_binance_open_orders(user_id, orders, observed_at=None, revision_at_start=None):
+    """Share a Binance open-order list read at `observed_at`.
+
+    The list is kept only if no newer list is stored and no order change was
+    recorded while it was being read.
+    """
+    from services.shared_state import revision, store_snapshot
     try:
-        _FAST_BINANCE_ORDERS_CACHE[user_id] = (time.time(), list(orders or []))
+        current = revision(BINANCE_ORDERS_REVISION)
+        if revision_at_start is not None and revision_at_start != current:
+            return False
+        return store_snapshot(f'binance-open-orders-{user_id}', {'revision': current, 'orders': list(orders or [])},
+                              observed_at if observed_at is not None else time.time())
     except Exception as e:
         logger.warning(f"Failed to cache Binance open orders: {e}")
+        return False
+
+
+def invalidate_binance_open_orders(user_id):
+    """Forget shared Binance open orders after an order change, in every process."""
+    from services.shared_state import bump_revision, discard_snapshot
+    bump_revision(BINANCE_ORDERS_REVISION)
+    discard_snapshot(f'binance-open-orders-{user_id}')
+
+
+def cached_binance_open_orders(user_id):
+    from services.shared_state import load_snapshot, revision
+    value, _observed_at = load_snapshot(f'binance-open-orders-{user_id}', BINANCE_ORDERS_MAX_AGE)
+    if not isinstance(value, dict) or value.get('revision') != revision(BINANCE_ORDERS_REVISION):
+        return []
+    return list(value.get('orders') or [])
+
+
+def place_pending_buys_on_watchlist(user_id, pending_buy_assets):
+    """Keep each unfilled Binance.US BUY on the watchlist while no position exists.
+
+    Adds a missing row or unhides an existing one, and fills in a price only
+    when the row has none. It never changes alerts, automation or Coin rows,
+    and does nothing when nothing would change.
+    """
+    from models import WatchlistCoin
+    changed = False
+    try:
+        for asset_symbol, price_hint in (pending_buy_assets or {}).items():
+            coin = Coin.query.filter_by(user_id=user_id, symbol=asset_symbol).first()
+            if coin and float(coin.amount or 0) >= 0.0001:
+                continue
+            watch = WatchlistCoin.query.filter_by(user_id=user_id, symbol=asset_symbol).first()
+            if watch:
+                if watch.hidden:
+                    watch.hidden = False
+                    changed = True
+                if price_hint and (not watch.current_price or watch.current_price == 0):
+                    watch.current_price = price_hint
+                    changed = True
+            else:
+                db.session.add(WatchlistCoin(
+                    user_id=user_id, symbol=asset_symbol, current_price=price_hint or 0.0, hidden=False,
+                    alert_enabled=False, action='Watch', sentiment='Watch',
+                ))
+                changed = True
+        if changed:
+            db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.warning(f"Could not place pending Binance BUY orders on the watchlist for user {user_id}: {e}")
+    return changed
 
 
 def get_pending_order_mode(user_id, setting=None):
@@ -787,11 +858,9 @@ def get_fast_pending_orders(user_id):
     except Exception as webull_err:
         logger.warning(f"Error appending Webull orders to fast pending_orders: {webull_err}")
 
-    # 3. Cached Binance open orders (if available within last 60s)
+    # 3. Shared Binance open orders from the latest live read (within 60s)
     try:
-        cached = _FAST_BINANCE_ORDERS_CACHE.get(user_id)
-        if cached and (time.time() - cached[0] < 60):
-            pending_orders.extend(cached[1])
+        pending_orders.extend(cached_binance_open_orders(user_id))
     except Exception as binance_cache_err:
         logger.warning(f"Error reading Binance cache for fast pending_orders: {binance_cache_err}")
 

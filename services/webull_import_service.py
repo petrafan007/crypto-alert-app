@@ -9,6 +9,7 @@ from core.extensions import db
 from services.position_metadata import enrich_event_positions
 from models import ExternalSentimentSignal, WebullAccountSnapshot, WebullHolding, WebullOrder
 from services.asset_identity import display_symbol, is_etf_asset
+from services.order_reconcile import accept_status, fill_advances, later, normalise_status
 
 
 def _number(value, default=0.0):
@@ -100,17 +101,23 @@ def import_webull_orders(user_id, orders):
         record.event_outcome = str(_first_value(order, 'event_outcome', 'eventOutcome', 'outcome') or '').strip().upper() or None
         record.side = str(_first_value(order, 'side') or '').strip().upper() or None
         record.order_type = str(_first_value(order, 'order_type', 'orderType', 'type') or '').strip().upper() or None
+        # An older copy of this order (from a cached list or the other endpoint)
+        # may arrive after a newer one; stored state only moves forward.
+        incoming_status = _first_value(order, 'status', 'order_status')
+        incoming_updated_at = _webull_order_datetime(_first_value(order, 'updated_at', 'update_time', 'filled_time', 'filled_time_at', 'last_updated_time'))
+        status_accepted = accept_status(record.status, record.updated_at, incoming_status, incoming_updated_at)
         quantity = _first_value(order, 'total_quantity', 'quantity', 'order_quantity', 'order_qty', 'qty')
-        if quantity is not None:
+        if quantity is not None and (status_accepted or record.quantity is None):
             record.quantity = _number(quantity, 0.0)
         filled_quantity = _first_value(order, 'filled_quantity', 'executed_quantity', 'filled_qty', 'filled_size', 'filledSize')
-        if filled_quantity is not None:
+        fill_accepted = filled_quantity is not None and fill_advances(record.filled_quantity, _number(filled_quantity, 0.0))
+        if fill_accepted:
             record.filled_quantity = _number(filled_quantity, 0.0)
         price = _first_value(order, 'limit_price', 'price', 'order_price', 'limitPrice', 'orderPrice')
-        if price is not None:
+        if price is not None and (status_accepted or record.price is None):
             record.price = _number(price, None)
         filled_price = _first_value(order, 'average_filled_price', 'avg_fill_price', 'avg_price', 'average_price', 'filled_price')
-        if filled_price is not None:
+        if filled_price is not None and (fill_accepted or record.filled_price is None):
             record.filled_price = _number(filled_price, record.price)
         fee = _first_value(
             order,
@@ -120,8 +127,10 @@ def import_webull_orders(user_id, orders):
             'transaction_fee', 'transactionFee', 'sec_fee', 'secFee',
             'finra_fee', 'finraFee', 'reg_fee', 'regFee', 'charges', 'total_charges', 'fees'
         )
-        if fee is not None:
+        if fee is not None and (fill_accepted or record.fee is None):
             record.fee = _number(fee, None)
+        elif fee is not None:
+            pass
         elif str(record.status or '').upper() in {'FILLED', 'COMPLETED'}:
             filled_qty = float(record.filled_quantity or 0.0)
             fill_price = float(record.filled_price or record.price or 0.0)
@@ -140,9 +149,10 @@ def import_webull_orders(user_id, orders):
             record.fee_asset = str(fee_asset).strip().upper() or None
         elif record.fee is not None and not record.fee_asset:
             record.fee_asset = 'USD'
-        record.status = str(_first_value(order, 'status', 'order_status') or '').strip().upper() or None
+        if status_accepted:
+            record.status = normalise_status(incoming_status)
         record.created_at = _webull_order_datetime(_first_value(order, 'created_at', 'create_time', 'placed_time', 'place_time', 'submitted_time', 'filled_time_at')) or record.created_at
-        record.updated_at = _webull_order_datetime(_first_value(order, 'updated_at', 'update_time', 'filled_time', 'filled_time_at', 'last_updated_time')) or record.updated_at
+        record.updated_at = later(record.updated_at, incoming_updated_at)
         record.synced_at = now
         imported += 1
     db.session.commit()
@@ -250,15 +260,37 @@ def _normalise_option_metadata(position):
     }
 
 
-def import_webull_portfolio_snapshot(user_id, preview):
+def _as_naive_utc(value):
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+
+
+def import_webull_portfolio_snapshot(user_id, preview, *, expected_account_ids=None, observed_at=None):
     """Upsert the latest all-account Webull snapshot for one user.
 
     The source is deliberately isolated from ``Coin``: imported securities may be
     equities, options, futures, or crypto and must not acquire Binance actions.
+
+    Removal is only applied from data that is complete and current:
+
+    * Holdings missing from an account's positions are removed only when that
+      account's positions reply was complete (``positions_complete``).
+    * Cash and balances are only overwritten from a balance reply that has
+      values (``balance_complete``); otherwise the last ones are kept.
+    * A whole account is removed only when ``expected_account_ids`` is given
+      and the account is not in it (the user disabled or removed it). An
+      expected account that simply did not answer this time is kept. Without
+      ``expected_account_ids``, accounts absent from the reply are kept.
+    * ``observed_at`` is when the provider was read. An account already
+      written from a later observation is left as it is, so a slow, older
+      refresh cannot overwrite a newer one.
     """
     now = utc_now()
+    observed = _as_naive_utc(observed_at)
     imported_accounts = 0
     imported_positions = 0
+    skipped_stale = 0
     account_ids = set()
 
     for account in preview or []:
@@ -267,18 +299,24 @@ def import_webull_portfolio_snapshot(user_id, preview):
         account_id = str(account['account_id'])
         account_ids.add(account_id)
         balance = account.get('balance') if isinstance(account.get('balance'), dict) else {}
+        positions_complete = account.get('positions_complete', True) is not False
+        balance_complete = account.get('balance_complete', bool(balance)) is not False and bool(balance)
         snapshot = WebullAccountSnapshot.query.filter_by(user_id=user_id, account_id=account_id).first()
+        if snapshot is not None and observed and snapshot.synced_at and _as_naive_utc(snapshot.synced_at) > observed:
+            skipped_stale += 1
+            continue
         if snapshot is None:
             snapshot = WebullAccountSnapshot(user_id=user_id, account_id=account_id)
             db.session.add(snapshot)
         snapshot.account_type = str(account.get('account_type') or 'Webull Account')
         snapshot.account_name = str(account.get('account_name') or '')
-        snapshot.currency = str(balance.get('total_asset_currency') or balance.get('currency') or 'USD')
-        snapshot.total_net_liquidation_value = _number(balance.get('total_net_liquidation_value'))
-        snapshot.total_cash_balance = _number(balance.get('total_cash_balance'))
-        snapshot.total_market_value = _number(balance.get('total_market_value'))
-        snapshot.total_unrealized_profit_loss = _number(balance.get('total_unrealized_profit_loss'), None)
-        snapshot.synced_at = now
+        if balance_complete or snapshot.total_net_liquidation_value is None:
+            snapshot.currency = str(balance.get('total_asset_currency') or balance.get('currency') or snapshot.currency or 'USD')
+            snapshot.total_net_liquidation_value = _number(balance.get('total_net_liquidation_value'))
+            snapshot.total_cash_balance = _number(balance.get('total_cash_balance'))
+            snapshot.total_market_value = _number(balance.get('total_market_value'))
+            snapshot.total_unrealized_profit_loss = _number(balance.get('total_unrealized_profit_loss'), None)
+        snapshot.synced_at = observed or now
         imported_accounts += 1
 
         received_keys = set()
@@ -324,7 +362,7 @@ def import_webull_portfolio_snapshot(user_id, preview):
             for field, value in _normalise_option_metadata(position).items():
                 setattr(holding, field, str(value).upper() if field == 'option_type' and value else value)
             holding.event_outcome = str(_first_value(position, 'event_outcome', 'eventOutcome', 'outcome') or '').upper() or None
-            holding.synced_at = now
+            holding.synced_at = observed or now
             imported_positions += 1
 
         # Upsert or delete the synthetic USD/CASH holding for this account.
@@ -338,7 +376,11 @@ def import_webull_portfolio_snapshot(user_id, preview):
         usd_holding = WebullHolding.query.filter_by(
             user_id=user_id, account_id=account_id, symbol='USD', instrument_type='CASH',
         ).first()
-        if not is_event and cash_balance > 0:
+        if not balance_complete:
+            # No usable balance this time: the cash row stays as it was.
+            if usd_holding is not None:
+                received_keys.add(('USD', 'CASH'))
+        elif not is_event and cash_balance > 0:
             if usd_holding is None:
                 usd_holding = WebullHolding(
                     user_id=user_id, account_id=account_id, symbol='USD', instrument_type='CASH',
@@ -355,27 +397,26 @@ def import_webull_portfolio_snapshot(user_id, preview):
             usd_holding.current_value = cash_balance
             usd_holding.unrealized_profit_loss = 0.0
             usd_holding.currency = snapshot.currency or 'USD'
-            usd_holding.synced_at = now
+            usd_holding.synced_at = observed or now
             received_keys.add(('USD', 'CASH'))
         elif usd_holding is not None:
             db.session.delete(usd_holding)
 
-        existing = WebullHolding.query.filter_by(user_id=user_id, account_id=account_id).all()
-        for holding in existing:
-            key_type = holding.instrument_type or 'Security'
-            if (holding.symbol, key_type) not in received_keys:
-                db.session.delete(holding)
+        if positions_complete:
+            existing = WebullHolding.query.filter_by(user_id=user_id, account_id=account_id).all()
+            for holding in existing:
+                key_type = holding.instrument_type or 'Security'
+                if (holding.symbol, key_type) not in received_keys:
+                    db.session.delete(holding)
 
-    if account_ids:
+    if expected_account_ids is not None:
+        keep = {str(value) for value in expected_account_ids} | account_ids
         for snapshot in WebullAccountSnapshot.query.filter_by(user_id=user_id).all():
-            if snapshot.account_id not in account_ids:
+            if snapshot.account_id not in keep:
                 db.session.delete(snapshot)
         for holding in WebullHolding.query.filter_by(user_id=user_id).all():
-            if holding.account_id not in account_ids:
+            if holding.account_id not in keep:
                 db.session.delete(holding)
-    else:
-        WebullHolding.query.filter_by(user_id=user_id).delete(synchronize_session=False)
-        WebullAccountSnapshot.query.filter_by(user_id=user_id).delete(synchronize_session=False)
 
     db.session.commit()
     # Keep a source-specific trend series for the dashboard's Webull filter.
@@ -384,7 +425,7 @@ def import_webull_portfolio_snapshot(user_id, preview):
     if total_value > 0:
         from services.portfolio_service import record_portfolio_history
         record_portfolio_history(user_id, total_value, source='webull')
-    return {'accounts': imported_accounts, 'positions': imported_positions, 'synced_at': now}
+    return {'accounts': imported_accounts, 'positions': imported_positions, 'synced_at': now, 'skipped_stale_accounts': skipped_stale}
 
 
 def _webull_import_account_ids(setting):
@@ -440,14 +481,30 @@ def refresh_webull_portfolio_snapshot(user_id, *, credential=None, setting=None)
         raise WebullConnectionError('Webull is not connected or its token has expired.')
 
     account_ids = _webull_import_account_ids(setting)
-    preview = get_webull_portfolio_preview(
-        credential.webull_app_key,
-        credential.webull_app_secret,
-        environment,
-        credential.webull_access_token,
-        account_ids=account_ids or None,
-    )
-    return import_webull_portfolio_snapshot(user_id, preview)
+    # The periodic sync, the open-order watcher and the post-transaction thread
+    # can all refresh the same user. One refresh at a time per user, across
+    # processes: a second caller waits, then reads the provider itself, so the
+    # newest state is still fetched after a transaction.
+    with webull_snapshot_lock(user_id) as locked:
+        if not locked:
+            return {'skipped': True, 'reason': 'refresh_in_progress'}
+        observed_at = utc_now()
+        preview = get_webull_portfolio_preview(
+            credential.webull_app_key,
+            credential.webull_app_secret,
+            environment,
+            credential.webull_access_token,
+            account_ids=account_ids or None,
+        )
+        return import_webull_portfolio_snapshot(
+            user_id, preview, expected_account_ids=account_ids or None, observed_at=observed_at,
+        )
+
+
+def webull_snapshot_lock(user_id, timeout=90.0):
+    """One Webull snapshot refresh per user at a time; others wait up to `timeout` seconds."""
+    from services.sync_locks import user_sync_lock
+    return user_sync_lock('webull-snapshot', user_id, timeout=timeout)
 
 
 def is_webull_event_account(account_or_snapshot):
