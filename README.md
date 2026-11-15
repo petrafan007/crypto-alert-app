@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.16.8
+**Version:** 4.16.9
 
 ## Recent Updates
+
+### v4.16.9
+* **Synthetic Orders table shows everything:** Order, strategy, trading-session and monitoring details no longer get cut off with "…". Cells in that table now wrap onto extra lines and align left; other tables are unchanged. A browser test now fails if any cell in the table clips its text.
 
 ### v4.16.8
 * **Cash rows explain themselves:** Hovering a yellow USD or USDT row now shows the app's own tooltip instead of a plain browser one. It lists how much is held and why, then describes each order or synthetic strategy holding that cash in full (type, legs, trigger prices, trading session) with the amount it holds, followed by any auto-buy budgets.

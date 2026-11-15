@@ -65,3 +65,15 @@ body.light-mode .synthetic-orders, body.light-mode .ladder-order-config-containe
 button.synthetic-status { cursor: pointer; text-align: left; text-decoration: underline; }
 
 .synthetic-recovery-modal input, .synthetic-recovery-modal select, .synthetic-recovery-modal button { color: var(--text-primary, #f8fafc); background: var(--input-bg, #101a27); border: 1px solid var(--card-border, #64748b); }
+
+/* The site-wide table rules (theme.css) make every cell one clipped, centred
+   line at a fixed width. Strategy cells hold several lines, so inside this
+   table cells size to their content and wrap instead of being cut off. */
+.synthetic-orders table { table-layout: auto !important; }
+.synthetic-orders th, .synthetic-orders td {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  text-align: left !important;
+  padding: 12px !important;
+}

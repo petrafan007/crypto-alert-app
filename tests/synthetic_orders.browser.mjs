@@ -67,6 +67,17 @@ try {
       await page.goto(`http://127.0.0.1:${server.address().port}/?theme=${theme}&broker=${broker}`);
       await page.getByRole('button',{name:'Details',exact:true}).first().waitFor();
       assert.equal(await page.getByLabel('Status',{exact:true}).inputValue(),'ACTIVE');
+      // Every line in a strategy row is readable: the site-wide one-line, clipped table style must not apply here.
+      for (const width of [1440, 900]) {
+        await page.setViewportSize({width,height:1000});
+        const clipped = await page.locator('.synthetic-orders table > tbody > tr:not(:has(.synthetic-detail)) > td').evaluateAll(cells => cells
+          .map(cell => ({ text: cell.innerText.slice(0, 60), wrap: getComputedStyle(cell).whiteSpace, overflow: getComputedStyle(cell).overflowX,
+            clipped: [cell, ...cell.querySelectorAll('small, strong')].some(node => node.scrollWidth > node.clientWidth + 1) }))
+          .filter(cell => cell.wrap !== 'normal' || cell.overflow === 'hidden' || cell.clipped));
+        assert.deepEqual(clipped, [], `no clipped strategy cells at ${width}px`);
+        if (process.env.SCREENSHOT_DIR && theme === 'dark' && width === 1440) await page.locator('.synthetic-orders').screenshot({ path: path.join(process.env.SCREENSHOT_DIR, `synthetic-orders-${broker}.png`) });
+      }
+      await page.setViewportSize({width:1440,height:1000});
       assert.equal(await page.getByRole('button',{name:'Details',exact:true}).count(),1);
       await page.getByLabel('Strategy',{exact:true}).selectOption('BRACKET');
       assert.equal(await page.getByRole('button',{name:'Details',exact:true}).count(),1);
