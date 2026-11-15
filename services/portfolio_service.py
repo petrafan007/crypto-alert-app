@@ -783,6 +783,51 @@ def place_pending_buys_on_watchlist(user_id, pending_buy_assets):
     return changed
 
 
+MINIMUM_VISIBLE_AMOUNT = 0.0001
+
+
+def is_empty_portfolio_row(total_amount, coin):
+    """A Binance.US row with less than the minimum (spot plus staked) is not shown."""
+    return float(total_amount or 0) < MINIMUM_VISIBLE_AMOUNT and not getattr(coin, 'force_visible', False)
+
+
+def apply_portfolio_visibility(user_id, staked_map=None):
+    """Save which Binance.US coins are hidden because they are empty. The only writer of that rule.
+
+    Same rule the portfolio reads use to filter rows: an empty row (spot plus
+    staked below the minimum, not forced visible) is hidden and its alerts are
+    switched off; a coin that was hidden automatically and is staked again is
+    shown again. A coin the user hid stays hidden. Auto-buy and auto-sell are
+    never changed here. Runs from the background Binance sync, not from reads.
+    """
+    if staked_map is None:
+        from services.staking_service import get_user_staked_balance_map
+        staked_map = get_user_staked_balance_map(user_id)
+    changed = 0
+    for coin in Coin.query.filter_by(user_id=user_id).all():
+        symbol = str(coin.symbol or '').upper().strip()
+        if not symbol:
+            continue
+        staked = float((staked_map.get(symbol) or {}).get('staked_amount', 0.0) or 0.0)
+        try:
+            spot = float(coin.amount or 0)
+        except (TypeError, ValueError):
+            spot = 0.0
+        is_staked = staked > 0.000001
+        if coin.hidden and not is_staked:
+            continue
+        if is_empty_portfolio_row(spot + staked, coin):
+            if not coin.hidden:
+                coin.hidden, coin.auto_hidden, coin.alert_enabled = True, True, False
+                changed += 1
+        elif is_staked and coin.hidden and coin.auto_hidden:
+            coin.hidden, coin.auto_hidden = False, False
+            changed += 1
+    if changed:
+        db.session.commit()
+    return changed
+
+
 def get_pending_order_mode(user_id, setting=None):
     """Identify which Webull environment and live/paper mode a pending-order list describes.
 

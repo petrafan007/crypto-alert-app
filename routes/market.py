@@ -8,6 +8,7 @@ from flask import Response, send_file, request, jsonify, render_template, curren
 from flask_login import current_user, login_required, login_user, logout_user
 from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullHolding
 from services.webull_import_service import get_webull_portfolio_rows
+from services.portfolio_service import is_empty_portfolio_row
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
@@ -173,7 +174,6 @@ def api_coin_data_live():
         coins = Coin.query.filter_by(user_id=current_user.id).all()
 
         portfolio = []
-        visibility_changed = False
         price_changed = False
         # Whether each provider's rows below are the whole current set. The
         # dashboard removes a missing row only for a provider reported complete.
@@ -226,17 +226,10 @@ def api_coin_data_live():
                 if coin.hidden and not is_staked:
                     continue
 
-                if total_amount < 0.0001 and not getattr(coin, 'force_visible', False):
-                    if not coin.hidden:
-                        coin.hidden = True
-                        coin.auto_hidden = True
-                        coin.alert_enabled = False
-                        visibility_changed = True
+                # Display filter only. Saving hidden/alert flags for empty rows
+                # belongs to apply_portfolio_visibility in the Binance sync.
+                if is_empty_portfolio_row(total_amount, coin):
                     continue
-                elif is_staked and coin.hidden and getattr(coin, 'auto_hidden', False):
-                    coin.hidden = False
-                    coin.auto_hidden = False
-                    visibility_changed = True
 
                 avg_entry_val = _to_float(coin.avg_entry) if total_amount > 0.00000001 else 0.0
                 cost_basis = get_cost_basis_for_asset(
@@ -401,7 +394,7 @@ def api_coin_data_live():
                     binance_complete = False
                     logger.error(f"[api_coin_data_live] Could not serialize coin {getattr(coin, 'symbol', '?')}: {fallback_err}")
 
-        if visibility_changed or price_changed:
+        if price_changed:
             db.session.commit()
 
         # Webull positions are local, read-only snapshots.  The Webull trading
@@ -440,6 +433,10 @@ def api_coin_data_live():
             logger.warning(f"Error getting fast pending orders in coin-data-live: {fast_err}")
 
         from services.portfolio_service import get_pending_order_mode
+        from routes.portfolio import _refresh_request_id
+        log = logger.info if not (binance_complete and webull_complete) else logger.debug
+        log('Portfolio snapshot: request=%s user=%s rows=%d incomplete=%s', _refresh_request_id(), current_user.id, len(portfolio),
+            ','.join(name for name, done in (('binance', binance_complete), ('webull', webull_complete)) if not done) or '-')
         return jsonify({
             "portfolio": portfolio,
             "account_totals": account_totals,
@@ -466,7 +463,6 @@ def api_coin_data():
         # logger.error(f"[DEBUG] Total coins found: {len(coins)}")
 
         portfolio = []
-        visibility_changed = False
         price_changed = False
         # Whether each provider's rows below are the whole current set. The
         # dashboard removes a missing row only for a provider reported complete.
@@ -508,17 +504,10 @@ def api_coin_data():
                 if coin.hidden and not is_staked:
                     continue
 
-                if total_amount < 0.0001 and not getattr(coin, 'force_visible', False):
-                    if not coin.hidden:
-                        coin.hidden = True
-                        coin.auto_hidden = True
-                        coin.alert_enabled = False
-                        visibility_changed = True
+                # Display filter only. Saving hidden/alert flags for empty rows
+                # belongs to apply_portfolio_visibility in the Binance sync.
+                if is_empty_portfolio_row(total_amount, coin):
                     continue
-                elif is_staked and coin.hidden and getattr(coin, 'auto_hidden', False):
-                    coin.hidden = False
-                    coin.auto_hidden = False
-                    visibility_changed = True
 
                 cost_basis = get_cost_basis_for_asset(
                     current_user.id,
@@ -616,7 +605,7 @@ def api_coin_data():
                 logger.error(f"[api_coin_data] Error processing coin {getattr(coin,'symbol','?')}: {e}", exc_info=True)
                 continue
 
-        if visibility_changed or price_changed:
+        if price_changed:
             db.session.commit()
 
         # Webull snapshots are deliberately appended as read-only, exchange-sourced
@@ -653,6 +642,10 @@ def api_coin_data():
             logger.warning(f"Error getting fast pending orders in coin-data: {fast_err}")
 
         from services.portfolio_service import get_pending_order_mode
+        from routes.portfolio import _refresh_request_id
+        log = logger.info if not (binance_complete and webull_complete) else logger.debug
+        log('Portfolio snapshot: request=%s user=%s rows=%d incomplete=%s', _refresh_request_id(), current_user.id, len(portfolio),
+            ','.join(name for name, done in (('binance', binance_complete), ('webull', webull_complete)) if not done) or '-')
         return jsonify({
             "portfolio": portfolio,
             "account_totals": account_totals,

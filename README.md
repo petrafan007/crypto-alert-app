@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.16.6
+**Version:** 4.16.7
 
 ## Recent Updates
+
+### v4.16.7
+* **Refreshing never changes your settings:** Portfolio refreshes only decide which rows to show. Hiding empty coins and switching off their alerts is done in one place, the background Binance.US sync, which never changes auto-buy or auto-sell and leaves coins you hid yourself alone.
+* **Refresh diagnostics:** The dashboard keeps a short record of its recent refreshes (which request, whether its answer was used or discarded as out of date, and which sources were unavailable), and the server logs the same request numbers. If something flashes or jumps, run `window.__dashboardRefreshLog()` in the browser console. No codes or amounts are recorded.
+* **Tested across processes:** New tests run two real app processes to prove that cache clearing and the one-sync-at-a-time locks work between them.
+* **Audit complete:** All 38 findings in the [portfolio/watchlist audit ledger](docs/audits/portfolio-watchlist-refresh-audit.md) are addressed.
 
 ### v4.16.6
 * **Odd broker replies never empty your account:** If Webull answers in an unexpected format, that account keeps its holdings and cash instead of looking empty, and other accounts still refresh. Holdings are removed only after a complete reply, and an account is removed only when you disable it.

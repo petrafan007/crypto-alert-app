@@ -842,6 +842,12 @@ def api_transaction_history():
 
 
 
+def _refresh_request_id():
+    """The dashboard's refresh number for this request, if it sent one (digits and a dot only)."""
+    value = str(request.headers.get('X-Dashboard-Refresh') or '')
+    return value if value and len(value) <= 32 and all(char.isdigit() or char == '.' for char in value) else '-'
+
+
 @portfolio_bp.route('/api/pending-orders')
 @login_required
 def api_pending_orders():
@@ -976,7 +982,11 @@ def api_pending_orders():
         from services.portfolio_service import get_pending_order_mode
         from services.pending_order_serializer import link_synthetic_children
         link_synthetic_children(pending_orders)
-        logger.info(f"Retrieved {len(pending_orders)} pending orders for user {current_user.username}")
+        # One line per read, matching the dashboard's own refresh record by
+        # request number. Counts and source names only; nothing secret.
+        unavailable = [scope['key'] for scope in scopes if not scope['complete']]
+        logger.info('Pending orders: request=%s user=%s orders=%d unavailable=%s',
+                    _refresh_request_id(), current_user.id, len(pending_orders), ','.join(unavailable) or '-')
         return jsonify({
             'pending_orders': pending_orders,
             'scopes': scopes,

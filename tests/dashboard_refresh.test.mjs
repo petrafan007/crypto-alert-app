@@ -134,3 +134,13 @@ test('orders are never carried across a change of live/paper mode (F18)', async 
   assert.deepEqual(switched.orders, []);
   assert.equal(switched.mode, 'production:paper');
 });
+
+test('the refresh record keeps the most recent entries only (F38)', async () => {
+  const { createRefreshDiagnostics, refreshRequestId } = await import('../frontend/src/utils/dashboardRefresh.mjs');
+  const diagnostics = createRefreshDiagnostics(3, () => 'now');
+  for (let i = 1; i <= 5; i++) diagnostics.record('start', { request: String(i) });
+  assert.deepEqual(diagnostics.entries().map(entry => entry.request), ['3', '4', '5']);
+  diagnostics.entries()[0].request = 'changed';
+  assert.equal(diagnostics.entries()[0].request, '3', 'callers get copies');
+  assert.equal(refreshRequestId({ id: 12, generation: 4 }), '12.4');
+});

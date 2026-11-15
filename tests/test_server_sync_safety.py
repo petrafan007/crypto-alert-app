@@ -257,5 +257,52 @@ class DisplayReadSideEffectTests(SyncSafetyBase):
         self.assertEqual((watch.hidden, watch.current_price), (False, 20.0), 'an unfilled BUY is still placed on the watchlist')
 
 
+
+class PortfolioVisibilityTests(SyncSafetyBase):
+    def test_one_rule_hides_empty_rows_and_never_touches_automation(self):
+        from services.portfolio_service import apply_portfolio_visibility
+        rows = [
+            Coin(user_id=1, symbol='DUST', amount=0.00001, hidden=False, alert_enabled=True, auto_buy_enabled=True),
+            Coin(user_id=1, symbol='STAKED', amount=0, hidden=True, auto_hidden=True),
+            Coin(user_id=1, symbol='MINE', amount=0, hidden=True, auto_hidden=False),
+            Coin(user_id=1, symbol='KEEP', amount=0, hidden=False, force_visible=True),
+            Coin(user_id=1, symbol='BTC', amount=1, hidden=False, alert_enabled=True),
+        ]
+        db.session.add_all(rows); db.session.commit()
+        changed = apply_portfolio_visibility(1, staked_map={'STAKED': {'staked_amount': 2}, 'MINE': {'staked_amount': 1}})
+        state = {coin.symbol: (coin.hidden, bool(coin.auto_hidden), coin.alert_enabled, coin.auto_buy_enabled) for coin in Coin.query.all()}
+        self.assertEqual(changed, 2)
+        self.assertEqual(state['DUST'], (True, True, False, True), 'hidden with alerts off; auto-buy kept')
+        self.assertEqual(state['STAKED'][:2], (False, False), 'automatically hidden and staked again: shown')
+        self.assertEqual(state['MINE'][:2], (True, False), 'hidden by the user: stays hidden')
+        self.assertFalse(state['KEEP'][0]); self.assertFalse(state['BTC'][0])
+        self.assertEqual(apply_portfolio_visibility(1, staked_map={'STAKED': {'staked_amount': 2}, 'MINE': {'staked_amount': 1}}), 0, 'idempotent')
+
+    def test_portfolio_reads_filter_empty_rows_without_saving_flags(self):
+        from routes import market
+        db.session.add(Coin(user_id=1, symbol='DUST', amount=0.00001, hidden=False, alert_enabled=True, current=5))
+        db.session.add(Coin(user_id=1, symbol='BTC', amount=1, hidden=False, alert_enabled=True, current=100))
+        db.session.commit()
+        user = SimpleNamespace(id=1, username='tester')
+        for view in (market.api_coin_data_live, market.api_coin_data):
+            with self.app.test_request_context(headers={'X-Dashboard-Refresh': '12.3'}), patch.object(market, 'current_user', user), \
+                    patch.object(market, '_get_binance_24h_tickers', return_value={}), patch.object(market, 'get_user_latest_news_cache', return_value={}), \
+                    patch('services.staking_service.get_user_staked_balance_map', return_value={}), \
+                    patch.object(market, 'get_webull_portfolio_rows', return_value=[]), patch.object(market, 'get_coin_sentiment', return_value='Hold'), \
+                    patch.object(market, 'get_cost_basis_for_asset', return_value=0), patch.object(market, 'record_price_history_snapshot', return_value=False), \
+                    patch('services.portfolio_service.compute_portfolio_total_value', return_value=100), \
+                    patch('services.webull_import_service.get_webull_total_value', return_value=0):
+                data = view.__wrapped__().get_json()
+            self.assertEqual([row['symbol'] for row in data['portfolio']], ['BTC'], view.__name__)
+        dust = Coin.query.filter_by(symbol='DUST').one()
+        self.assertEqual((dust.hidden, dust.alert_enabled), (False, True), 'the reads saved no visibility or alert change')
+
+    def test_refresh_request_number_is_logged_only_when_safe(self):
+        from routes.portfolio import _refresh_request_id
+        for header, expected in (('41.2', '41.2'), (None, '-'), ('41.2; drop', '-'), ('9' * 40, '-')):
+            with self.app.test_request_context(headers={'X-Dashboard-Refresh': header} if header else {}):
+                self.assertEqual(_refresh_request_id(), expected)
+
+
 if __name__ == '__main__':
     unittest.main()

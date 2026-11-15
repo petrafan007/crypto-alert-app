@@ -58,6 +58,7 @@ try {
       { id: 2, source: 'webull', is_external: true, account_id: 'A', webull_account_id: 'A', symbol: 'USD', instrument_type: 'CASH', amount: 1000, current_price: 1, current_value: 1000 },
     ];
     let orderReads = 0, cachedReads = 0, cancellations = 0, delayedRoute;
+    const refreshHeaders = [];
     let holdNext = false, empty = false, unavailable = false;
     const snapshot = { portfolio, account_totals: { all: 1200, binance: 0, webull: 1200 }, pending_orders: [order] };
     await page.route('**/api/**', async route => {
@@ -73,6 +74,7 @@ try {
       if (pathname === '/api/coin-data-live') return route.fulfill({ json: snapshot });
       if (pathname === '/api/pending-orders') {
         orderReads++;
+        refreshHeaders.push(route.request().headers()['x-dashboard-refresh']);
         if (holdNext) { holdNext = false; delayedRoute = route; return; }
         return route.fulfill(unavailable ? { status: 503, json: { error: 'offline' } } : { json: { pending_orders: empty ? [] : [order] } });
       }
@@ -132,6 +134,15 @@ try {
       if (scenario === 'confirmed') {
         assert.ok(orderReads >= 3, 'post-cancel read completed with stale cached order fixture');
         assert.ok((await page.evaluate(() => window.highlightCounts)).every(count => count === 0), 'no transient highlight resurrection');
+        // The refresh record explains what happened: the held, older answer was
+        // discarded after the confirmed cancellation invalidated it.
+        const log = await page.evaluate(() => window.__dashboardRefreshLog());
+        const events = log.map(entry => entry.event);
+        assert.ok(log.some(entry => entry.event === 'cancellation' && entry.result === 'confirmed' && entry.order === 'ladder_21'));
+        assert.ok(events.lastIndexOf('discarded') > events.indexOf('cancellation'), 'the stale answer is recorded as discarded');
+        assert.ok(log.some(entry => entry.event === 'applied' && entry.orders === 0), 'a later answer applied with no orders');
+        assert.ok(refreshHeaders.length > 0 && refreshHeaders.every(value => /^\d+\.\d+$/.test(value)), 'each read carries its refresh number');
+        assert.ok(log.every(entry => !JSON.stringify(entry).includes('123456')), 'no authenticator code is recorded');
       }
       assert.equal(cancellations, 1);
     }

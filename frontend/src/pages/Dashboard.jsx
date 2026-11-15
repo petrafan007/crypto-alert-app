@@ -4,7 +4,7 @@ import {
 } from '../utils/dashboardRows.mjs';
 import { binanceCashReservation, webullCashReservation, describeCashReservation } from '../utils/cashReservations.mjs';
 import CommittedInput, { sanitizeDecimalInput, formatDecimalInput, sanitizeIntegerInput, formatIntegerInput } from '../components/CommittedInput';
-import { createDashboardRefreshCoordinator, sameDashboardOrder, cancellationOutcome, recentFillRevision, mergePendingOrders } from '../utils/dashboardRefresh.mjs';
+import { createDashboardRefreshCoordinator, sameDashboardOrder, cancellationOutcome, recentFillRevision, mergePendingOrders, createRefreshDiagnostics, refreshRequestId } from '../utils/dashboardRefresh.mjs';
 import { syntheticCancellationEndpoint } from '../utils/syntheticCancellation.mjs';
 import { syntheticOrderTooltip } from '../utils/syntheticOrders.mjs';
 import React, { useEffect, useState, useRef, useMemo } from 'react';
@@ -180,9 +180,16 @@ function Dashboard({ isLightMode }) {
   const [portfolioFreshness, setPortfolioFreshness] = useState('loading');
   const [orderSourceNotice, setOrderSourceNotice] = useState('');
   const pendingModeRef = useRef(undefined);
-  const refreshDashboard = () => {
+  const diagnosticsRef = useRef(null);
+  if (!diagnosticsRef.current) {
+    diagnosticsRef.current = createRefreshDiagnostics();
+    if (typeof window !== 'undefined') window.__dashboardRefreshLog = diagnosticsRef.current.entries;
+  }
+  const logRefresh = (event, details) => diagnosticsRef.current.record(event, details);
+  const refreshDashboard = (reason = 'order or setting change') => {
     // Also invalidate older standalone watchlist reads after an order action.
     watchlistAppliedIdRef.current = ++watchlistFetchIdRef.current;
+    logRefresh('invalidate', { reason });
     return dashboardRefreshRef.current?.request({ invalidate: true });
   };
   const nextWatchlistFetchId = () => ++watchlistFetchIdRef.current;
@@ -232,6 +239,7 @@ function Dashboard({ isLightMode }) {
     const updateFlags = rows => rows.map(row => ({ ...row, hasPendingOrder: getPendingOrdersForCoin(row, accepted).length > 0 }));
     setPortfolio(updateFlags);
     setWatchlist(updateFlags);
+    return accepted;
   };
 
   // `readMark` is rowEditsRef.current.mark() captured before the request was
@@ -241,10 +249,11 @@ function Dashboard({ isLightMode }) {
   // accepted orders and is named in a notice above the portfolio.
   const acceptPendingOrders = (response) => {
     const merged = mergePendingOrders(pendingOrdersRef.current, response, pendingModeRef.current);
-    if (!merged) return;
+    if (!merged) return null;
     if (merged.mode !== undefined) pendingModeRef.current = merged.mode;
-    publishPendingOrders(merged.orders);
+    const shown = publishPendingOrders(merged.orders);
     setOrderSourceNotice(merged.reasons.length ? `${merged.reasons.join(' · ')} · showing last known orders` : '');
+    return { ...merged, shown: shown.length };
   };
 
   // `sources` says, per provider, whether `incoming` is that provider's whole
@@ -2148,13 +2157,18 @@ function Dashboard({ isLightMode }) {
     const seenFills = new Set();
     const coordinator = createDashboardRefreshCoordinator(async ticket => {
       if (window.globalIsLoggingOut) return;
-      const options = { withCredentials: true, signal: ticket.signal, timeout: 30000 };
+      const requestId = refreshRequestId(ticket);
+      const options = { withCredentials: true, signal: ticket.signal, timeout: 30000, headers: { 'X-Dashboard-Refresh': requestId } };
+      logRefresh('start', { request: requestId, hydrate });
       if (hydrate) {
         hydrate = false;
         try {
           const hydrateMark = rowEditsRef.current.mark();
           const response = await axios.get('/api/coin-data', options);
-          if (!ticket.isCurrent() || window.globalIsLoggingOut) return;
+          if (!ticket.isCurrent() || window.globalIsLoggingOut) {
+            logRefresh('discarded', { request: requestId, source: 'saved snapshot', why: 'superseded by a newer action or sign-out' });
+            return;
+          }
           acceptPendingOrders({ pending_orders: response.data?.pending_orders, mode: response.data?.pending_mode });
           applyPortfolioUpdate(response.data?.portfolio, hydrateMark, response.data?.sources);
           publishSnapshotTotals(response.data?.account_totals);
@@ -2179,7 +2193,10 @@ function Dashboard({ isLightMode }) {
         axios.get('/api/watchlist-live', options),
         axios.get('/api/orders', options),
       ]);
-      if (!ticket.isCurrent() || window.globalIsLoggingOut) return;
+      if (!ticket.isCurrent() || window.globalIsLoggingOut) {
+        logRefresh('discarded', { request: requestId, source: 'live', why: 'superseded by a newer action or sign-out' });
+        return;
+      }
       if ([portfolioResponse, ordersResponse, watchlistResponse].some(response =>
         response.status === 'rejected' && [302, 401].includes(response.reason.response?.status))) {
         setNeedsLogin(true);
@@ -2189,8 +2206,16 @@ function Dashboard({ isLightMode }) {
       setNeedsLogin(false);
       // Dedicated order reads own order state after hydration. Embedded fast
       // orders can be cached and must never override this accepted list.
-      if (ordersResponse.status === 'fulfilled') acceptPendingOrders(ordersResponse.value.data);
-      else setOrderSourceNotice('Orders could not be refreshed · showing last known orders');
+      const ordersAccepted = ordersResponse.status === 'fulfilled' ? acceptPendingOrders(ordersResponse.value.data) : null;
+      if (ordersResponse.status !== 'fulfilled') setOrderSourceNotice('Orders could not be refreshed · showing last known orders');
+      logRefresh('applied', {
+        request: requestId,
+        orders: ordersAccepted ? ordersAccepted.shown : 'kept last',
+        unavailableOrderSources: ordersAccepted?.unavailable || (ordersResponse.status === 'fulfilled' ? [] : ['all']),
+        portfolio: portfolioResponse.status === 'fulfilled' ? 'applied' : 'kept last',
+        incompleteHoldings: Object.entries(portfolioResponse.value?.data?.sources || {}).filter(([, source]) => source?.complete !== true).map(([name]) => name),
+        watchlist: watchlistResponse.status === 'fulfilled' ? 'applied' : 'kept last',
+      });
       if (watchlistResponse.status === 'fulfilled' && Array.isArray(watchlistResponse.value.data)) {
         applyWatchlistUpdate(watchlistResponse.value.data, wFetchId, readMark);
       }
@@ -2830,6 +2855,7 @@ function Dashboard({ isLightMode }) {
           return response.data;
         }
 
+        logRefresh('cancellation', { result: cancellationOutcome(response.data), order: String(order.order_id ?? order.id ?? '') });
         if (cancellationOutcome(response.data) === 'confirmed') {
           confirmedCancellationsRef.current.push(order);
           publishPendingOrders(pendingOrdersRef.current);
@@ -2858,6 +2884,7 @@ function Dashboard({ isLightMode }) {
           return response.data;
         }
 
+        logRefresh('cancellation', { result: cancellationOutcome(response.data), order: String(order.order_id ?? order.id ?? '') });
         if (cancellationOutcome(response.data) === 'confirmed') {
           confirmedCancellationsRef.current.push(order);
           publishPendingOrders(pendingOrdersRef.current);

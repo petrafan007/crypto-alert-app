@@ -120,3 +120,22 @@ export function mergePendingOrders(previous, response, previousMode) {
     : [];
   return { orders: [...incoming, ...retained], unavailable, reasons, mode: response.mode };
 }
+
+// A short, in-memory record of recent dashboard refresh decisions, so a flash
+// or a jump can be traced afterwards: which request it was, whether its
+// answer was applied or discarded as superseded, and which sources were
+// unavailable. It holds no credentials, codes or amounts. In the browser
+// console: window.__dashboardRefreshLog()
+export function createRefreshDiagnostics(limit = 200, now = () => new Date().toISOString()) {
+  const entries = [];
+  return {
+    record(event, details = {}) {
+      entries.push({ at: now(), event, ...details });
+      if (entries.length > limit) entries.splice(0, entries.length - limit);
+    },
+    entries: () => entries.map(entry => ({ ...entry })),
+  };
+}
+
+// The value sent with each refresh request, matching the server's log line.
+export const refreshRequestId = ticket => `${ticket.id}.${ticket.generation}`;

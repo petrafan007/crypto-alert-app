@@ -303,6 +303,12 @@ def _sync_binance_account(user_id, username, client, cred):
         except Exception as e:
             logger.warning(f"Could not re-read Binance balances for user {user_id}; applying the earlier read: {e}")
         update_coins_from_binance_balances(user_id, account_info['balances'], client=client)
+        try:
+            from services.portfolio_service import apply_portfolio_visibility
+            apply_portfolio_visibility(user_id)
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"Could not apply portfolio visibility for user {user_id}: {e}")
         
         try:
             from services.portfolio_service import compute_portfolio_total_value, record_portfolio_history
