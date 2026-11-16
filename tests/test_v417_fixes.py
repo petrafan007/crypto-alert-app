@@ -194,6 +194,34 @@ class DbBackedTests(unittest.TestCase):
         self.assertFalse(cancel_any_order('no-such-order', 1)['success'])
         self.assertFalse(cancel_any_order('51', 1, test_mode=True)['success'])
 
+    def test_staking_reward_sync_terminates_and_stores_each_reward_once(self):
+        from models import StakingReward, StakedCoin
+        from services import staking_service
+        StakedCoin.__table__.create(db.engine, checkfirst=True)
+        StakingReward.__table__.create(db.engine, checkfirst=True)
+        calls = []
+
+        class Response:
+            status_code = 200
+
+            def __init__(self, rows):
+                self.rows = rows
+
+            def json(self):
+                return {'code': '000000', 'data': self.rows}
+
+        def fake_call(cred, endpoint, params_dict=None, **kwargs):
+            calls.append(params_dict)
+            start, end = params_dict['startTime'], params_dict['endTime']
+            stamp = int((datetime.utcnow() - timedelta(days=10)).timestamp() * 1000)
+            rows = [{'asset': 'GRAM', 'amount': '0.5', 'usdValue': '0.6', 'time': stamp, 'tranId': 77}] if start <= stamp <= end else []
+            return Response(rows)
+        with patch.object(staking_service, 'binance_us_api_call', side_effect=fake_call):
+            self.assertEqual(staking_service.sync_staking_rewards(3, SimpleNamespace(), force=True), 1)
+            self.assertEqual(staking_service.sync_staking_rewards(3, SimpleNamespace(), force=True), 0)
+        self.assertLess(len(calls), staking_service.STAKING_REWARD_MAX_REQUESTS)
+        self.assertEqual(StakingReward.query.filter_by(user_id=3).count(), 1)
+
     def test_failed_live_binance_cancel_is_not_success(self):
         from services import order_replacement_service as svc
 

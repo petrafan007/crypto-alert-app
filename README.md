@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.17.1
+**Version:** 4.17.2
 
 ## Recent Updates
+
+### v4.17.2
+* **Staking reward sync fix:** The new Binance.US staking-reward sync could loop without end (its date window compared against a moving "now") and kept the background worker busy calling Binance.US. The end time is now fixed per run and each run is capped at 60 requests; a test proves it stops and stores each reward once.
 
 ### v4.17.1
 * **Webull tax report fees:** Webull often omits fees, and the order import never stored an estimate for fills it saw for the first time. The tax report now estimates any unreported fee (as it did before v4.17.0) and marks each one "est." so it can be corrected; new fills also store their estimate correctly.

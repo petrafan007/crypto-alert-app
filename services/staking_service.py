@@ -802,6 +802,7 @@ def _dashboard_staking_response(cred):
 
 STAKING_REWARDS_ENDPOINT = '/sapi/v1/staking/stakingRewardsHistory'
 STAKING_REWARD_SYNC_INTERVAL_SECONDS = 6 * 3600
+STAKING_REWARD_MAX_REQUESTS = 60
 _last_reward_sync = {}
 
 
@@ -843,11 +844,17 @@ def sync_staking_rewards(user_id, cred, *, force=False):
     start = latest.earned_at - timedelta(days=1) if latest and latest.earned_at else datetime.utcnow() - timedelta(days=365 * 3)
     known = {row.tran_id for row in StakingReward.query.filter_by(user_id=user_id).all() if row.tran_id}
     added = 0
+    # Fix the end once: comparing against a fresh "now" each pass never ends.
+    end = datetime.utcnow()
     window_start = start
-    while window_start < datetime.utcnow():
-        window_end = min(window_start + timedelta(days=90), datetime.utcnow())
+    requests_made = 0
+    while window_start < end:
+        window_end = min(window_start + timedelta(days=90), end)
         page = 1
         while True:
+            requests_made += 1
+            if requests_made > STAKING_REWARD_MAX_REQUESTS:
+                raise ValueError('Staking reward sync stopped after too many requests; it will resume next cycle.')
             response = binance_us_api_call(cred, STAKING_REWARDS_ENDPOINT, params_dict={
                 'startTime': int(window_start.timestamp() * 1000), 'endTime': int(window_end.timestamp() * 1000),
                 'page': page, 'limit': 500,
