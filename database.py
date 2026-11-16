@@ -363,10 +363,10 @@ def init_db(app=None):
                 # Rows matching the app's estimate formula exactly were estimated.
                 conn.execute(db.text(
                     "UPDATE webull_orders SET fee_estimated = TRUE WHERE fee_estimated IS NOT TRUE AND fee IS NOT NULL AND ("
-                    " (upper(instrument_type) = 'EVENT' AND fee = round(CAST(filled_quantity * 0.025 AS numeric), 4))"
-                    " OR (upper(instrument_type) = 'OPTION' AND fee = round(CAST(filled_quantity * 0.55 AS numeric), 4))"
+                    " (upper(instrument_type) = 'EVENT' AND round(CAST(fee AS numeric), 4) = round(CAST(filled_quantity * 0.025 AS numeric), 4))"
+                    " OR (upper(instrument_type) = 'OPTION' AND round(CAST(fee AS numeric), 4) = round(CAST(filled_quantity * 0.55 AS numeric), 4))"
                     " OR (upper(side) LIKE 'SELL%' AND upper(coalesce(instrument_type, '')) NOT IN ('EVENT', 'OPTION')"
-                    "     AND fee = greatest(0.01, round(CAST(filled_quantity * coalesce(filled_price, price, 0) * 0.0000278 AS numeric), 2))))"))
+                    "     AND round(CAST(fee AS numeric), 2) = greatest(0.01, round(CAST(filled_quantity * coalesce(filled_price, price, 0) * 0.0000278 AS numeric), 2))))"))
         except Exception as ex:
             print(f"Migration note for estimated Webull fees: {ex}")
 

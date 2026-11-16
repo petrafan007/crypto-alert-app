@@ -215,3 +215,6 @@ backups/
 !.env.example
 .gemini/
 *Handoff*.md
+
+# Rotated application logs
+app_debug.log*

@@ -132,7 +132,7 @@ def import_webull_orders(user_id, orders):
             record.fee_estimated = False
         elif fee is not None:
             pass
-        elif str(record.status or '').upper() in {'FILLED', 'COMPLETED'}:
+        elif str((normalise_status(incoming_status) if status_accepted else record.status) or '').upper() in {'FILLED', 'COMPLETED'}:
             # Webull did not report a fee: estimate it, and say so wherever it is used.
             record.fee_estimated = True
             filled_qty = float(record.filled_quantity or 0.0)

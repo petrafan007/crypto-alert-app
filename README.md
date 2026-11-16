@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.17.0
+**Version:** 4.17.1
 
 ## Recent Updates
+
+### v4.17.1
+* **Webull tax report fees:** Webull often omits fees, and the order import never stored an estimate for fills it saw for the first time. The tax report now estimates any unreported fee (as it did before v4.17.0) and marks each one "est." so it can be corrected; new fills also store their estimate correctly.
+* Rotated application logs (`app_debug.log.N`) are now ignored by Git.
 
 ### v4.17.0
 A full QA pass: every finding fixed, plus credential health checks, Webull alerts, tax-filing tools and complete account deletion.

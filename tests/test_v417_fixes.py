@@ -89,6 +89,15 @@ class TaxEngineTests(unittest.TestCase):
         self.assertEqual(totals['I']['gain_loss'], 100.0)
 
 
+class WebullFeeEstimateTests(unittest.TestCase):
+    def test_unreported_fees_are_estimated_like_the_import(self):
+        from routes.portfolio import _estimated_webull_fee
+        self.assertAlmostEqual(_estimated_webull_fee('EVENT', 'BUY', 20, 0.35), 0.5)
+        self.assertAlmostEqual(_estimated_webull_fee('OPTION', 'SELL', 2, 1.0), 1.1)
+        self.assertAlmostEqual(_estimated_webull_fee('EQUITY', 'BUY', 10, 100), 0.0)
+        self.assertAlmostEqual(_estimated_webull_fee('EQUITY', 'SELL', 1, 10), 0.01)
+
+
 class PaperMatchingRulesTests(unittest.TestCase):
     def test_marketable_limit_fills_at_market_and_resting_limit_waits(self):
         from services.binance_paper_matching import immediate_fill_price

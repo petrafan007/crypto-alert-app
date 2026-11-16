@@ -4914,6 +4914,17 @@ def _event_contract_date(symbol):
         return None
 
 
+def _estimated_webull_fee(instrument_type, side, quantity, price):
+    """Same estimate the order import uses when Webull omits the fee."""
+    if instrument_type == 'EVENT':
+        return round(quantity * 0.025, 4)
+    if instrument_type == 'OPTION':
+        return round(quantity * 0.55, 4)
+    if side == 'SELL' and quantity > 0 and price > 0:
+        return max(0.01, round(quantity * price * 0.0000278, 2))
+    return 0.0
+
+
 def _webull_tax_ledger(user_id):
     """Filled Webull orders, manual Webull entries and Event settlements as one ledger."""
     from collections import defaultdict
@@ -4956,11 +4967,15 @@ def _webull_tax_ledger(user_id):
             'display_name': getattr(holding, 'display_name', None),
             'instrument_id': getattr(holding, 'instrument_id', None), 'source': 'webull',
         }
+        fee_value, fee_estimated = order.fee, bool(getattr(order, 'fee_estimated', False))
+        if fee_value is None:
+            # Webull did not report a fee for this fill: estimate it and say so.
+            fee_value, fee_estimated = _estimated_webull_fee(inst, tx_type, filled_quantity, filled_price), True
         tx = _apply_tax_corrections({
             'date': getattr(order, 'filled_at', None) or order.updated_at or order.created_at,
             'amount': filled_quantity, 'price_sold_at': filled_price,
-            'fee': abs(float(order.fee or 0.0)),
-            'fee_estimated': bool(getattr(order, 'fee_estimated', False)),
+            'fee': abs(float(fee_value or 0.0)),
+            'fee_estimated': fee_estimated,
         }, corrections.get(str(order.id)))
         quantity, price, fee = abs(float(tx['amount'])), float(tx['price_sold_at']), float(tx['fee'])
         gross = quantity * price * multiplier
