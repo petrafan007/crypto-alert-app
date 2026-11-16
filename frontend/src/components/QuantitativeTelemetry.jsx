@@ -32,7 +32,7 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
   useEffect(() => {
     const controller = new AbortController();
     load(controller.signal);
-    const timer = setInterval(() => load(controller.signal), 15000);
+    const timer = setInterval(() => { if (!document.hidden) load(controller.signal); }, 15000);
     return () => { clearInterval(timer); controller.abort(); };
   }, [onAccount, refetchSignal]);
   const curve = status?.equity_curve || [];

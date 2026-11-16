@@ -1,8 +1,43 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.16.9
+**Version:** 4.17.0
 
 ## Recent Updates
+
+### v4.17.0
+A full QA pass: every finding fixed, plus credential health checks, Webull alerts, tax-filing tools and complete account deletion.
+
+**Order safety**
+* **Replacements are fail-closed everywhere.** The original order is cancelled only after the new one passes validation and 2FA, and nothing new is placed unless the cancellation is confirmed (not filled, not partly filled, not refused). A rejected replacement restores a simple Binance.US limit or stop-limit original with its own terms, or says plainly that nothing is working. Previously a Binance.US replace cancelled the original before checking 2FA, ignored failed cancellations, and the legacy Dashboard replace endpoint could cancel Webull orders without placing anything; that endpoint is retired.
+* **Auto-Sell cancels only this coin's own sell orders** (exact symbol, any quote). It no longer cancels other coins sharing a prefix (AVA vs AVAX, ETH vs ETHFI), buy orders, or synthetic strategies' child orders behind their backs. Auto-Buy no longer cancels synthetic children either, and logs any cancellation it cannot make.
+* **Each 2FA code works once.** A code can no longer authorize several live actions within its 90-second window.
+* **Paper (Test Mode) orders behave like live ones.** Limit and stop orders used to "fill" instantly at their own price; now marketable orders fill at the market price, others rest until the market reaches them, stops that would trigger immediately are rejected, and paper OCO legs cancel each other. Paper cancellations no longer ask for a live 2FA code.
+
+**Tax reports**
+* Webull Event contract buys were booked at the fee alone, overstating realized gains; contract multipliers now come from the instrument (Event 1, option 100), not from whether a position is still open.
+* Event contracts held to settlement are recorded as sold at $1 or $0; unknown results are flagged.
+* Lots are tracked per wallet/account, long-term status is decided by calendar date, transfers use their direction, Binance.US staking rewards are synced and reported as income, and sales without matching purchases are flagged instead of silently using zero basis.
+* New: HIFO and specific-lot selection, wash-sale tracking for Webull securities (code W), Form 8949 / Schedule D export (CSV and Excel), 1099-DA / 1099-B reconciliation, a review banner with reasons, and estimated broker fees marked "est.". The CSV export now matches the screen, and Total Gain/Loss means realized plus unrealized for both brokers.
+
+**Settings, alerts and notifications**
+* Turning toast popups off now persists; Max Tokens per Request now saves; invalid values are reported instead of silently ignored. Both settings endpoints share one validated writer.
+* Price alerts never fire on a stale price, and alert state lives in the database instead of a file.
+* New: Webull holding price alerts, Webull token expiry shown in Settings with a reminder three days before it lapses, and immediate notice if Webull disconnects.
+* Error and warning toasts show even when routine toasts are off. Pollers pause in hidden tabs.
+
+**Credential health checks (new)**
+* After three consecutive credential rejections, Binance.US or Webull background syncing pauses for that account, a banner and notification explain why, and saving new keys, a successful test or Retry now resumes it.
+
+**Reliability and operations**
+* Nightly database backups (`scripts/backup_db.sh` with a systemd timer).
+* Notices at 90% and 100% of research-data storage; Ollama models are checked on save; scheduled AI report failures notify you.
+* Fixed an Event worker crash after failed scans, scan-start records lost on rollback, and repeated Event rejection log spam.
+* The quantitative engine honors the saved Event position limit, trims a module switched to 0% on the next fresh price, names the exact failed entry gates, and explains a DEGRADED status. Documentation now states that paper drawdowns do not halt the engine (the kill switch does).
+* `upgrade.sh` refuses to run over local changes instead of hard-resetting them.
+
+**Accounts and cleanup**
+* Account deletion removes every row the user owns in every table (it previously left most tables behind) and requires the username and password. Administrators can dry-run or purge with `runtime.py purge-user` and report leftovers with `runtime.py orphan-report`.
+* Removed the broken desktop-app endpoints, debug routes, the legacy order endpoint, dead components and stray scripts; Help is updated throughout.
 
 ### v4.16.9
 * **Synthetic Orders table shows everything:** Order, strategy, trading-session and monitoring details no longer get cut off with "…". Cells in that table now wrap onto extra lines and align left; other tables are unchanged. A browser test now fails if any cell in the table clips its text.

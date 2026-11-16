@@ -718,13 +718,13 @@ export default function Orders() {
   // Keep open orders and history near-real-time without full loading flashes.
   useEffect(() => {
     if (activeTab !== 'open') return undefined;
-    const timer = window.setInterval(() => loadOpenOrders({ silent: true }), 15000);
+    const timer = window.setInterval(() => { if (!document.hidden) loadOpenOrders({ silent: true }); }, 15000);
     return () => window.clearInterval(timer);
   }, [activeTab]);
 
   useEffect(() => {
     if (activeTab !== 'history') return undefined;
-    const timer = window.setInterval(() => loadHistory({ silent: true }), 15000);
+    const timer = window.setInterval(() => { if (!document.hidden) loadHistory({ silent: true }); }, 15000);
     return () => window.clearInterval(timer);
   }, [activeTab, historyPage, historyPageSize]);
 

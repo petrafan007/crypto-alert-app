@@ -385,7 +385,8 @@ export default function QuantitativeStrategyEngine({
         </div>
         
         <div className="quant-ribbon-actions" style={{ padding: '0 20px 16px 20px', borderBottom: '1px solid rgba(148, 163, 184, 0.1)', marginBottom: '16px' }}>
-          <strong role="status">{engineStatus?.worker_status || 'Loading…'}</strong>
+          <strong role="status" title={engineStatus?.status_reason || ''}>{engineStatus?.worker_status || 'Loading…'}</strong>
+          {engineStatus?.status_reason && <span style={{ color: '#f6ad55', fontSize: '0.85rem', maxWidth: 520 }}>{engineStatus.status_reason}</span>}
           <button className="btn-quant-save" disabled={engineBusy || !engineStatus || engineStatus.enabled || engineStatus.kill_switch} onClick={() => handleEngineControl('start')}>Start paper engine</button>
           <button className="btn-quant-save" disabled={engineBusy || !engineStatus?.enabled} onClick={() => handleEngineControl('stop')}>Stop &amp; freeze</button>
           <button className="btn-quant-save" disabled={engineBusy || !engineStatus?.enabled} onClick={() => handleEngineControl('scan')}>Scan now</button>

@@ -798,3 +798,89 @@ def _dashboard_staking_response(cred):
             'totalRewards': 0, 'avgApy': 0, 'activeValue': 0, 'pendingValue': 0, 'totalValue': 0
         }))
     return make_response(jsonify(_build_staking_dashboard_payload(cred)))
+
+
+STAKING_REWARDS_ENDPOINT = '/sapi/v1/staking/stakingRewardsHistory'
+STAKING_REWARD_SYNC_INTERVAL_SECONDS = 6 * 3600
+_last_reward_sync = {}
+
+
+def _reward_usd_value(asset, amount, earned_at, reported):
+    """USD value when received: the exchange's figure, else that day's close."""
+    value = _coerce_float(reported, 0.0)
+    if value > 0:
+        return value
+    if str(asset).upper() in {'USD', 'USDT', 'USDC'}:
+        return amount
+    try:
+        from services.synthetic_execution_service import binance_client
+        start = int(datetime(earned_at.year, earned_at.month, earned_at.day).timestamp() * 1000)
+        for quote in ('USD', 'USDT'):
+            try:
+                klines = binance_client(public=True).get_klines(
+                    symbol=f'{asset.upper()}{quote}', interval='1d', startTime=start, limit=1)
+            except Exception:
+                continue
+            if klines:
+                return amount * float(klines[0][4])
+    except Exception as exc:
+        logger.warning('Could not price staking reward %s %s: %s', amount, asset, exc)
+    return None
+
+
+def sync_staking_rewards(user_id, cred, *, force=False):
+    """Store Binance.US staking rewards as dated, valued income records.
+
+    Rewards are ordinary income when received, so each one is kept with its
+    USD value at that time. Runs at most every six hours per user.
+    """
+    from models import StakingReward
+    now = time.monotonic()
+    if not force and now - _last_reward_sync.get(user_id, -1e9) < STAKING_REWARD_SYNC_INTERVAL_SECONDS:
+        return 0
+    _last_reward_sync[user_id] = now
+    latest = StakingReward.query.filter_by(user_id=user_id).order_by(StakingReward.earned_at.desc()).first()
+    start = latest.earned_at - timedelta(days=1) if latest and latest.earned_at else datetime.utcnow() - timedelta(days=365 * 3)
+    known = {row.tran_id for row in StakingReward.query.filter_by(user_id=user_id).all() if row.tran_id}
+    added = 0
+    window_start = start
+    while window_start < datetime.utcnow():
+        window_end = min(window_start + timedelta(days=90), datetime.utcnow())
+        page = 1
+        while True:
+            response = binance_us_api_call(cred, STAKING_REWARDS_ENDPOINT, params_dict={
+                'startTime': int(window_start.timestamp() * 1000), 'endTime': int(window_end.timestamp() * 1000),
+                'page': page, 'limit': 500,
+            }, use_trading_keys=True)
+            if response.status_code != 200:
+                raise ValueError(f'Binance.US staking rewards request failed (HTTP {response.status_code}).')
+            payload = response.json()
+            rows = (payload.get('data') or payload.get('rows') or []) if isinstance(payload, dict) else payload
+            for entry in rows or []:
+                tran_id = entry.get('tranId') or entry.get('tran_id')
+                try:
+                    tran_id = int(tran_id) if tran_id is not None else None
+                except (TypeError, ValueError):
+                    tran_id = None
+                if tran_id is not None and tran_id in known:
+                    continue
+                amount = _coerce_float(entry.get('amount'), 0.0)
+                stamp = entry.get('time') or entry.get('rewardTime') or entry.get('updateTime')
+                if amount <= 0 or not stamp:
+                    continue
+                earned_at = datetime.utcfromtimestamp(int(stamp) / 1000)
+                asset = str(entry.get('asset') or '').upper()
+                db.session.add(StakingReward(
+                    user_id=user_id, staked_coin_id=None, asset=asset, amount=amount,
+                    usd_value=_reward_usd_value(asset, amount, earned_at, entry.get('usdValue')),
+                    earned_at=earned_at, auto_restaked=bool(entry.get('autoRestaked')), tran_id=tran_id,
+                ))
+                if tran_id is not None:
+                    known.add(tran_id)
+                added += 1
+            if not rows or len(rows) < 500:
+                break
+            page += 1
+        window_start = window_end
+    db.session.commit()
+    return added

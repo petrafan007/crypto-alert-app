@@ -149,9 +149,12 @@ class WebullOrder(db.Model):
     filled_price = db.Column(db.Float, nullable=True)
     fee = db.Column(db.Float, nullable=True)
     fee_asset = db.Column(db.String(20), nullable=True)
+    # True when Webull did not report the fee and the app estimated it.
+    fee_estimated = db.Column(db.Boolean, default=False)
     status = db.Column(db.String(40), nullable=True)
     created_at = db.Column(db.DateTime, nullable=True)
     updated_at = db.Column(db.DateTime, nullable=True)
+    filled_at = db.Column(db.DateTime, nullable=True)
     synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     __table_args__ = (
@@ -505,6 +508,34 @@ class WatchlistCoin(db.Model):
         db.Index('ix_watchlist_user_symbol', 'user_id', 'symbol'),
     )
 
+class CredentialHealth(db.Model):
+    """Consecutive credential rejections per user and provider (see services.credential_health)."""
+    __tablename__ = 'credential_health'
+
+    user_id = db.Column(db.Integer, primary_key=True)
+    provider = db.Column(db.String(20), primary_key=True)
+    consecutive_failures = db.Column(db.Integer, default=0, nullable=False)
+    first_failure_at = db.Column(db.DateTime, nullable=True)
+    last_failure_at = db.Column(db.DateTime, nullable=True)
+    last_error = db.Column(db.Text, nullable=True)
+    paused = db.Column(db.Boolean, default=False, nullable=False)
+    paused_at = db.Column(db.DateTime, nullable=True)
+
+
+class AlertState(db.Model):
+    """Whether a price alert already fired, so it is not repeated every minute.
+
+    Kept in the database (not a file in the working directory) so the web and
+    worker processes share it and it survives restarts and redeploys.
+    """
+    __tablename__ = 'alert_states'
+
+    user_id = db.Column(db.Integer, primary_key=True)
+    alert_key = db.Column(db.String(200), primary_key=True)
+    state = db.Column(db.String(20), nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class Notification(db.Model):
     __tablename__ = "notifications"
     id = db.Column(db.Integer, primary_key=True)
@@ -560,7 +591,7 @@ class StakingReward(db.Model):
     __tablename__ = "staking_rewards"
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, nullable=False, default=1)  # Foreign key to users table
-    staked_coin_id = db.Column(db.Integer, db.ForeignKey('staked_coins.id'), nullable=False)
+    staked_coin_id = db.Column(db.Integer, db.ForeignKey('staked_coins.id'), nullable=True)
     asset = db.Column(db.String(10), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     usd_value = db.Column(db.Float, nullable=True)

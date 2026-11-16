@@ -40,7 +40,7 @@ class CredentialSecurityTests(unittest.TestCase):
             au.query.filter_by.return_value.first.return_value = self.user
             su.query.filter_by.return_value.first.return_value = self.user
             settings.filter_by.return_value.first.return_value = SimpleNamespace(totp_secret='test-secret')
-            for route in ['/api/login', '/login', '/api/extension/login', '/api/desktop/login']:
+            for route in ['/api/login', '/login', '/api/extension/login']:
                 with self.subTest(route=route):
                     client = self.app.test_client()
                     values = {'username': 'synthetic', 'password': 'test-password'}
@@ -54,7 +54,7 @@ class CredentialSecurityTests(unittest.TestCase):
 
     def test_second_factor_invalid_exception_and_valid(self):
         from trading_models import TradingSettings
-        with self.app.test_request_context(), patch.object(TradingSettings, 'query') as query, patch.object(auth, 'verify_totp_code') as verify:
+        with self.app.test_request_context(), patch.object(TradingSettings, 'query') as query, patch.object(auth, 'consume_totp_code') as verify:
             query.filter_by.return_value.first.return_value = SimpleNamespace(totp_secret='synthetic')
             verify.return_value = False
             self.assertEqual(auth.login_second_factor_error(self.user, {'code':'123456'})[1], 401)

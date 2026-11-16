@@ -56,6 +56,27 @@ def sanitize(value, depth=0):
     return value
 
 
+def notify_storage_level(user_id, level, ceiling):
+    """Tell the user once when research storage reaches 90% and when it is full."""
+    try:
+        from models import AlertState
+        from services.notification_service import create_system_notification
+        key = f'research_storage:{level}:{int(ceiling)}'
+        if db.session.get(AlertState, (user_id, key)):
+            return
+        gib = ceiling / 1024 ** 3
+        message = (f'Research data collection has stopped: the {gib:.0f} GiB storage limit is full. Existing '
+                   'history is kept. Raise the limit or export and prune old data in Research Data Collection.'
+                   if level == 'full' else
+                   f'Research data storage is 90% full ({gib:.0f} GiB limit). Collection stops when it is full.')
+        with db.engine.begin() as connection:
+            connection.execute(AlertState.__table__.insert().values(user_id=user_id, alert_key=key, state='sent'))
+        create_system_notification(user_id, 'warning' if level == 'warning' else 'system_error', 'RESEARCH', message)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception('Could not record the research storage notice')
+
+
 def save_capture(user_id, lane, source, kind, symbol, payload, started_at, metadata=None, *, received_at=None):
     if lane not in LANES:
         raise ValueError('Unknown collection lane.')
@@ -72,9 +93,12 @@ def save_capture(user_id, lane, source, kind, symbol, payload, started_at, metad
     if not cfg.enabled:
         db.session.rollback()
         raise CollectionPaused('Collection paused by the administrator.')
-    if cfg.stored_bytes+storage_size > settings(cfg)['storage_mb']*1024*1024:
+    ceiling = settings(cfg)['storage_mb']*1024*1024
+    if cfg.stored_bytes+storage_size > ceiling:
         db.session.rollback()
+        notify_storage_level(user_id, 'full', ceiling)
         raise CollectionPaused('Archive storage limit reached; existing history is retained.')
+    crossed_warning = cfg.stored_bytes < 0.9 * ceiling <= cfg.stored_bytes + storage_size
     row = Capture(user_id=user_id, lane=lane, source=source, kind=kind, symbol=symbol[:160], started_at=started_at,
                   received_at=received_at or utcnow(),
                   sha256=hashlib.sha256(raw).hexdigest(), compressed_bytes=len(compressed), raw_bytes=len(raw),
@@ -82,6 +106,8 @@ def save_capture(user_id, lane, source, kind, symbol, payload, started_at, metad
     db.session.add(row)
     cfg.stored_bytes += storage_size
     db.session.commit()
+    if crossed_warning:
+        notify_storage_level(user_id, 'warning', ceiling)
     return row.id
 
 

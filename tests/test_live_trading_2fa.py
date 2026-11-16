@@ -36,9 +36,17 @@ class LiveTradingTwoFactorTests(unittest.TestCase):
         settings = SimpleNamespace(totp_secret='secret', require_2fa=False)
         with self.app.test_request_context(), \
                 patch('services.trading_2fa_service.TradingSettings.query', _Query(settings)), \
-                patch('services.trading_2fa_service.verify_totp_code', return_value=True) as verify:
+                patch('services.trading_2fa_service.consume_totp_code', return_value=True) as verify:
             self.assertIsNone(require_live_trading_2fa(7, {'two_factor_code': '123456'}))
-            verify.assert_called_once_with('secret', '123456')
+            verify.assert_called_once_with(settings, '123456')
+
+    def test_a_code_already_used_is_refused_with_a_clear_message(self):
+        settings = SimpleNamespace(totp_secret='secret', require_2fa=False)
+        with self.app.test_request_context(), \
+                patch('services.trading_2fa_service.TradingSettings.query', _Query(settings)), \
+                patch('services.trading_2fa_service.consume_totp_code', return_value=False), \
+                patch('services.trading_2fa_service.matching_time_step', return_value=123):
+            self.assertIn('already used', require_live_trading_2fa(7, {'two_factor_code': '123456'}))
 
     def test_verified_session_token_is_single_use(self):
         settings = SimpleNamespace(totp_secret='secret', require_2fa=False)

@@ -363,6 +363,25 @@ def module_budget(cfg, acc, state, module):
     return max(0, max(0, acc.total_equity)*weights[module]/100-reserve)
 
 
+GATE_LABELS = {
+    'price_above_entry_channel': 'no breakout above the entry channel',
+    'dominance_gate_passed': 'BTC dominance gate',
+    'price_above_trend_sma': 'price below the trend average',
+    'atr_above_noise_floor': 'volatility below the noise floor',
+}
+
+
+def explain_signal(signal):
+    """The strategy's reason, naming exactly which gates failed when it is known."""
+    if not signal:
+        return None
+    reason = signal.get('reason')
+    if signal.get('enter'):
+        return reason
+    failed = [label for key, label in GATE_LABELS.items() if (signal.get('checks') or {}).get(key) is False]
+    return f"Not entered: {', '.join(failed)}." if failed else reason
+
+
 def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier=1, margin=None, details=None, key=None, rejections=None):
     def reject(reason):
         if rejections is not None:
@@ -375,8 +394,11 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     # only be traded once per Eastern day. The per-module position count and
     # the aggregate risk limit bound the module's total exposure.
     module_lots = [lot for lot in current_lots(cfg.user_id, state) if lot.module == module]
-    if len(module_lots) >= MAX_POSITIONS_PER_MODULE.get(module, 8):
-        return reject('Module position limit reached; no further positions may be opened.')
+    # Events use the saved Event open-position limit (checked below), so the
+    # user's own setting is the one that applies, not a fixed constant.
+    if module != 'events' and len(module_lots) >= MAX_POSITIONS_PER_MODULE.get(module, 8):
+        return reject(f'{module.title()} position limit reached ({MAX_POSITIONS_PER_MODULE.get(module, 8)} open); '
+                      'no further positions may be opened until one closes.')
     if any(lot.module == module and db.session.get(Position, lot.position_id).symbol == symbol for lot in current_lots(cfg.user_id, state)):
         return reject('An open position already exists for this symbol.')
     if module != 'events':
@@ -779,6 +801,15 @@ def portfolio_status(user_id):
         since = cfg.updated_at if status == 'STARTING' else state.heartbeat_at
         if not since or datetime.utcnow()-since > timedelta(minutes=10):
             status = 'STALLED'
+    status_reason = None
+    if status == 'DEGRADED':
+        limited = [f"{module.title()}: {(telemetry.get(module, {}).get('messages') or ['data limited'])[0]}"
+                   for module in MODULES if telemetry.get(module, {}).get('status') in ('DATA_LIMITED', 'SUBSCRIPTION_REQUIRED')]
+        status_reason = ('; '.join(limited) if limited else telemetry.get('error')) or 'A module reported limited data.'
+    elif status == 'STALLED':
+        status_reason = 'No worker heartbeat for over 10 minutes; check the background worker service.'
+    elif status == 'MONITORING_ONLY':
+        status_reason = state.pause_reason or 'New entries paused by the kill switch.'
     realized = sum(l.realized_pnl for l in lots if l.closed_at)
     sub_accounts = compute_sub_accounts(user_id, cfg, acc, state, positions, lots)
     module_pnl = {m: sum(l.realized_pnl if l.closed_at else db.session.get(Position, l.position_id).unrealized_pnl-l.entry_fee
@@ -859,7 +890,7 @@ def portfolio_status(user_id):
                      'last_completed_at': audit_evidence.get('audit_progress', {}).get('finished_at'),
                      'last_status': latest_audit.status if latest_audit else None,
                      'failure_reason': audit_evidence.get('audit_error') if latest_audit and latest_audit.status == 'FAILED' else None}
-    return {'success': True, 'mode': 'PAPER', 'worker_status': status, 'enabled': cfg.enabled,
+    return {'success': True, 'mode': 'PAPER', 'worker_status': status, 'status_reason': status_reason, 'enabled': cfg.enabled,
             'kill_switch': state.kill_switch, 'pause_reason': state.pause_reason,
             'heartbeat_at': state.heartbeat_at.isoformat()+'Z' if state.heartbeat_at else None,
             'last_scan_at': state.last_scan_at.isoformat()+'Z' if state.last_scan_at else None,
@@ -1137,6 +1168,7 @@ def run_scan(user_id, force=False, provider=None):
             return data
         
         _record_portfolio_log(user_id, 'SCAN_START', 'Starting quantitative portfolio scan.')
+        db.session.commit()  # a later rollback must not erase the start record
 
         # Manage existing positions first, including symbols removed from the watchlist.
         for lot_id in lot_ids:
@@ -1216,7 +1248,10 @@ def run_scan(user_id, force=False, provider=None):
                 if not check_circuit(cfg, acc, state) and lot.closed_at is None:
                     weights = allocations_for(cfg)
                     capital = sum(l.collateral+db.session.get(Position, l.position_id).unrealized_pnl for l in current_lots(user_id, state) if l.module==module)
-                    if acc.total_equity>0 and capital/acc.total_equity*100-weights[module]>3:
+                    # A zero target means the module was switched off: exit on the first
+                    # fresh price. Otherwise trim only beyond a 3-point tolerance.
+                    over_target = capital/acc.total_equity*100-weights[module] if acc.total_equity>0 else 0
+                    if acc.total_equity>0 and (weights[module] <= 0 or over_target>3):
                         close_lot(acc, lot, price, 'REBALANCE_TRIM', now)
                         balances(acc, state, user_id)
                 state.heartbeat_at = datetime.utcnow()
@@ -1359,7 +1394,7 @@ def run_scan(user_id, force=False, provider=None):
                         report[module]['observations'].append({
                             'symbol': entry_symbol, 'observed_at': now.isoformat()+'Z', 'price': price,
                             'entry_qualified': bool(signal and signal.get('enter')),
-                            'reason': (signal or {}).get('reason'),
+                            'reason': explain_signal(signal),
                             'signal_checks': (signal or {}).get('checks', {}),
                             'dominance_filter_applies': entry_symbol != 'BTC' if module == 'crypto' else None,
                         })

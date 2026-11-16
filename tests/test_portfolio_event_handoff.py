@@ -10,7 +10,9 @@ from core.extensions import db
 from event_algo_models import EventContractOutcome, EventMarketSnapshot, EventStrategyConfig, EventStrategyDecision, EventStrategyRun
 from services import portfolio_engine as engine
 from services import portfolio_event_execution as handoff
-from tests.test_portfolio_algo import PortfolioLedgerTests
+# Import the module, not the class: a TestCase name in this module's namespace
+# would make unittest run the whole ledger suite a second time.
+from tests import test_portfolio_algo as ledger_suite
 
 
 def quote(symbol='KXBTC15M-TEST', now=None, **changes):
@@ -115,9 +117,9 @@ class EventQuoteValidationTests(unittest.TestCase):
 @unittest.skipUnless(os.environ.get('QUANT_TEST_DATABASE_URI'), 'Requires isolated PostgreSQL')
 class EventHandoffLedgerTests(unittest.TestCase):
     user_counter = int.from_bytes(os.urandom(3))
-    setUpClass = classmethod(PortfolioLedgerTests.setUpClass.__func__)
-    setUp = PortfolioLedgerTests.setUp
-    tearDown = PortfolioLedgerTests.tearDown
+    setUpClass = classmethod(ledger_suite.PortfolioLedgerTests.setUpClass.__func__)
+    setUp = ledger_suite.PortfolioLedgerTests.setUp
+    tearDown = ledger_suite.PortfolioLedgerTests.tearDown
 
     def decision(self, symbol='KXBTC15M-TEST', *, age=0):
         now = datetime.utcnow()
@@ -302,7 +304,7 @@ class EventHandoffLedgerTests(unittest.TestCase):
         handoff.consume_event_decisions(self.user_id)
         self.assertEqual(engine.Order.query.filter_by(user_id=self.user_id, side='SELL').count(), 1)
 
-    def test_risk_circuit_manages_all_existing_positions_not_only_first(self):
+    def test_stops_manage_all_existing_positions_not_only_first(self):
         settings = engine.settings_for(self.cfg)
         settings = {module: {**values, 'enabled': module == 'crypto'} for module, values in settings.items()}
         self.cfg.module_settings_json = json.dumps(settings)
@@ -318,10 +320,10 @@ class EventHandoffLedgerTests(unittest.TestCase):
         provider.bars.side_effect = ValueError('History unavailable')
         result = engine.run_scan(self.user_id, force=True, provider=provider)
         self.assertTrue(result['success'], result)
-        self.assertTrue(self.state.kill_switch)
+        # Paper losses never halt the engine (v4.6.0); every stopped position is still exited.
+        self.assertFalse(self.state.kill_switch)
         self.assertTrue(all(lot.closed_at is not None for lot in lots))
         self.assertEqual(engine.Order.query.filter_by(user_id=self.user_id, side='SELL').count(), 2)
-        self.assertIsNone(self.state.lease_token)
 
     def test_readiness_distinguishes_no_data_and_no_signal(self):
         self.assertEqual(handoff.readiness(self.user_id, None, datetime.utcnow())[0], 'DATA_LIMITED')

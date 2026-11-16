@@ -25,28 +25,10 @@ from services.webull_import_service import refresh_webull_portfolio_snapshot
 
 # Persistent alert states store
 _alert_state_lock = threading.Lock()
-ALERT_STATE_FILE = "alert_state.json"
 DEFAULT_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES = 15
 MAX_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES = 1440
 WEBULL_PORTFOLIO_SYNC_INTERVAL_SECONDS = 60
 AI_WORKFLOW_SCHEDULER_INTERVAL_SECONDS = 900
-
-def _load_alert_states():
-    if os.path.exists(ALERT_STATE_FILE):
-        try:
-            with open(ALERT_STATE_FILE, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error loading alert states: {e}")
-            return {}
-    return {}
-
-def _save_alert_states(states):
-    try:
-        with open(ALERT_STATE_FILE, 'w') as f:
-            json.dump(states, f)
-    except Exception as e:
-        logger.error(f"Error saving alert states: {e}")
 
 def _make_alert_key(user_id, symbol, direction, source=None, threshold=None):
     thresh_str = f"{float(threshold):.6f}" if threshold is not None else "None"
@@ -58,24 +40,28 @@ def _normalize_threshold(threshold):
         return None
     try:
         return float(f"{float(threshold):.6f}")
-    except:
+    except Exception:
         return None
 
 def get_last_alert_state(user_id, symbol, direction, source=None, threshold=None):
+    from models import AlertState
     key = _make_alert_key(user_id, symbol, direction, source, threshold)
-    with _alert_state_lock:
-        states = _load_alert_states()
-        return states.get(key)
+    row = db.session.get(AlertState, (int(user_id), key))
+    return row.state if row else None
 
 def set_last_alert_state(user_id, symbol, direction, value, source=None, threshold=None):
+    from models import AlertState
     key = _make_alert_key(user_id, symbol, direction, source, threshold)
     with _alert_state_lock:
-        states = _load_alert_states()
+        row = db.session.get(AlertState, (int(user_id), key))
         if value is None:
-            states.pop(key, None)
+            if row is not None:
+                db.session.delete(row)
+        elif row is None:
+            db.session.add(AlertState(user_id=int(user_id), alert_key=key, state=str(value)))
         else:
-            states[key] = value
-        _save_alert_states(states)
+            row.state = str(value)
+        db.session.commit()
 
 def normalize_automated_trigger_confirmation_minutes(value):
     """Return a safe whole-minute confirmation window for automatic trading triggers."""
@@ -179,6 +165,18 @@ class ObjectView(object):
     def __init__(self, d):
         self.__dict__ = d
 
+BINANCE_QUOTE_ASSETS = ('USDT', 'USDC', 'BUSD', 'FDUSD', 'DAI', 'USD', 'BTC', 'ETH', 'BNB')
+
+
+def base_asset_of(pair):
+    """Exact base asset of a Binance pair (ETHFIUSDT -> ETHFI, never ETH)."""
+    pair = str(pair or '').upper()
+    for quote in BINANCE_QUOTE_ASSETS:
+        if pair.endswith(quote) and len(pair) > len(quote):
+            return pair[:-len(quote)]
+    return pair
+
+
 def update_auto_alert_cache():
     """Helper to update any caches if needed"""
     pass
@@ -207,7 +205,10 @@ def background_binance_sync_loop(app):
                 
                 logger.info(f"Found {len(users)} users with Binance API keys")
                 
+                from services import credential_health
                 for user in users:
+                    if credential_health.is_paused(user.id, 'binance'):
+                        continue  # keys were rejected repeatedly; the user has been notified
                     try:
                         from binance.client import Client
                         client = Client(
@@ -220,8 +221,20 @@ def background_binance_sync_loop(app):
                         from types import SimpleNamespace
                         cred_obj = SimpleNamespace(api_key=user.api_key, api_secret=user.api_secret)
                         sync_binance_account(user.id, user.username, client, cred_obj)
+                        credential_health.record_success(user.id, 'binance')
                     except Exception as e:
+                        db.session.rollback()
                         logger.error(f"Error syncing Binance for user {user.username}: {e}")
+                        credential_health.record_failure(user.id, 'binance', e)
+                        continue
+                    try:
+                        from services.staking_service import sync_staking_rewards
+                        added = sync_staking_rewards(user.id, cred_obj)
+                        if added:
+                            logger.info(f"Recorded {added} staking reward(s) for user {user.username}")
+                    except Exception as reward_err:
+                        db.session.rollback()
+                        logger.warning(f"Staking reward sync failed for user {user.username}: {reward_err}")
                 
                 update_auto_alert_cache()
             
@@ -242,8 +255,11 @@ def real_order_status_loop(app):
                     .filter(Credential._api_key.isnot(None), Credential._api_secret.isnot(None))\
                     .all()
 
+                from services import credential_health
                 for user, cred in results:
                     if not (cred and cred.api_key and cred.api_secret):
+                        continue
+                    if credential_health.is_paused(user.id, 'binance'):
                         continue
                     has_pending = RealOrder.query.filter(
                         RealOrder.user_id == user.id,
@@ -262,10 +278,51 @@ def real_order_status_loop(app):
                         )
                         sync_real_order_statuses_for_user(user.id, user.username, client)
                     except Exception as e:
+                        db.session.rollback()
                         logger.error(f"Error syncing real order statuses for {user.username}: {e}")
+                        credential_health.record_failure(user.id, 'binance', e)
 
             iteration()
             time.sleep(15)
+
+
+def binance_paper_match_loop(app):
+    """Fill or trigger resting Binance.US paper orders when the market reaches them."""
+    from services.binance_paper_matching import match_resting_orders
+    logger.info("Starting Binance.US paper order matching job")
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def iteration():
+                filled = match_resting_orders()
+                if filled:
+                    logger.info("Filled %s resting paper order(s)", filled)
+
+            iteration()
+            time.sleep(10)
+
+
+def webull_monitoring_loop(app):
+    """Webull price alerts every minute; token health every six hours."""
+    from services.webull_monitoring import check_webull_price_alerts, check_webull_token_health
+    logger.info("Starting Webull alert and token-health job")
+    last_token_check = 0.0
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def alerts():
+                check_webull_price_alerts()
+
+            alerts()
+            if time.time() - last_token_check >= 6 * 3600:
+                last_token_check = time.time()
+
+                @safe_background_iteration
+                def token_health():
+                    check_webull_token_health()
+
+                token_health()
+            time.sleep(60)
 
 
 def order_history_sync_loop(app):
@@ -381,8 +438,11 @@ def webull_portfolio_sync_loop(app):
                     )\
                     .all()
 
+                from services import credential_health
                 synced = 0
                 for user, credential in results:
+                    if credential_health.is_paused(user.id, 'webull'):
+                        continue
                     setting = UserSetting.query.filter_by(user_id=user.id).first()
                     try:
                         result = refresh_webull_portfolio_snapshot(
@@ -392,6 +452,7 @@ def webull_portfolio_sync_loop(app):
                         )
                         if not result.get('skipped'):
                             synced += 1
+                            credential_health.record_success(user.id, 'webull')
                     except Exception as exc:
                         db.session.rollback()
                         logger.warning(
@@ -399,6 +460,7 @@ def webull_portfolio_sync_loop(app):
                             user.username,
                             exc,
                         )
+                        credential_health.record_failure(user.id, 'webull', exc)
                 if synced:
                     logger.info("Completed Webull portfolio sync for %s user(s)", synced)
 
@@ -455,13 +517,13 @@ def portfolio_alert_loop(app):
                                         logger.warning(f"Failed to record price history for {symbol}: {history_error}")
                                 else:
                                     binance_rate_limiter.record_failure(symbol)
-                                    price = coin.current if coin.current and coin.current > 0 else None
+                                    price = None  # never alert on a stale stored price
                             except Exception as fetch_err:
                                 binance_rate_limiter.record_failure(symbol)
                                 logger.warning(f"Binance API failed for {symbol}: {fetch_err}")
-                                price = coin.current if coin.current and coin.current > 0 else None
+                                price = None  # never alert on a stale stored price
                         else:
-                            price = coin.current if coin.current and coin.current > 0 else None
+                            price = None  # never alert on a stale stored price
                         
                         if price is None or coin.avg_entry is None:
                             continue
@@ -557,26 +619,24 @@ def watchlist_alert_loop(app):
                                     db.session.commit()
                             except Exception as stock_err:
                                 logger.warning(f"Stock price fetch failed for watchlist {symbol}: {stock_err}")
-                                price = getattr(coin, 'current_price', None)
+                                price = None  # never alert on a stale stored price
                         else:
                             if binance_rate_limiter.can_call(symbol):
                                 try:
                                     price = fetch_binance_price(symbol)
                                     if price and price > 0:
                                         binance_rate_limiter.record_call(symbol)
-                                        try:
-                                            coin.current_price = price
-                                            db.session.commit()
-                                        except: pass
+                                        coin.current_price = price
+                                        db.session.commit()
                                     else:
                                         binance_rate_limiter.record_failure(symbol)
-                                        price = getattr(coin, 'current_price', None)
+                                        price = None  # never alert on a stale stored price
                                 except Exception as fetch_err:
                                     binance_rate_limiter.record_failure(symbol)
                                     logger.warning(f"Binance API failed for watchlist {symbol}: {fetch_err}")
-                                    price = getattr(coin, 'current_price', None)
+                                    price = None  # never alert on a stale stored price
                             else:
-                                price = getattr(coin, 'current_price', None)
+                                price = None  # never alert on a stale stored price
                             
                         if price is None or not getattr(coin, 'alert_enabled', False):
                             continue
@@ -767,10 +827,40 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
                 except Exception:
                     open_orders = []
 
+            # Only SELL orders whose base asset is exactly this coin hold the
+            # balance Auto-Sell needs. A prefix match would also cancel orders
+            # for other coins (AVA vs AVAX, ETH vs ETHFI), and BUY orders hold
+            # the quote currency, not this coin.
+            from services.synthetic_execution_service import WORKING_PARENTS
+            from trading_models import LadderOrder, TrailingOrder, SyntheticExecution
+            for model, kind in ((LadderOrder, 'ladder'), (TrailingOrder, 'trailing')):
+                for parent in model.query.filter(model.user_id == user.id, model.broker == 'binance',
+                                                 model.test_mode.is_(False), model.side == 'SELL',
+                                                 model.status.in_(WORKING_PARENTS)).all():
+                    if base_asset_of(parent.symbol) != symbol or parent.cancel_requested:
+                        continue
+                    try:
+                        if kind == 'ladder':
+                            from services.ladder_order_service import cancel_ladder_order
+                            cancel_ladder_order(parent.id, user.id)
+                        else:
+                            from services.trailing_order_service import cancel_trailing_order
+                            cancel_trailing_order(parent.id, user.id)
+                        cancelled_orders.append(f"{kind} strategy #{parent.id}")
+                    except Exception as synth_err:
+                        logger.error(f"Auto-Sell could not cancel {kind} strategy #{parent.id}: {synth_err}")
+            synthetic_client_ids = {
+                row.client_order_id for row in SyntheticExecution.query.filter_by(user_id=user.id).all()
+                if row.client_order_id
+            }
             for ord_item in open_orders:
                 ord_symbol = ord_item.get('symbol', '')
-                if ord_symbol.startswith(symbol) or ord_symbol == pair:
-                    ord_id = ord_item.get('orderId')
+                if str(ord_item.get('side') or '').upper() != 'SELL' or base_asset_of(ord_symbol) != symbol:
+                    continue
+                if ord_item.get('clientOrderId') in synthetic_client_ids:
+                    continue  # handled through its strategy above
+                ord_id = ord_item.get('orderId')
+                if ord_id is not None:
                     try:
                         logger.info(f"Auto-Sell pre-check: Cancelling conflicting open order {ord_symbol} #{ord_id} for User {user.username}...")
                         client.cancel_order(symbol=ord_symbol, orderId=ord_id)
@@ -1133,17 +1223,27 @@ def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold
         # Cancel any conflicting open buy orders for this symbol
         cancelled_orders = []
         try:
+            from trading_models import RealOrder, SyntheticExecution
+            synthetic_client_ids = {
+                row.client_order_id for row in SyntheticExecution.query.filter_by(user_id=user.id).all()
+                if row.client_order_id
+            }
             open_orders = client.get_open_orders(symbol=pair)
             for ord_item in open_orders:
-                if ord_item.get('side') == 'BUY':
-                    ord_id = ord_item.get('orderId')
-                    try:
-                        client.cancel_order(symbol=pair, orderId=ord_id)
-                        cancelled_orders.append(f"{pair} #{ord_id}")
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                if ord_item.get('side') != 'BUY' or ord_item.get('clientOrderId') in synthetic_client_ids:
+                    continue  # a synthetic strategy's own order is never cancelled underneath it
+                ord_id = ord_item.get('orderId')
+                try:
+                    client.cancel_order(symbol=pair, orderId=ord_id)
+                    cancelled_orders.append(f"{pair} #{ord_id}")
+                    local_order = RealOrder.query.filter_by(user_id=user.id, binance_order_id=int(ord_id)).first()
+                    if local_order:
+                        local_order.status = 'CANCELED'
+                        local_order.canceled_at = local_order.updated_at = datetime.utcnow()
+                except Exception as cancel_err:
+                    logger.error(f"Auto-Buy could not cancel open order {pair} #{ord_id}: {cancel_err}")
+        except Exception as open_err:
+            logger.error(f"Auto-Buy could not read open orders for {pair}: {open_err}")
 
         # Step 4: 2-Tier Slippage & Capital Protection (Depth Simulation + IOC Limit Price Ceiling)
         user_settings = UserSetting.query.filter_by(user_id=user.id).first()
@@ -1495,6 +1595,25 @@ def run_due_ai_workflows_for_user(app, user):
     return {'status': 'partial_failure', 'workflows': results}
 
 
+def _notify_ai_workflow_failure(user, workflows):
+    """Tell the user (once a day per workflow) that a scheduled AI report failed and why."""
+    from models import AlertState
+    today = datetime.utcnow().strftime('%Y-%m-%d')
+    for name, result in workflows.items():
+        if result.get('success'):
+            continue
+        key = f'ai_workflow_failed:{name}:{today}'
+        if db.session.get(AlertState, (user.id, key)):
+            continue
+        db.session.add(AlertState(user_id=user.id, alert_key=key, state='sent'))
+        reason = result.get('message') or 'the AI provider returned an error'
+        hint = (' The configured model is not installed; choose an installed model in Settings → AI.'
+                if 'not found' in str(reason).lower() else ' Check the AI provider and model in Settings → AI.')
+        create_system_notification(user.id, 'warning', 'AI',
+                                   f"Scheduled {name.replace('_', ' ')} did not complete: {reason}.{hint}")
+        db.session.commit()
+
+
 def scheduled_ai_workflow_loop(app):
     """Continuously consume overdue Market Analysis and Portfolio Review schedules."""
     logger.info("=== scheduled_ai_workflow_loop STARTED ===")
@@ -1508,6 +1627,7 @@ def scheduled_ai_workflow_loop(app):
                         logger.info("Scheduled Market Analysis and Portfolio Review completed for user %s.", user.username)
                     elif result.get('status') == 'partial_failure':
                         logger.warning("Scheduled AI workflows were incomplete for user %s: %s", user.username, result.get('workflows'))
+                        _notify_ai_workflow_failure(user, result.get('workflows') or {})
 
             iteration()
             time.sleep(AI_WORKFLOW_SCHEDULER_INTERVAL_SECONDS)
@@ -1619,6 +1739,12 @@ def start_background_jobs(app=None):
     order_history_thread = threading.Thread(target=order_history_sync_loop, args=(app,), daemon=True)
     order_history_thread.start()
 
+    paper_match_thread = threading.Thread(target=binance_paper_match_loop, args=(app,), daemon=True, name="binance-paper-matching")
+    paper_match_thread.start()
+
+    webull_monitoring_thread = threading.Thread(target=webull_monitoring_loop, args=(app,), daemon=True, name="webull-alerts-token-health")
+    webull_monitoring_thread.start()
+
     webull_order_watch_thread = threading.Thread(
         target=webull_open_order_watch_loop,
         args=(app,),
@@ -1710,6 +1836,8 @@ def start_background_jobs(app=None):
         "sync": sync_thread,
         "order_status": order_status_thread,
         "order_history": order_history_thread,
+        "binance_paper_matching": paper_match_thread,
+        "webull_monitoring": webull_monitoring_thread,
         "webull_portfolio": webull_portfolio_thread,
         "webull_scheduled_orders": webull_scheduled_thread,
         "trailing_orders": trailing_order_thread,

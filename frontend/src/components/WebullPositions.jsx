@@ -90,7 +90,7 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
         }
       };
       await poll();
-      const timer = setInterval(poll, INTERVAL_MS);
+      const timer = setInterval(() => { if (!document.hidden) poll(); }, INTERVAL_MS);
       await new Promise(resolve => controller.signal.addEventListener('abort', resolve));
       clearInterval(timer);
     })();
@@ -113,7 +113,7 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
       }
     };
     poll();
-    const timer = setInterval(poll, INTERVAL_MS);
+    const timer = setInterval(() => { if (!document.hidden) poll(); }, INTERVAL_MS);
     return () => { controller.abort(); clearInterval(timer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, allEventSymbols.join(',')]);

@@ -56,8 +56,8 @@ def send_telegram_alert(username, symbol, price, alert_type, threshold, admin_no
         time_str = now_eastern.strftime("%Y-%m-%d %I:%M:%S %p %Z")
         
         msg = (
-            f"⚠️ {symbol} alert: Price {alert_type_str} {threshold:.6f} USDT. "
-            f"Current price: {price:.6f}\n"
+            f"⚠️ {symbol} alert: Price {alert_type_str} ${threshold:,.6f}. "
+            f"Current price: ${price:,.6f}\n"
             f"{time_str}"
         )
         return send_telegram_message(username, msg, admin_notify=admin_notify)

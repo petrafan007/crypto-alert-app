@@ -27,7 +27,7 @@ from services.onboarding_service import (
     seed_new_user_defaults,
 )
 from services.ai_service import is_ollama_admin
-from services.totp_service import verify_totp_code
+from services.totp_service import verify_totp_code, consume_totp_code
 import json
 import re
 import secrets
@@ -185,7 +185,7 @@ def login_second_factor_error(user, data):
             }), 200
 
         try:
-            if not verify_totp_code(settings.totp_secret, two_factor_code):
+            if not consume_totp_code(settings, two_factor_code):
                 return jsonify({
                     "success": False,
                     "requires_2fa": True,
@@ -714,79 +714,27 @@ def api_get_credentials():
     response.headers['Cache-Control'] = 'no-store'
     return response
 
-@auth_bp.route("/test-session")
-@login_required
-def test_session():
-    return f"Logged in as: {getattr(current_user, 'username', None)}"
-
 @auth_bp.route("/api/account/delete", methods=["DELETE"])
 @login_required
 def delete_account():
+    """Delete the signed-in account and every row it owns, in every table."""
     try:
+        data = request.get_json(silent=True) or {}
         user_id = current_user.id
         username = current_user.username
-        
-        # 1. Delete records from all tables
-        # From models.py
-        from models import (
-            Coin, WatchlistCoin, Notification, StakedCoin, StakingReward,
-            AIPrompt, AIConversation, AICache, AIAnalysisSchedule,
-            SentimentHistory, ExternalSentimentSignal,
-            WebullAccountSnapshot, WebullHolding, WebullTestAccount,
-            WebullTestPosition, WebullTestOrder
-        )
-        Coin.query.filter_by(user_id=user_id).delete()
-        WatchlistCoin.query.filter_by(user_id=user_id).delete()
-        Notification.query.filter_by(user_id=user_id).delete()
-        
-        # Handle dependencies (StakingReward -> StakedCoin)
-        StakingReward.query.filter_by(user_id=user_id).delete()
-        StakedCoin.query.filter_by(user_id=user_id).delete()
-        
-        AIPrompt.query.filter_by(user_id=user_id).delete()
-        AIConversation.query.filter_by(user_id=user_id).delete()
-        AICache.query.filter_by(user_id=user_id).delete()
-        AIAnalysisSchedule.query.filter_by(user_id=user_id).delete()
-        SentimentHistory.query.filter_by(user_id=user_id).delete()
-        ExternalSentimentSignal.query.filter_by(user_id=user_id).delete()
-        WebullAccountSnapshot.query.filter_by(user_id=user_id).delete()
-        WebullHolding.query.filter_by(user_id=user_id).delete()
-        WebullTestAccount.query.filter_by(user_id=user_id).delete()
-        WebullTestPosition.query.filter_by(user_id=user_id).delete()
-        WebullTestOrder.query.filter_by(user_id=user_id).delete()
-        
-        # From trading_models.py
-        from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
-        TestOrder.query.filter_by(user_id=user_id).delete()
-        RealOrder.query.filter_by(user_id=user_id).delete()
-        TestPortfolio.query.filter_by(user_id=user_id).delete()
-        TradingSettings.query.filter_by(user_id=user_id).delete()
-        AllActivity.query.filter_by(user_id=user_id).delete()
-        PortfolioValueHistory.query.filter_by(user_id=user_id).delete()
-        StakingOrder.query.filter_by(user_id=user_id).delete()
-        
-        # From credentials.py
-        from credentials import Credential, UserSetting, DesktopToken, User
-        Credential.query.filter_by(user_id=user_id).delete()
-        UserSetting.query.filter_by(user_id=user_id).delete()
-        DesktopToken.query.filter_by(user_id=user_id).delete()
-        
-        # Finally delete the user
-        User.query.filter_by(id=user_id).delete()
-        
-        db.session.commit()
-        
-        logger.info(f"USER DELETED: {username} (ID: {user_id}) and all associated data.")
-        
-        # Logout the user
+        if data.get('confirm_username') != username:
+            return jsonify({"error": "Type your username exactly to confirm deletion."}), 400
+        if not current_user.check_password(str(data.get('password') or '')):
+            return jsonify({"error": "The password is incorrect; nothing was deleted."}), 403
+        from services.user_purge import purge_user
+        result = purge_user(user_id, confirm_username=username)
         logout_user()
-        
-        return jsonify({"success": True, "message": "Account deleted successfully"}), 200
-        
+        return jsonify({"success": True, "message": "Account deleted successfully",
+                        "rows_removed": result['total_rows']}), 200
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error deleting account: {e}", exc_info=True)
-        return jsonify({"error": "Failed to delete account. Please try again."}), 500
+        return jsonify({"error": "Failed to delete account. Nothing was deleted."}), 500
 
 @auth_bp.route('/api/account')
 @login_required

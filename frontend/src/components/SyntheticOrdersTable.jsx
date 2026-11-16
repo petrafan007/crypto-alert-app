@@ -88,7 +88,7 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
       if (!failures.length) setUpdated(new Date().toLocaleTimeString());
     };
     load();
-    const timer = setInterval(load, 5000);
+    const timer = setInterval(() => { if (!document.hidden) load(); }, 5000);
     return () => { stopped = true; controller.abort(); clearInterval(timer); };
   }, [broker, accountId, testMode, refresh]);
   const filtered = useMemo(() => orders.filter(o => (!historyMode || !['ACTIVE', 'PARTIALLY_FILLED'].includes(o.status)) && matchesStatus(o, status)

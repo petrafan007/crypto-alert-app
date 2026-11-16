@@ -1,4 +1,5 @@
 import { buildSyntheticPayload, strategySummary, buildSyntheticReview } from '../utils/syntheticOrders.mjs';
+import { validateWebullComboLegs } from '../utils/webullComboValidation.mjs';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
@@ -4426,7 +4427,22 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     }
   };
 
+  const comboUsesWebullNative = isEmbeddedReplaceMode || comboForm.executionMode !== 'SYNTHETIC';
+  const comboValidationErrors = useMemo(() => validateWebullComboLegs(
+    (comboForm.legs || []).map((leg) => ({
+      side: leg.side, order_type: leg.order_type, combo_type: leg.role,
+      limit_price: ['LIMIT', 'STOP_LOSS_LIMIT', 'LIMIT_ON_OPEN'].includes(leg.order_type) ? leg.price : undefined,
+      stop_price: ['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(leg.order_type) ? leg.stopPrice : undefined,
+      support_trading_session: leg.session || 'CORE',
+    })),
+    { symbol: comboForm.symbol, checkMarketHours: comboUsesWebullNative && !isTestMode },
+  ), [comboForm.legs, comboForm.symbol, comboUsesWebullNative, isTestMode]);
+
   const handleComboSubmit = async (twofaToken = null) => {
+    if (comboValidationErrors.length) {
+      setOrderFeedback({ type: 'error', message: comboValidationErrors.join('\n') });
+      return;
+    }
     if (!selectedAccountId) {
       setOrderFeedback({ type: 'error', message: 'Please select a Webull account.' });
       return;
@@ -7636,6 +7652,11 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                     ))}
                   </div>
 
+                  {comboValidationErrors.length > 0 && (
+                    <ul role="alert" style={{ margin: '0 0 12px', padding: '10px 12px 10px 28px', borderRadius: 8, border: '1px solid #f6ad55', background: 'rgba(246, 173, 85, 0.1)', color: '#fbd38d', fontSize: '0.85rem' }}>
+                      {comboValidationErrors.map((message) => <li key={message}>{message}</li>)}
+                    </ul>
+                  )}
                   <button
                     type="button"
                     className="btn btn-primary"
@@ -7649,7 +7670,8 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                       borderRadius: '8px',
                       cursor: 'pointer',
                     }}
-                    disabled={orderSubmitting}
+                    disabled={orderSubmitting || comboValidationErrors.length > 0}
+                    title={comboValidationErrors.join('\n')}
                     onClick={() => handleComboSubmit(null)}
                   >
                     {orderSubmitting ? 'Submitting…' : `Review ${comboForm.executionMode === 'SYNTHETIC' && !isEmbeddedReplaceMode ? 'Synthetic' : 'Webull'} ${formatOrderType(comboForm.comboType)} Order`}

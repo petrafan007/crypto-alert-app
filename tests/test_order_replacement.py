@@ -8,7 +8,7 @@ from core.extensions import db
 from credentials import User, Credential, UserSetting
 from models import WebullTestAccount, WebullTestPosition, WebullTestOrder
 from trading_models import (
-    LadderOrder, LadderRung, TrailingOrder, SyntheticExecution,
+    LadderOrder, LadderRung, TrailingOrder, SyntheticExecution, SyntheticRecovery,
     TestOrder, TestPortfolio, RealOrder, TradingSettings
 )
 from services.order_replacement_service import cancel_any_order
@@ -29,7 +29,7 @@ class OrderReplacementTests(unittest.TestCase):
 
         tables = [
             User, Credential, UserSetting, TradingSettings, TestOrder, TestPortfolio,
-            RealOrder, LadderOrder, LadderRung, TrailingOrder, SyntheticExecution,
+            RealOrder, LadderOrder, LadderRung, TrailingOrder, SyntheticExecution, SyntheticRecovery,
             WebullTestAccount, WebullTestPosition, WebullTestOrder
         ]
         for model in tables:

@@ -1732,11 +1732,17 @@ export default function Settings({ isLightMode }) {
     }
   };
 
+  const [deleteConfirmUsername, setDeleteConfirmUsername] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
+
   const handleDeleteAccount = async () => {
     setDeleteLoading(true);
     setDeleteError('');
     try {
-      await axios.delete('/api/account/delete', { withCredentials: true });
+      await axios.delete('/api/account/delete', {
+        withCredentials: true,
+        data: { confirm_username: deleteConfirmUsername, password: deletePassword },
+      });
       // Logout and redirect
       window.location.href = '/login?deleted=true';
     } catch (err) {
@@ -2123,6 +2129,21 @@ export default function Settings({ isLightMode }) {
             {settings.webull_token_status === 'NORMAL' && (
               <p className="settings-form-help" style={{ marginTop: '10px', color: '#38d39f' }}>
                 ✓ Webull verification is active for {settings.webull_environment === 'production' ? 'Production' : 'Sandbox'}.
+                {settings.webull_token_expires_at && (() => {
+                  const expires = new Date(`${settings.webull_token_expires_at}${settings.webull_token_expires_at.endsWith('Z') ? '' : 'Z'}`);
+                  const daysLeft = Math.floor((expires.getTime() - Date.now()) / 86400000);
+                  return (
+                    <span style={{ display: 'block', color: daysLeft <= 3 ? '#f6ad55' : '#94a3b8' }}>
+                      Token expires {expires.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET
+                      {daysLeft <= 3 ? ' — renew it soon by starting verification again.' : '.'} You will get a notification three days before it expires.
+                    </span>
+                  );
+                })()}
+              </p>
+            )}
+            {['INVALID', 'EXPIRED'].includes(settings.webull_token_status) && (
+              <p className="settings-form-help" style={{ marginTop: '10px', color: '#f56565' }}>
+                Webull reported this token as {String(settings.webull_token_status).toLowerCase()}. Start verification again to reconnect.
               </p>
             )}
             <button
@@ -4822,9 +4843,12 @@ export default function Settings({ isLightMode }) {
             >
               <option value="fifo">FIFO (First In, First Out)</option>
               <option value="lifo">LIFO (Last In, First Out)</option>
+              <option value="hifo">HIFO (Highest Cost First)</option>
             </select>
             <p className="settings-form-help">
-              Used to calculate realized/unrealized gains. FIFO is standard for most jurisdictions.
+              Used to calculate realized gains in the Tax Reports. FIFO is the IRS default when you do not
+              identify lots. To pick specific lots for one sale, enter the purchase IDs in that sale&apos;s
+              lot selection on the Tax Report. Lots are tracked separately for each account or wallet.
             </p>
           </div>
         </div>
@@ -5014,6 +5038,20 @@ export default function Settings({ isLightMode }) {
               </div>
             </div>
 
+            <div style={{ padding: '0 24px 16px', display: 'grid', gap: 10 }}>
+              <label style={{ color: '#e0e0e0', fontSize: '0.9rem' }}>
+                Type your username to confirm
+                <input value={deleteConfirmUsername} onChange={(e) => setDeleteConfirmUsername(e.target.value)} autoComplete="off"
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 6, border: '1px solid #555', background: '#1a1f23', color: '#fff' }} />
+              </label>
+              <label style={{ color: '#e0e0e0', fontSize: '0.9rem' }}>
+                Current password
+                <input type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} autoComplete="current-password"
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 6, border: '1px solid #555', background: '#1a1f23', color: '#fff' }} />
+              </label>
+              {deleteError && <div role="alert" style={{ color: '#f56565' }}>{deleteError}</div>}
+            </div>
+
             {/* Modal Footer */}
             <div style={{
               padding: '16px 24px',
@@ -5053,7 +5091,7 @@ export default function Settings({ isLightMode }) {
                 </button>
                 <button
                   onClick={handleDeleteAccount}
-                  disabled={deleteLoading}
+                  disabled={deleteLoading || !deleteConfirmUsername || !deletePassword}
                   style={{
                     padding: '10px 20px',
                     backgroundColor: '#dc3545',

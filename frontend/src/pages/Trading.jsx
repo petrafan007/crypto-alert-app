@@ -2092,7 +2092,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
           setActiveTab('synthetic_orders');
         } else {
           successMessage = settings.test_mode_enabled
-            ? `Test order placed successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol.replace('USDT', '')} checked against Binance.US rules and simulated.\n\nYour test portfolio has been updated.`
+            ? `Paper order recorded.\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol.replace('USDT', '')}: ${response.data.message || 'checked against Binance.US rules.'}`
             : `Real order placed successfully!\n\nOrder ID: ${response.data.binance_order_id}\n\nYour portfolio will be updated once the order is filled.`;
         }
 

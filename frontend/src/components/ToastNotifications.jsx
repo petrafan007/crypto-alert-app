@@ -5,6 +5,12 @@ import './ToastNotifications.css';
 const AUTO_DISMISS_MS = 7500;
 const POLL_INTERVAL_MS = 4000;
 
+// Errors, warnings and direct feedback on the user's own actions always show;
+// the Settings toggle only silences routine alerts (fills, prices, sentiment).
+const isCriticalToast = (toast) =>
+  ['error', 'system_error', 'warning', 'info', 'success'].includes(toast?.category)
+  || ['error', 'warning'].includes(toast?.type);
+
 export default function ToastNotifications({ isLightMode }) {
   const [toasts, setToasts] = useState([]);
   const [isEnabled, setIsEnabled] = useState(() => {
@@ -56,8 +62,7 @@ export default function ToastNotifications({ isLightMode }) {
 
   // Add a toast
   const addToast = useCallback((toastData) => {
-    const isCritical = ['error', 'system_error', 'warning', 'info', 'success'].includes(toastData?.category) || ['error', 'warning'].includes(toastData?.type);
-    if (!isEnabled && !isCritical) return;
+    if (!isEnabled && !isCriticalToast(toastData)) return;
     const id = toastData.id || `toast-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     
     setToasts(prev => {
@@ -97,6 +102,8 @@ export default function ToastNotifications({ isLightMode }) {
     let timerId;
 
     async function pollNotifications() {
+      // A hidden tab catches up on its next visible poll; IDs are tracked, so nothing is lost.
+      if (document.hidden && !isInitialFetch.current) return;
       try {
         const res = await axios.get('/api/notifications?limit=25', { withCredentials: true });
         if (!isMounted) return;
@@ -124,8 +131,8 @@ export default function ToastNotifications({ isLightMode }) {
           seenNotificationIds.current = new Set(arr.slice(arr.length - 300));
         }
 
-        if (incoming.length > 0 && isEnabled) {
-          incoming.forEach(n => {
+        if (incoming.length > 0) {
+          incoming.filter(n => isEnabled || isCriticalToast(n)).forEach(n => {
             addToast({
               id: `notif-${n.id}`,
               category: n.category || 'price_alert',
@@ -192,7 +199,7 @@ export default function ToastNotifications({ isLightMode }) {
     }));
   };
 
-  if (!isEnabled || toasts.length === 0) {
+  if (toasts.length === 0) {
     return null;
   }
 

@@ -45,6 +45,8 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
   const [manualInvestmentSaving, setManualInvestmentSaving] = useState(false);
   const [manualInvestmentFeedback, setManualInvestmentFeedback] = useState({ type: null, message: '' });
   const [showContributionModal, setShowContributionModal] = useState(false);
+  const [showReviewOnly, setShowReviewOnly] = useState(false);
+  const [reconciliation, setReconciliation] = useState({ open: false, loading: false, data: null, form: {}, error: '' });
 
   useEffect(() => {
     fetchTaxReport();
@@ -286,7 +288,12 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     }));
   };
 
+  const isGeneratedRow = (id) => /^(settle|unsettled)-/.test(String(id));
   const startEdit = (id, columnKey, value) => {
+    if (isGeneratedRow(id)) {
+      showAppAlert('This row is generated from the Event settlement result and cannot be edited.');
+      return;
+    }
     setEditingCell({ id, columnKey });
     setEditValue(value || '');
   };
@@ -297,7 +304,8 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     try {
       const { id, columnKey } = editingCell;
       
-      await axios.patch(`/api/tax/transactions/${source}/${id}`, {
+      const editSource = String(id).startsWith('staking-') ? 'staking' : source;
+      await axios.patch(`/api/tax/transactions/${editSource}/${id}`, {
         field: columnKey,
         value: editValue
       }, { withCredentials: true });
@@ -357,9 +365,28 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     window.URL.revokeObjectURL(url);
   };
 
-  const exportToExcel = () => {
-    exportToCSV();
+  const reconciliationFields = [
+    ['proceeds', 'Proceeds'],
+    ['cost_basis', 'Cost basis'],
+    ['wash_sale_disallowed', 'Wash sale loss disallowed'],
+    ['short_term_gain_loss', 'Short-term gain/loss'],
+    ['long_term_gain_loss', 'Long-term gain/loss'],
+  ];
+
+  const loadReconciliation = async (method = 'get', body = undefined) => {
+    setReconciliation(prev => ({ ...prev, open: true, loading: true, error: '' }));
+    try {
+      const { data } = await axios({ method, url: '/api/tax-report/reconciliation', params: { source, year: selectedYear }, data: body, withCredentials: true });
+      const form = {};
+      reconciliationFields.forEach(([key]) => { form[key] = data.broker?.[key] ?? ''; });
+      setReconciliation({ open: true, loading: false, data, form, error: '' });
+    } catch (err) {
+      setReconciliation(prev => ({ ...prev, loading: false, error: err.response?.data?.error || 'Could not load the reconciliation.' }));
+    }
   };
+
+  const openReconciliation = () => loadReconciliation('get');
+  const saveReconciliation = () => loadReconciliation('put', reconciliation.form);
 
   const filterTransactions = () => {
     if (!taxData) return [];
@@ -386,8 +413,11 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     if (selectedYear !== 'all') {
       filtered = filtered.filter(tx => (tx.date || '').startsWith(selectedYear));
     }
+    if (showReviewOnly) {
+      filtered = filtered.filter(tx => (tx.needs_review || []).length > 0);
+    }
     return filtered;
-  }, [taxData, selectedAsset, selectedYear]);
+  }, [taxData, selectedAsset, selectedYear, showReviewOnly]);
 
   const filterSummary = useMemo(() => {
     let realizedGainLoss = 0;
@@ -396,8 +426,14 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     let totalProceeds = 0;
     let totalCostBasis = 0;
     let totalFees = 0;
+    let incomeTotal = 0;
+    let washSaleDisallowed = 0;
+    let reviewCount = 0;
 
     filteredTransactions.forEach(tx => {
+      incomeTotal += parseFloat(tx.income) || 0;
+      washSaleDisallowed += parseFloat(tx.wash_sale_disallowed) || 0;
+      if ((tx.needs_review || []).length) reviewCount += 1;
       const gl = parseFloat(tx.gain_loss) || 0;
       realizedGainLoss += gl;
       shortTermGains += parseFloat(tx.short_term_gain_loss) || 0;
@@ -414,6 +450,9 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
       totalProceeds,
       totalCostBasis,
       totalFees,
+      incomeTotal,
+      washSaleDisallowed,
+      reviewCount,
       count: filteredTransactions.length
     };
   }, [filteredTransactions]);
@@ -431,6 +470,13 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
   };
 
   const formatFeeDisplay = (tx) => {
+    const display = formatFeeValue(tx);
+    return tx.fee_estimated && display !== '—'
+      ? <span title="Webull did not report this fee; it is an estimate. Double-click to enter the real fee.">{display} <em style={{ color: '#f6ad55' }}>est.</em></span>
+      : display;
+  };
+
+  const formatFeeValue = (tx) => {
     const feeVal = tx.fee !== undefined && tx.fee !== null ? Number(tx.fee) : null;
     if (feeVal === null || !Number.isFinite(feeVal)) return '—';
     if (feeVal === 0) return '$0.00';
@@ -657,6 +703,49 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
       style: { textAlign: 'center' },
     },
     {
+      id: 'record_id',
+      label: 'ID',
+      value: (tx) => String(tx.id ?? ''),
+      render: (tx) => <span style={{ fontFamily: 'monospace', fontSize: '11px' }}>{tx.id}</span>,
+      style: { textAlign: 'center' },
+    },
+    {
+      id: 'lot_selection',
+      label: 'Lots Used',
+      value: (tx) => (tx.lot_selection || []).join(','),
+      render: (tx) => (['SELL'].includes(tx.type)
+        ? <span title="Specific identification: double-click and enter purchase IDs (from the ID column), comma-separated. Leave empty to use your Settings method.">
+            {renderEditableCell({ ...tx, lot_selection: (tx.lot_selection || []).join(',') }, 'lot_selection', (tx.lot_selection || []).length ? (tx.lot_selection || []).join(', ') : 'auto')}
+          </span>
+        : '—'),
+      style: { textAlign: 'center' },
+    },
+    {
+      id: 'needs_review',
+      label: 'Review',
+      value: (tx) => (tx.needs_review || []).length,
+      render: (tx) => ((tx.needs_review || []).length
+        ? <span title={(tx.needs_review || []).join('\n')} style={{ color: '#f6ad55', cursor: 'help' }}>⚠ {(tx.needs_review || []).length}</span>
+        : '—'),
+      style: { textAlign: 'center' },
+    },
+    {
+      id: 'wash_sale_disallowed',
+      label: 'Wash Sale (W)',
+      value: (tx) => Number(tx.wash_sale_disallowed || 0),
+      render: (tx) => (Number(tx.wash_sale_disallowed) > 0
+        ? <span title="Loss disallowed because the same security was bought within 30 days; it is added to the replacement shares' basis.">{formatCurrency(tx.wash_sale_disallowed)}</span>
+        : '—'),
+      style: { textAlign: 'right' },
+    },
+    {
+      id: 'income',
+      label: 'Income',
+      value: (tx) => Number(tx.income || 0),
+      render: (tx) => (tx.income !== null && tx.income !== undefined ? renderEditableCell(tx, 'usd_value', formatCurrency(tx.income)) : '—'),
+      style: { textAlign: 'right' },
+    },
+    {
       id: 'txid',
       label: 'TxID',
       value: (tx) => tx.txid || '',
@@ -750,11 +839,27 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
             >
               Export CSV
             </button>
-            <button 
-              className="btn" 
-              onClick={exportToExcel}
+            <a
+              className="btn"
+              href={`/api/tax-report/form-8949?source=${source}&format=csv${selectedYear !== 'all' ? `&year=${selectedYear}` : ''}`}
+              title="Form 8949 rows (Part I short-term, Part II long-term) with Schedule D totals"
             >
-              Export Excel
+              Form 8949 (CSV)
+            </a>
+            <a
+              className="btn"
+              href={`/api/tax-report/form-8949?source=${source}&format=xlsx${selectedYear !== 'all' ? `&year=${selectedYear}` : ''}`}
+              title="Form 8949 and Schedule D summary as an Excel workbook"
+            >
+              Form 8949 (Excel)
+            </a>
+            <button
+              className="btn"
+              onClick={openReconciliation}
+              disabled={selectedYear === 'all'}
+              title={selectedYear === 'all' ? 'Choose a tax year first' : `Compare with your ${isWebullReport ? '1099-B' : '1099-DA'} totals`}
+            >
+              1099 Reconciliation
             </button>
             <button 
               className="btn" 
@@ -853,11 +958,25 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
           </div>
         )}
 
+        {taxData && (taxData.summary?.needs_review_count || 0) > 0 && (
+          <div role="status" style={{ margin: '0 0 16px', padding: '12px 16px', borderRadius: 8, border: '1px solid #f6ad55', background: 'rgba(246, 173, 85, 0.12)', color: isLightMode ? '#7c2d12' : '#fbd38d', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span>
+              ⚠ {taxData.summary.needs_review_count} row(s) need review before filing
+              {taxData.summary.missing_basis_rows ? ` — ${taxData.summary.missing_basis_rows} sale(s) are missing a purchase record` : ''}
+              {taxData.summary.estimated_fee_rows ? ` — ${taxData.summary.estimated_fee_rows} fee(s) are estimates` : ''}.
+              Hover ⚠ in the Review column for details; double-click a cell to correct it.
+            </span>
+            <button className="btn btn-secondary" onClick={() => setShowReviewOnly(v => !v)}>
+              {showReviewOnly ? 'Show all rows' : 'Show only rows to review'}
+            </button>
+          </div>
+        )}
+
         {/* Summary Cards */}
         {taxData && (
           <div className="tax-summary-cards">
             <div className="tax-summary-card">
-              <h3>{selectedYear !== 'all' ? `Realized Gain/Loss (${selectedYear})` : 'Total Gain/Loss'}</h3>
+              <h3 title={selectedYear !== 'all' ? 'Gains and losses on sales closed in this year.' : 'Realized gains plus unrealized gains on current holdings.'}>{selectedYear !== 'all' ? `Realized Gain/Loss (${selectedYear})` : 'Total Gain/Loss (Realized + Unrealized)'}</h3>
               <div className={`value ${(selectedYear !== 'all' ? filterSummary.realizedGainLoss : taxData.summary.total_gain_loss) >= 0 ? 'positive' : 'negative'}`}>
                 {formatCurrency(selectedYear !== 'all' ? filterSummary.realizedGainLoss : taxData.summary.total_gain_loss)}
               </div>
@@ -876,6 +995,18 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
                 {formatCurrency(filterSummary.longTermGains)}
               </div>
             </div>
+
+            <div className="tax-summary-card">
+              <h3 title="Staking rewards and similar receipts are taxed as ordinary income at their value when received.">Ordinary Income</h3>
+              <div className="value">{formatCurrency(filterSummary.incomeTotal)}</div>
+            </div>
+
+            {isWebullReport && (
+              <div className="tax-summary-card">
+                <h3 title="Losses disallowed under the wash-sale rule (Form 8949 code W).">Wash Sale Disallowed</h3>
+                <div className="value">{formatCurrency(filterSummary.washSaleDisallowed)}</div>
+              </div>
+            )}
 
             <div className="tax-summary-card">
               <h3>Current Holdings</h3>
@@ -965,6 +1096,43 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
           emptyText="No transactions found"
         />
         </div>
+
+      {reconciliation.open && (
+        <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) setReconciliation(prev => ({ ...prev, open: false })); }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 80, zIndex: 9999 }}>
+          <div role="dialog" aria-labelledby="recon-title" style={{ background: isLightMode ? '#fff' : '#141a22', color: isLightMode ? '#0f172a' : '#e2e8f0', borderRadius: 12, padding: 24, width: 560, maxWidth: '92%', border: '1px solid #2c3642' }}>
+            <h3 id="recon-title" style={{ color: '#4fd1c5', marginTop: 0 }}>{selectedYear} {reconciliation.data?.form || (isWebullReport ? '1099-B' : '1099-DA')} reconciliation</h3>
+            <p style={{ fontSize: 13, color: '#94a3b8' }}>Copy the totals from your broker&apos;s form. Differences of $1.00 or more are highlighted; check the rows marked for review first.</p>
+            {reconciliation.error && <div style={{ color: '#f56565', marginBottom: 8 }}>{reconciliation.error}</div>}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead><tr><th style={{ textAlign: 'left' }}>Figure</th><th style={{ textAlign: 'right' }}>This report</th><th style={{ textAlign: 'right' }}>Your form</th><th style={{ textAlign: 'right' }}>Difference</th></tr></thead>
+              <tbody>
+                {reconciliationFields.map(([key, label]) => {
+                  const diff = reconciliation.data?.differences?.[key];
+                  return (
+                    <tr key={key}>
+                      <td style={{ padding: '6px 0' }}>{label}</td>
+                      <td style={{ textAlign: 'right' }}>{reconciliation.data ? formatCurrency(reconciliation.data.report?.[key] || 0) : '—'}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <input type="number" step="0.01" aria-label={`${label} from your form`} value={reconciliation.form[key] ?? ''}
+                          onChange={(e) => setReconciliation(prev => ({ ...prev, form: { ...prev.form, [key]: e.target.value } }))}
+                          style={{ width: 120, textAlign: 'right', padding: '4px 6px', borderRadius: 4, border: '1px solid #334155', background: isLightMode ? '#fff' : '#0f141c', color: 'inherit' }} />
+                      </td>
+                      <td style={{ textAlign: 'right', color: diff === null || diff === undefined ? '#94a3b8' : (Math.abs(diff) < 1 ? '#48bb78' : '#f56565') }}>
+                        {diff === null || diff === undefined ? '—' : formatCurrency(diff)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+              <button className="btn btn-secondary" onClick={() => setReconciliation(prev => ({ ...prev, open: false }))}>Close</button>
+              <button className="btn" onClick={saveReconciliation} disabled={reconciliation.loading}>{reconciliation.loading ? 'Saving…' : 'Save and compare'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filter Modal */}
       {filterModal.show && (

@@ -67,7 +67,7 @@ def is_ai_enabled(username):
         
         settings = UserSetting.query.filter_by(user_id=user.id).first()
         return settings.ai_enabled if settings else False
-    except:
+    except Exception:
         return False
 
 def get_user_ai_settings(username: str) -> dict:
@@ -105,7 +105,7 @@ def get_user_ai_settings(username: str) -> dict:
             'ai_analysis_window_start': '08:00',
             'ai_analysis_window_end': '23:59',
             'ai_notifications_enabled': True,
-            'ai_max_tokens': 800,
+            'ai_max_tokens': 2000,
             'ai_web_search_enabled': True,
             'tax_manual_invested_updated': None,
             'tax_cost_basis_method': 'fifo',

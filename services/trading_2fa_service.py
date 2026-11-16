@@ -4,7 +4,7 @@ import time
 from flask import session
 
 from trading_models import TradingSettings
-from services.totp_service import verify_totp_code
+from services.totp_service import consume_totp_code, matching_time_step
 
 
 def require_live_trading_2fa(user_id, data, action='continue with live trading'):
@@ -22,9 +22,14 @@ def require_live_trading_2fa(user_id, data, action='continue with live trading')
             return None
 
     code = payload.get('two_factor_code') or payload.get('twofa_code')
-    try:
-        if code and verify_totp_code(settings.totp_secret, code):
-            return None
-    except Exception:
-        pass
+    if code:
+        try:
+            if consume_totp_code(settings, code):
+                return None
+            if matching_time_step(settings.totp_secret, code) is not None:
+                return (f'That two-factor code was already used. Wait for the next code in your '
+                        f'authenticator app to {action}.')
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('Two-factor verification failed')
     return f'Enter a fresh six-digit two-factor code to {action}.'

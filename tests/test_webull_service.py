@@ -1874,6 +1874,12 @@ class AccountScopeAndFilteringTests(unittest.TestCase):
     def test_open_orders_targeted_account_and_cache(self):
         from services.webull_service import get_webull_open_orders, clear_webull_order_cache
         clear_webull_order_cache()
+
+        def own_calls(mock):
+            # Background threads left by other test modules may share the
+            # patched transport; count only requests for this test's account.
+            return sum(1 for call in mock.call_args_list
+                       if (call.kwargs.get('query_params') or {}).get('account_id') == 'acc-targeted')
         response = Mock(status_code=200)
         response.json.return_value = {
             'data': [{'order_id': 'wb-1', 'symbol': 'BTCUSD', 'order_type': 'STOP_LIMIT'}]
@@ -1884,12 +1890,12 @@ class AccountScopeAndFilteringTests(unittest.TestCase):
                 orders = get_webull_open_orders('app-key', 'app-secret', 'production', 'token', account_id='acc-targeted')
                 self.assertEqual(len(orders), 1)
                 self.assertEqual(orders[0]['order_id'], 'wb-1')
-                self.assertEqual(req_mock.call_count, 1)
+                self.assertEqual(own_calls(req_mock), 1)
 
                 # Second call should hit cache without extra HTTP call
                 orders2 = get_webull_open_orders('app-key', 'app-secret', 'production', 'token', account_id='acc-targeted')
                 self.assertEqual(len(orders2), 1)
-                self.assertEqual(req_mock.call_count, 1)  # Still 1 because cached!
+                self.assertEqual(own_calls(req_mock), 1)  # Still 1 because cached!
 
     def test_event_and_futures_account_isolation(self):
         from routes.system import (

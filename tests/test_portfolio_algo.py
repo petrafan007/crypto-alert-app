@@ -305,11 +305,14 @@ class PortfolioLedgerTests(unittest.TestCase):
         db.session.commit()
         snapshot={'modules':{}, 'active_sources':{}, 'daily_request_limit':1}
         def exhausted(**kwargs):
-            kwargs['attempt_observer'](event='started')
+            # The ceiling counts AI calls (provider tiers), not retries of one tier.
+            kwargs['attempt_observer'](event='started', tier='primary')
             kwargs['request_guard']()
-            kwargs['attempt_observer'](event='started')
+            kwargs['attempt_observer'](event='started', tier='primary')
             kwargs['request_guard']()
-            raise AssertionError('Guard should stop the second attempt.')
+            kwargs['attempt_observer'](event='started', tier='secondary')
+            kwargs['request_guard']()
+            raise AssertionError('Guard should stop the second provider tier.')
         with patch('services.portfolio_strategy_review.promote_mature_shadows'), \
              patch('services.portfolio_strategy_review.evidence', return_value=snapshot), \
              patch('services.ai_service.is_ai_enabled', return_value=True), \
@@ -645,20 +648,21 @@ class PortfolioLedgerTests(unittest.TestCase):
         cfg, _, state = e.locked(self.user_id)
         self.assertFalse(e.owns(cfg, state, token))
 
-    def test_circuit_is_persistent_and_notification_is_written_once(self):
+    def test_losses_never_halt_but_kill_switch_pauses_entries_once(self):
+        """Since v4.6.0 paper losses are measured, not a halt; only the kill switch pauses entries."""
         from models import Notification
         self.acc.cash_balance = self.acc.total_equity = 45000
         self.cfg.enabled = True
-        self.assertTrue(e.check_circuit(self.cfg, self.acc, self.state))
+        self.assertFalse(e.check_circuit(self.cfg, self.acc, self.state))
         db.session.commit()
-        self.assertTrue(self.state.kill_switch)
-        self.assertEqual(self.cfg.worker_status, 'MONITORING_ONLY')
+        self.assertFalse(self.state.kill_switch)
+        e.control(self.user_id, 'kill')
+        cfg, _, state = e.locked(self.user_id)
+        self.assertTrue(state.kill_switch)
+        self.assertEqual(cfg.worker_status, 'MONITORING_ONLY')
+        self.assertTrue(e.check_circuit(cfg, self.acc, state))
+        e.control(self.user_id, 'kill')
         self.assertEqual(Notification.query.filter_by(user_id=self.user_id, category='portfolio_strategy').count(), 1)
-        e.check_circuit(self.cfg, self.acc, self.state)
-        db.session.commit()
-        self.assertEqual(Notification.query.filter_by(user_id=self.user_id, category='portfolio_strategy').count(), 1)
-        with self.assertRaises(ValueError):
-            e.control(self.user_id, 'start')
 
     def test_api_auth_validation_reset_confirmation_and_zero_balance(self):
         path = '/api/webull/portfolio-algo/'
@@ -1091,7 +1095,7 @@ class PortfolioLedgerTests(unittest.TestCase):
         response = SimpleNamespace(text='Completed assessment', provider='test', model='test')
         with patch('services.ai_service.is_ai_enabled', return_value=True), \
                 patch('services.ai_service.call_ai_with_web_search', return_value=(response, '')), \
-                patch('services.portfolio_engine.check_drawdown_claim', side_effect=expire_before_publication):
+                patch('services.portfolio_engine.check_audit_evidence', side_effect=expire_before_publication):
             result = e.run_audit(self.user_id)
         self.assertEqual(result['status'], 'FAILED')
         self.assertEqual(PortfolioEngineLog.query.filter_by(user_id=self.user_id, event_type='AUDIT_COMPLETE').count(), 0)

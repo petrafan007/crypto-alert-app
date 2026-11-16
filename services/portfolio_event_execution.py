@@ -27,6 +27,10 @@ SETTLEMENT_OVERDUE_SECONDS = 6 * 3600
 SETTLEMENT_TIMEOUT_SECONDS = 72 * 3600
 
 
+REPEATED_LOG_INTERVAL_SECONDS = 3600
+_LAST_REPEATED_LOG = {}
+
+
 def disposition(decision, generation):
     value = engine.loads(decision.feature_json, {}).get('portfolio_execution', {})
     return value if value.get('generation') == generation else {}
@@ -38,9 +42,18 @@ def record_disposition(decision, generation, status, reason, now, **details):
               'recorded_at': now.isoformat() + 'Z', **details}
     features['portfolio_execution'] = result
     decision.feature_json = json.dumps(features)
-    engine._record_portfolio_log(decision.user_id, 'EVENT_HANDOFF_' + status,
-        f'{decision.contract_symbol}: {reason}', module='events',
-        decision_id=decision.id, generation=generation, disposition=result)
+    # Every disposition stays on its decision as evidence. The engine log only
+    # repeats an identical rejection once an hour, so a full module does not
+    # write the same line on every scan.
+    key = (decision.user_id, decision.contract_symbol, status, reason)
+    last = _LAST_REPEATED_LOG.get(key)
+    if status == 'FILLED' or last is None or (now - last).total_seconds() >= REPEATED_LOG_INTERVAL_SECONDS:
+        _LAST_REPEATED_LOG[key] = now
+        if len(_LAST_REPEATED_LOG) > 5000:
+            _LAST_REPEATED_LOG.clear()
+        engine._record_portfolio_log(decision.user_id, 'EVENT_HANDOFF_' + status,
+            f'{decision.contract_symbol}: {reason}', module='events',
+            decision_id=decision.id, generation=generation, disposition=result)
     return result
 
 

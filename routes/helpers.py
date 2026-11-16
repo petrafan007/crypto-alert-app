@@ -349,35 +349,14 @@ def ensure_background_jobs():
         return False
 
 def clear_alert_state(user_id=None):
-    """Clear alert_state entries. If user_id is provided, clear only entries for that user.
-    Returns count of entries removed.
-    """
-    fn = "alert_state.json"
-    removed = 0
-    if not os.path.exists(fn):
-        return removed
-    try:
-        with open(fn, 'r') as f:
-            import json as _json
-            state = _json.load(f)
-    except Exception:
-        state = {}
-    if user_id is None:
-        removed = len(state)
-        with open(fn, 'w') as f:
-            import json as _json
-            _json.dump({}, f)
-        logger.info(f"[ALERT_STATE] Cleared all entries ({removed})")
-        return removed
-    # filter user-specific keys
-    prefix = f"{user_id}:"
-    new_state = {k: v for k, v in state.items() if not k.startswith(prefix)}
-    removed = len(state) - len(new_state)
-    with open(fn, 'w') as f:
-        import json as _json
-        _json.dump(new_state, f)
-    logger.info(f"[ALERT_STATE] Cleared {removed} entries for user {user_id}")
+    """Clear stored alert states (all users, or one). Returns the count removed."""
+    from models import AlertState
+    query = AlertState.query if user_id is None else AlertState.query.filter_by(user_id=user_id)
+    removed = query.delete(synchronize_session=False)
+    db.session.commit()
+    logger.info(f"[ALERT_STATE] Cleared {removed} entr{'y' if removed == 1 else 'ies'}" + (f" for user {user_id}" if user_id else ''))
     return removed
+
 
 def sync_binance_logs():
     """Sync Binance trade history for every user with Binance credentials."""

@@ -23,9 +23,15 @@ export QUANT_LEGACY_TEST_DATABASE_URI="$QUANT_TEST_DATABASE_URI"
 export QUANT_COMPLETION_TEST_DATABASE_URI="$QUANT_TEST_DATABASE_URI"
 export QUANT_SEARCH_TEST_DATABASE_URI="$QUANT_TEST_DATABASE_URI"
 
-PYTHON_BIN="./.venv/bin/python"
-if [ ! -x "$PYTHON_BIN" ]; then
-    PYTHON_BIN="python3"
+PYTHON_BIN="${PYTHON_BIN:-}"
+for candidate in ./venv/bin/python ./.venv/bin/python /var/www/html/csdapp/venv/bin/python; do
+    if [ -z "$PYTHON_BIN" ] && [ -x "$candidate" ] && "$candidate" -c "import flask, sqlalchemy" 2>/dev/null; then
+        PYTHON_BIN="$candidate"
+    fi
+done
+if [ -z "$PYTHON_BIN" ]; then
+    echo "No Python environment with the app dependencies was found. Run: python3 -m venv venv && venv/bin/pip install -r requirements.txt" >&2
+    exit 1
 fi
 
 echo "Running test suite with isolated PostgreSQL database configured..."

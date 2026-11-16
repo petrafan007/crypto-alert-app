@@ -23,6 +23,7 @@ const TradingRiskDisclosure = React.lazy(() => import('./pages/TradingRiskDisclo
 const Support = React.lazy(() => import('./pages/Support'));
 import ToastNotifications from './components/ToastNotifications';
 import SyntheticRecoveryHost from './components/SyntheticRecoveryHost';
+import CredentialHealthBanner from './components/CredentialHealthBanner';
 import ErrorBoundary from './components/ErrorBoundary';
 import AppDialogHost from './components/AppDialog';
 import { APP_VERSION } from './version';
@@ -350,6 +351,7 @@ export default function App() {
               </div>
             </div>
           }>
+            {user && <CredentialHealthBanner />}
             <Routes>
               <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
               <Route path="/signup" element={user ? <Navigate to="/" /> : <Signup isLightMode={isLightMode} toggleTheme={toggleTheme} />} />

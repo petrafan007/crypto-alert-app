@@ -542,15 +542,11 @@ def fetch_binance_price(symbol):
         if not symbol.endswith('USD'): symbol = f"{symbol}USD"
         res = requests.get(f"https://api.binance.us/api/v3/ticker/price?symbol={symbol}", timeout=5)
         return float(res.json()['price']) if res.status_code == 200 else None
-    except: return None
+    except Exception: return None
 
 def get_last_alert_state():
     from services.notification_service import get_alert_state
     return get_alert_state()
-
-def get_user_from_desktop_session():
-    from routes.helpers import get_user_from_bearer
-    return get_user_from_bearer()
 
 from flask import make_response, send_file
 
@@ -644,264 +640,6 @@ def extension_login():
         return jsonify({"error": "Internal error"}), 500
 
 
-@system_bp.route('/api/desktop/login', methods=['POST'])
-def desktop_login():
-    """Login endpoint for desktop app using username/password"""
-    try:
-        from datetime import datetime, timedelta
-        data = request.get_json()
-        username = data.get('username')
-        password = data.get('password')
-        
-        if not username or not password:
-            return jsonify({"error": "Username and password required"}), 400
-        
-        # Import User model from credentials
-        from credentials import User as CredUser
-        
-        with current_app.app_context():
-            # Find user in credentials database
-            user = CredUser.query.filter_by(username=username).first()
-            
-            if not user:
-                logger.warning(f"Desktop login attempt with invalid username: {username}")
-                return jsonify({"error": "Invalid credentials"}), 401
-            
-            # Verify password using hashed credentials
-            if not user.check_password(password):
-                logger.warning(f"Desktop login attempt with invalid password for user: {username}")
-                return jsonify({"error": "Invalid credentials"}), 401
-            
-            from routes.auth import login_second_factor_error
-            error = login_second_factor_error(user, data)
-            if error:
-                return error
-            # Generate a session token (simple approach)
-            import secrets
-            session_token = secrets.token_urlsafe(32)
-            
-            # For simplicity, we'll create a temporary JWT-like token
-            # In production, you might want to store these in a sessions table
-            user_data = {
-                "user_id": user.id,
-                "username": user.username,
-                "session_token": session_token,
-                "login_time": datetime.now().isoformat()
-            }
-            
-            # Store session in a simple way (you might want to use Redis or database)
-            # For now, we'll just create a simple token that includes user info
-            import jwt
-            
-            # Create JWT token with user info
-            payload = {
-                "user_id": user.id,
-                "username": user.username,
-                "exp": datetime.utcnow() + timedelta(days=30),  # 30 day expiration
-                "type": "desktop_session"
-            }
-            
-            # Use a simple secret key (in production, use a proper secret)
-            secret_key = current_app.config.get('SECRET_KEY', 'desktop-app-secret-key')
-            token = jwt.encode(payload, secret_key, algorithm='HS256')
-            
-            logger.info(f"Desktop login successful for user: {username}")
-            
-            return jsonify({
-                "success": True,
-                "session_token": token,
-                "username": user.username,
-                "message": "Login successful"
-            })
-            
-    except Exception as e:
-        logger.error(f"Desktop login error: {e}")
-        return jsonify({"error": "Login failed"}), 500
-
-
-# Desktop app token management endpoints
-@system_bp.route('/api/desktop/generate-token', methods=['POST'])
-@login_required
-def generate_desktop_token():
-    """Generate long-lived token for desktop app"""
-    try:
-        import secrets
-        from credentials import DesktopToken
-        
-        # Generate secure token
-        token = secrets.token_urlsafe(32)
-        device_name = request.json.get('device_name', 'Desktop App') if request.json else 'Desktop App'
-
-        # Desktop app token management endpoints
-        
-        with current_app.app_context():
-            # Deactivate old tokens for this user (optional - keep only one active)
-            DesktopToken.query.filter_by(user_id=current_user.id).update({'is_active': False})
-            
-            # Create new token
-            desktop_token = DesktopToken(
-                user_id=current_user.id,
-                token=token,
-                device_name=device_name,
-                is_active=True
-            )
-            db.session.add(desktop_token)
-            db.session.commit()
-            
-        logger.info(f"Generated desktop token for user {current_user.username}")
-        return jsonify({
-            "token": token,
-            "device_name": device_name,
-            "created_at": datetime.now().isoformat()
-        })
-    except Exception as e:
-        logger.error(f"generate_desktop_token error: {e}")
-        return jsonify({"error": "Internal error"}), 500
-
-
-@system_bp.route('/api/desktop/notifications')
-def api_desktop_notifications():
-    """Desktop app specific notification endpoint with session-based auth"""
-    user = get_user_from_desktop_session()
-    if not user:
-        return jsonify({"error": "Invalid or missing session token"}), 401
-        
-    try:
-        since_id = request.args.get('since_id', type=int, default=0)
-        limit = request.args.get('limit', default=50, type=int)
-        
-        # Get notifications using existing logic but for desktop app
-        q = Notification.query.filter_by(user_id=user.id)
-        q = q.filter(text('(is_hidden IS NULL OR is_hidden = 0)'))  # Exclude hidden
-        if since_id:
-            q = q.filter(Notification.id > since_id)
-        q = q.order_by(Notification.id.desc())
-        rows = q.limit(max(1, min(limit, 100))).all()
-        
-        # Format notifications for desktop app
-        notifications = []
-        for n in rows:
-            notifications.append({
-                "id": n.id,
-                "user_id": n.user_id,
-                "coin_id": n.coin_id,
-                "table_type": n.table_type,
-                "category": getattr(n, "category", "price_alert"),
-                "symbol": n.symbol,
-                "date": n.date,
-                "time": n.time,
-                "crossing_price": n.crossing_price,
-                "current_price": n.current_price,
-                "direction": n.direction,
-                "threshold_type": n.threshold_type,
-                "percent_value": n.percent_value,
-                "message": getattr(n, "message", None),
-                "created_at": n.created_at.isoformat() if n.created_at else None
-            })
-        
-        # Get desktop-specific user settings
-        desktop_settings = {
-            "notification_sound": True,
-            "poll_interval": 60,
-            "show_system_notifications": True
-        }
-        
-        return jsonify({
-            "notifications": notifications,
-            "user_settings": desktop_settings,
-            "server_time": datetime.utcnow().isoformat(),
-            "total_count": len(notifications)
-        })
-        
-    except Exception as e:
-        logger.error(f"api_desktop_notifications error: {e}")
-        return jsonify({"error": "Internal error"}), 500
-
-
-@system_bp.route('/api/desktop/check-update', methods=['GET'])
-def check_desktop_update():
-    """Check if desktop app updates are available"""
-    user = get_user_from_desktop_session()
-    if not user:
-        return jsonify({"error": "Invalid or expired session token"}), 401
-    
-    try:
-        current_version = request.args.get('current_version', '1.0.0')
-        
-        # Define the latest version and release info
-        # This should be updated when you release new versions
-        latest_version = "1.1.0"
-        release_notes = """
-New Features:
-• Improved Windows toast notifications
-• Better error handling and logging
-• Auto-update system
-• Enhanced system tray menu
-
-Bug Fixes:
-• Fixed notification deduplication
-• Improved API token handling
-• Better Windows startup integration
-"""
-        
-        # Simple version comparison (you might want to use semantic versioning)
-        update_available = current_version != latest_version
-        
-        response_data = {
-            "update_available": update_available,
-            "current_version": current_version,
-            "latest_version": latest_version
-        }
-        
-        if update_available:
-            response_data.update({
-                "version": latest_version,
-                "release_notes": release_notes.strip(),
-                "download_url": url_for("system.download_desktop_update", _external=True),
-                "file_hash": "sha256_hash_would_go_here",  # You'd compute this for the actual file
-                "file_size": 15728640,  # Example file size in bytes
-                "release_date": "2025-09-11T12:00:00Z"
-            })
-        
-        logger.info(f"Update check for user {user.username}: {current_version} -> {latest_version} (available: {update_available})")
-        
-        return jsonify(response_data)
-        
-    except Exception as e:
-        logger.error(f"check_desktop_update error: {e}")
-        return jsonify({"error": "Failed to check for updates"}), 500
-
-
-@system_bp.route('/api/desktop/download-update', methods=['GET'])
-def download_desktop_update():
-    """Download desktop app update"""
-    user = get_user_from_desktop_session()
-    if not user:
-        return jsonify({"error": "Invalid or expired session token"}), 401
-    
-    try:
-        # Path to the latest desktop app executable
-        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        update_file_path = os.getenv('DESKTOP_APP_EXE_PATH', os.path.join(root_dir, 'desktop_app', 'dist', 'CryptoDesktopApp.exe'))
-        
-        if not os.path.exists(update_file_path):
-            return jsonify({"error": "Update file not found"}), 404
-        
-        logger.info(f"Serving desktop app update to user {user.username}")
-        
-        # Serve the file with proper headers
-        return send_file(
-            update_file_path,
-            as_attachment=True,
-            download_name="CryptoDesktopApp.exe",
-            mimetype="application/octet-stream"
-        )
-        
-    except Exception as e:
-        logger.error(f"download_desktop_update error: {e}")
-        return jsonify({"error": "Failed to download update"}), 500
-
-
 # Notifications fetch for extension (keep for backward compatibility)
 @system_bp.route('/api/notifications')
 def api_notifications():
@@ -956,7 +694,11 @@ def api_notifications():
 def api_hide_notification(notif_id):
     user = get_user_from_bearer()
     if not user:
-        return jsonify({"error": "Unauthorized"}), 401
+        from flask_login import current_user
+        if getattr(current_user, 'is_authenticated', False):
+            user = current_user
+        else:
+            return jsonify({"error": "Unauthorized"}), 401
     try:
         engine_main = db.engine
         with engine_main.begin() as conn:
@@ -1270,13 +1012,14 @@ def api_alert_status():
             
             down_threshold = None
             up_threshold = None
-            if coin.custom_lower_type == "%" and coin.custom_lower_pct is not None:
-                down_threshold = round(coin.initial_price * (1 - float(coin.custom_lower_pct) / 100), 6) if coin.initial_price else None
+            # Percentage alerts are measured from average entry, exactly as the alert loop does.
+            if coin.custom_lower_type in ("%", "Auto%") and coin.custom_lower_pct is not None:
+                down_threshold = round(coin.avg_entry * (1 - float(coin.custom_lower_pct) / 100), 6) if coin.avg_entry else None
             elif coin.custom_lower_type == "#" and coin.custom_lower_val is not None:
                 down_threshold = round(float(coin.custom_lower_val), 6)
                 
-            if coin.custom_upper_type == "%" and coin.custom_upper_pct is not None:
-                up_threshold = round(coin.initial_price * (1 + float(coin.custom_upper_pct) / 100), 6) if coin.initial_price else None
+            if coin.custom_upper_type in ("%", "Auto%") and coin.custom_upper_pct is not None:
+                up_threshold = round(coin.avg_entry * (1 + float(coin.custom_upper_pct) / 100), 6) if coin.avg_entry else None
             elif coin.custom_upper_type == "#" and coin.custom_upper_val is not None:
                 up_threshold = round(float(coin.custom_upper_val), 6)
             
@@ -1471,10 +1214,6 @@ def api_settings():
     """Get user settings and API keys"""
     try:
         # Get the current user
-        print(f"=== DEBUG: current_user authenticated={current_user.is_authenticated} ===", flush=True)
-        print(f"=== DEBUG: current_user.id={current_user.id if hasattr(current_user, 'id') else 'NO_ID'} ===", flush=True)
-        print(f"=== DEBUG: current_user.username type={type(current_user.username) if hasattr(current_user, 'username') else 'NO_USERNAME_ATTR'} ===", flush=True)
-        print(f"=== DEBUG: current_user={current_user}, username=NOT_SET_YET ===", flush=True)
         _ = current_user.id
         username = current_user.username
         if not username:
@@ -1514,6 +1253,25 @@ def api_settings():
                         "success": False,
                         "message": "Ollama is available only to the administrator account.",
                     }), 403
+                # A model that is not installed would fail every scheduled report silently.
+                model_fields = {'ai_provider': 'ai_model', 'ai_provider_fallback': 'ai_model_fallback',
+                                'ai_provider_secondary': 'ai_model_secondary', 'ai_provider_tertiary': 'ai_model_tertiary',
+                                'ai_provider_quaternary': 'ai_model_quaternary'}
+                chosen = {str(data.get(model_field) or '').strip() for provider_field, model_field in model_fields.items()
+                          if str(data.get(provider_field) or '').strip().lower() == 'ollama' and data.get(model_field)}
+                if chosen:
+                    try:
+                        from services.ai_service import get_ollama_models
+                        installed = set(get_ollama_models(api_key=data.get('ollama_key') or getattr(cred, 'ollama_key', None)))
+                    except Exception as ollama_err:
+                        installed = None
+                        logger.warning('Could not list Ollama models while saving settings: %s', ollama_err)
+                    missing = sorted(chosen - installed) if installed is not None else []
+                    if missing:
+                        return jsonify({
+                            "success": False,
+                            "message": f"Ollama model(s) not installed: {', '.join(missing)}. Install them or choose an installed model.",
+                        }), 400
             existing_webull_environment = getattr(
                 UserSetting.query.filter_by(user_id=current_user.id).first(),
                 'webull_environment', None,
@@ -1576,68 +1334,22 @@ def api_settings():
                 db.session.add(user_setting)
             
             save_decision_settings(user_setting, data)
-            allowed_fields = [
-                'ai_enabled', 'ai_provider', 'ai_model', 'ai_risk_tolerance',
-                'ai_confidence_threshold', 'ai_notifications_enabled', 'ai_analysis_frequency',
-                'ai_cache_duration_hours', 'ai_analysis_window_start', 'ai_analysis_window_end',
-                'tax_cost_basis_method', 'copilot_chat_pre', 'copilot_chat_post', 'copilot_title_prompt',
-                'event_strategy_audit_prompt',
-                'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
-                'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
-                'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours',
-                'portfolio_schedule_start_time', 'watchlist_schedule_start_time',
-                'volatility_hours', 'automated_trigger_confirmation_minutes', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct',
-                'webull_environment',
-                'sentiment_chart_default_range',
-                *SENTIMENT_THRESHOLD_FIELDS,
-                'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
-                'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
-                'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
-                'ai_provider_quaternary', 'ai_model_quaternary', 'ai_reasoning_level_quaternary',
-                'ai_reasoning_level',
-                'browser_notifications_enabled', 'toast_notifications_enabled', 'telegram_notifications_enabled'
-            ]
+            from services import user_settings_writer
+            user_settings_writer.normalize_aliases(data)
+            setting_errors = user_settings_writer.validate(data)
+            if setting_errors:
+                db.session.rollback()
+                return jsonify({"success": False, "message": " ".join(setting_errors.values()),
+                                "errors": setting_errors}), 400
 
-            for key, value in data.items():
-                if key == "ai_prompts" and isinstance(value, dict):
-                    # Update AIPrompt fields
-                    ai_prompts = AIPrompt.query.filter_by(user_id=current_user.id).first()
-                    if not ai_prompts:
-                        ai_prompts = AIPrompt(user_id=current_user.id)
-                        db.session.add(ai_prompts)
-                    prompt_fields = [
-                        'market_analysis_pre', 'market_analysis_post',
-                        'portfolio_review_pre', 'portfolio_review_post',
-                        'coin_analysis_pre', 'coin_analysis_post',
-                        'sentiment_prompt_pre', 'sentiment_prompt_post',
-                        'watchlist_sentiment_prompt_pre', 'watchlist_sentiment_prompt_post',
-                        'event_strategy_audit_prompt', 'copilot_title_prompt'
-                    ]
-                    for field in prompt_fields:
-                        if field in value:
-                            setattr(ai_prompts, field, value[field])
-                    continue 
+            def _prompt_record():
+                record = AIPrompt.query.filter_by(user_id=current_user.id).first()
+                if not record:
+                    record = AIPrompt(user_id=current_user.id)
+                    db.session.add(record)
+                return record
 
-                # Explicit column updates
-                if key in allowed_fields:
-                    if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled', 'browser_notifications_enabled', 'toast_notifications_enabled', 'telegram_notifications_enabled']:
-                         target_key = 'browser_notifications_enabled' if key == 'toast_notifications_enabled' else key
-                         setattr(user_setting, target_key, bool(value))
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours', 'automated_trigger_confirmation_minutes']:
-                        try:
-                            parsed_value = int(value)
-                            if key == 'volatility_hours' and parsed_value < 1:
-                                raise ValueError('Volatility Hours must be at least 1')
-                            setattr(user_setting, key, parsed_value)
-                        except:
-                            pass
-                    elif key in ['ai_confidence_threshold', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct', *SENTIMENT_THRESHOLD_FIELDS]:
-                        try:
-                            setattr(user_setting, key, float(value))
-                        except:
-                            pass
-                    else:
-                        setattr(user_setting, key, str(value))
+            user_settings_writer.apply(user_setting, data, _prompt_record)
             # --- END UserSetting Logic ---
 
             if data.get('credentials_encryption_key') and not is_event_strategy_admin(current_user):
@@ -1670,6 +1382,11 @@ def api_settings():
                     'webull_environment' in data
                     and data['webull_environment'] != existing_webull_environment
                 )
+                from services import credential_health
+                if 'api_key' in data or 'api_secret' in data:
+                    credential_health.resume(current_user.id, 'binance')
+                if webull_credentials_changed or webull_environment_changed:
+                    credential_health.resume(current_user.id, 'webull')
                 if 'api_key' in data:
                     cred.api_key = data['api_key']
                 if 'api_secret' in data:
@@ -1932,6 +1649,24 @@ def api_settings():
         return jsonify({"error": str(e)}), 500
 
 
+@system_bp.route('/api/credential-health', methods=['GET'])
+@login_required
+def api_credential_health():
+    from services import credential_health
+    return jsonify({'success': True, 'providers': credential_health.status_for_user(current_user.id)})
+
+
+@system_bp.route('/api/credential-health/<provider>/resume', methods=['POST'])
+@login_required
+def api_credential_health_resume(provider):
+    """Resume background sync now; it pauses again if the keys are still rejected."""
+    from services import credential_health
+    if provider not in credential_health.PROVIDER_LABELS:
+        return jsonify({'success': False, 'message': 'Unknown provider.'}), 400
+    credential_health.resume(current_user.id, provider)
+    return jsonify({'success': True, 'message': f'{credential_health.PROVIDER_LABELS[provider]} background sync resumed.'})
+
+
 @system_bp.route('/api/test-webull-connection', methods=['POST'])
 @login_required
 def api_test_webull_connection():
@@ -1957,6 +1692,9 @@ def api_test_webull_connection():
         if credentials and getattr(credentials, 'webull_token_environment', None) == environment:
             stored_token = getattr(credentials, 'webull_access_token', None)
         result = test_webull_connection(app_key, app_secret, environment, stored_token)
+        if stored_token:
+            from services import credential_health
+            credential_health.record_success(current_user.id, 'webull')
         account_types = ', '.join(result['account_types']) or 'no account types returned'
         return jsonify({
             'success': True,
@@ -2007,6 +1745,9 @@ def _webull_token_payload(token_details, environment, *, account_result=None):
 
 
 def _store_webull_token(credential, token_details, environment):
+    if token_details.get('status') == 'NORMAL':
+        from services import credential_health
+        credential_health.resume(credential.user_id, 'webull')
     credential.webull_access_token = token_details['token']
     credential.webull_token_environment = environment
     credential.webull_token_status = token_details['status']
@@ -2922,10 +2663,17 @@ def api_webull_place_order():
                 return jsonify({'success': False, 'message': str(exc)}), 400
 
         replacing_order_id = data.get('replacing_order_id')
+        if is_test_order and isinstance(data.get('combo_orders'), list) and data['combo_orders']:
+            # Paper combo tickets follow the same rules Webull applies live.
+            from services.webull_service import validate_webull_combo_orders
+            try:
+                validate_webull_combo_orders(data['combo_orders'], data.get('symbol'))
+            except WebullConnectionError as exc:
+                return jsonify({'success': False, 'message': str(exc)}), 400
         if replacing_order_id and is_test_order:
             from services.order_replacement_service import cancel_any_order
             try:
-                cancel_any_order(
+                cancel_result = cancel_any_order(
                     replacing_order_id=replacing_order_id,
                     user_id=current_user.id,
                     symbol=data.get('symbol'),
@@ -2934,7 +2682,13 @@ def api_webull_place_order():
                     account_id='TEST_PAPER_ACCOUNT'
                 )
             except Exception as cancel_err:
-                logger.warning(f"Could not cancel order {replacing_order_id} during simulated replace: {cancel_err}")
+                cancel_result = {'success': False, 'error': str(cancel_err)}
+            if not cancel_result.get('success'):
+                return jsonify({
+                    'success': False,
+                    'message': (f'The original paper order {replacing_order_id} could not be cancelled, '
+                                f"so no replacement was placed. {cancel_result.get('error') or ''}").strip(),
+                }), 409
 
         if is_test_order:
             data['test_mode'] = True
@@ -2945,11 +2699,16 @@ def api_webull_place_order():
                 if replacing_order_id and res.get('success'):
                     res['message'] = (res.get('message') or '') + f' (Replaced order {replacing_order_id})'
                     res['replaced_order_id'] = str(replacing_order_id)
+                elif replacing_order_id:
+                    res['message'] = (res.get('message') or 'The replacement was rejected.') + (
+                        f' The original paper order {replacing_order_id} had already been cancelled; re-enter it if you still want it.')
                 return jsonify(res)
             except Exception as test_err:
                 db.session.rollback()
                 logger.error(f"[PAPER_ORDER] Simulation failed: {test_err}")
-                return jsonify({'success': False, 'message': str(test_err)}), 400
+                note = (f' The original paper order {replacing_order_id} had already been cancelled; re-enter it if you still want it.'
+                        if replacing_order_id else '')
+                return jsonify({'success': False, 'message': f'{test_err}{note}'}), 400
 
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
@@ -4357,80 +4116,6 @@ def api_clear_alert_state():
         logger.error(f"/api/clear-alert-state error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@system_bp.route("/api/debug-alerts")
-@login_required
-def debug_alerts():
-    """Debug endpoint to check alert system status"""
-    try:
-        # Check if user has ETH with alerts enabled
-        eth_coin = Coin.query.filter_by(
-            user_id=current_user.id, 
-            symbol='ETH', 
-            alert_enabled=True, 
-            hidden=False
-        ).first()
-        
-        if not eth_coin:
-            return jsonify({
-                "error": "No ETH coin found with alerts enabled",
-                "user_coins": [c.symbol for c in Coin.query.filter_by(user_id=current_user.id).all()]
-            })
-        
-        # Get current price
-        current_price = fetch_crypto_price('ETH')
-        
-        # Calculate thresholds
-        thresholds = {}
-        if eth_coin.custom_upper_type == "#" and eth_coin.custom_upper_val:
-            thresholds['up_threshold'] = round(float(eth_coin.custom_upper_val), 6)
-        elif eth_coin.custom_upper_type in ["%", "Auto%"] and eth_coin.custom_upper_pct:
-            thresholds['up_threshold'] = round(eth_coin.initial_price * (1 + float(eth_coin.custom_upper_pct) / 100), 6)
-        
-        if eth_coin.custom_lower_type == "#" and eth_coin.custom_lower_val:
-            thresholds['down_threshold'] = round(float(eth_coin.custom_lower_val), 6)
-        elif eth_coin.custom_lower_type in ["%", "Auto%"] and eth_coin.custom_lower_pct:
-            thresholds['down_threshold'] = round(eth_coin.initial_price * (1 - float(eth_coin.custom_lower_pct) / 100), 6)
-        
-        # Check alert state
-        alert_states = {}
-        if 'up_threshold' in thresholds:
-            alert_states['up_state'] = get_last_alert_state(
-                current_user.id, 'ETH', 'up', 
-                source="portfolio", 
-                threshold=thresholds['up_threshold']
-            )
-        if 'down_threshold' in thresholds:
-            alert_states['down_state'] = get_last_alert_state(
-                current_user.id, 'ETH', 'down', 
-                source="portfolio", 
-                threshold=thresholds['down_threshold']
-            )
-        
-        return jsonify({
-            "user_id": current_user.id,
-            "eth_coin": {
-                "id": eth_coin.id,
-                "symbol": eth_coin.symbol,
-                "alert_enabled": eth_coin.alert_enabled,
-                "hidden": eth_coin.hidden,
-                "initial_price": eth_coin.initial_price,
-                "custom_upper_type": eth_coin.custom_upper_type,
-                "custom_upper_val": eth_coin.custom_upper_val,
-                "custom_upper_pct": eth_coin.custom_upper_pct,
-                "custom_lower_type": eth_coin.custom_lower_type,
-                "custom_lower_val": eth_coin.custom_lower_val,
-                "custom_lower_pct": eth_coin.custom_lower_pct
-            },
-            "current_price": current_price,
-            "thresholds": thresholds,
-            "alert_states": alert_states,
-            "price_crossed_up": current_price >= thresholds.get('up_threshold', 0) if 'up_threshold' in thresholds else False,
-            "price_crossed_down": current_price <= thresholds.get('down_threshold', 999999) if 'down_threshold' in thresholds else False
-        })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @system_bp.route("/api/set-watch-alert", methods=["POST"])
 @login_required
 def set_watch_alert():
@@ -5184,46 +4869,6 @@ def api_trading_pairs():
             'status': 'online'
         })
     return jsonify({'pairs': fallback_pairs})
-
-@system_bp.route('/api/test-simple')
-def api_test_simple():
-    """Simple test endpoint"""
-    return jsonify({"test": "success", "message": "Simple test endpoint is working"})
-
-@system_bp.route('/api/test-db')
-@login_required
-def api_test_db():
-    """Test database connection and user lookup using ORM"""
-    try:
-        logger.info('=== Testing database connection ===')
-        from credentials import User, UserSetting
-        
-        # Test user lookup
-        user = User.query.filter_by(username=current_user.username).first()
-        
-        if user:
-            user_id = user.id
-            logger.info(f'=== User found: {user_id} ===')
-            
-            # Test inserting/updating a setting using ORM
-            setting = UserSetting.query.filter_by(user_id=user_id, setting_key='test_key').first()
-            if not setting:
-                setting = UserSetting(user_id=user_id, setting_key='test_key', setting_value='test_value')
-                db.session.add(setting)
-            else:
-                setting.setting_value = 'test_value'
-            
-            db.session.commit()
-            
-            return jsonify({"success": True, "user_id": user_id, "message": "Database test successful"})
-        else:
-            return jsonify({"error": "User not found"}), 404
-            
-    except Exception as e:
-        print(f'=== Database test error: {e} ===', flush=True)
-        import traceback
-        print(f'=== Traceback: {traceback.format_exc()} ===', flush=True)
-        return jsonify({"error": str(e)}), 500
 
 @system_bp.route('/api/debug/background-jobs', methods=['GET'])
 @login_required

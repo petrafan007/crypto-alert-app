@@ -255,7 +255,7 @@ Module health now shows per-symbol progress toward the 252 measured daily IV obs
 
 Each module receives its own open positions. Dedicated master AI tiers use their configured providers, models, reasoning levels, and keys through the existing failover service. Existing portfolios without dedicated tiers retain their configured global cascade. A provider limitation cannot manufacture a successful or empty report.
 
-Start displays Starting while the worker waits for its first claim. Stopped time is excluded from Event-worker stall detection, while a worker that never starts still becomes stale after the grace period. The master grid shows portfolio scan and heartbeat timestamps separately from Event AI statistics. The 10% drawdown pause remains a separate execution safeguard; generating reports cannot clear it.
+Start displays Starting while the worker waits for its first claim. Stopped time is excluded from Event-worker stall detection, while a worker that never starts still becomes stale after the grace period. The master grid shows portfolio scan and heartbeat timestamps separately from Event AI statistics. There is no automatic drawdown pause (removed in v4.6.0); only the administrator kill switch pauses new entries, and generating reports cannot clear it.
 
 ## Review of v2.88.0
 
@@ -352,11 +352,11 @@ State row locks serialize ledger mutations. Provider requests run outside those 
 
 ## Portfolio risk and rebalancing
 
-A portfolio equity loss of **10% or more of starting bankroll** triggers a persistent new-entry pause and a system notification while retaining existing-position management. The master kill switch also blocks new Event research scans. Explicit Stop freezes execution; it does not invent liquidation prices. Acknowledgment cannot bypass the drawdown floor through Start.
+Since v4.6.0 there is **no automatic portfolio drawdown pause**: aggregate paper losses are measured and reported but never stop the experiment. The administrator kill switch pauses new entries (and new Event research scans) while existing positions are still managed. Explicit Stop freezes execution; it does not invent liquidation prices.
 
 Rebalancing compares deployed capital (collateral plus unrealized P&L) with target portfolio weights. Exposure more than three percentage points above target is trimmed by closing whole positions at fresh executable prices, with the reason stored in orders. Underweight buckets receive available capacity for subsequent qualified entries; the engine does not force purchases merely to eliminate cash. Both target weight and actual deployed weight are visible.
 
-The daily futures loss ceiling and portfolio circuit breaker operate on observed paper marks. They are execution gates, not guarantees of a bounded loss during gaps or data outages.
+The daily futures loss ceiling operates on observed paper marks. They are execution gates, not guarantees of a bounded loss during gaps or data outages.
 
 ## Performance and CIO auditing
 

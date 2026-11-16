@@ -196,16 +196,8 @@ export function AuthProvider({ children }) {
     setUser(null);
     setIsLoggingOut(true);
 
-    // Clear all intervals and timeouts
-    const highestTimeoutId = setTimeout(";");
-    for (let i = 0; i < highestTimeoutId; i++) {
-      clearTimeout(i);
-    }
-
-    const highestIntervalId = setInterval(";");
-    for (let i = 0; i < highestIntervalId; i++) {
-      clearInterval(i);
-    }
+    // Pollers stop with the full page navigation to /login below; clearing every
+    // timer ID by brute force could also cancel unrelated in-flight work.
 
     // Clear auth session while preserving UI preferences
     try {

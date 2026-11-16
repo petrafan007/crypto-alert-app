@@ -31,7 +31,7 @@ def coerce_datetime(val):
     if isinstance(val, str):
         try:
             return datetime.datetime.fromisoformat(val.replace('Z', '+00:00'))
-        except:
+        except Exception:
             pass
     return None
 

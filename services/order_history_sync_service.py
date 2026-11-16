@@ -266,6 +266,9 @@ def sync_binance_order_history_for_user(user_id, credential=None):
     api_secret = getattr(credential, 'trading_api_secret', None) or getattr(credential, 'api_secret', None)
     if not api_key or not api_secret:
         return {'symbols': 0, 'orders': 0, 'skipped': 'Binance.US is not connected.'}
+    from services import credential_health
+    if credential_health.is_paused(user_id, 'binance'):
+        return {'symbols': 0, 'orders': 0, 'skipped': 'Binance.US sync is paused: the API keys were rejected.'}
 
     client = Client(api_key=api_key, api_secret=api_secret, testnet=False, tld='us', requests_params={'timeout': 30})
     exchange_info = get_cached_exchange_info(client)
@@ -333,6 +336,12 @@ def sync_binance_order_history_for_user(user_id, credential=None):
             state.last_error = str(exc)[:1000]
             db.session.commit()
             logger.warning('Binance order-history sync failed for user %s, %s: %s', user_id, symbol, exc)
+            if credential_health.is_auth_failure(exc):
+                # Every other symbol would be rejected the same way; stop here.
+                credential_health.record_failure(user_id, 'binance', exc)
+                break
+    if synced_symbols:
+        credential_health.record_success(user_id, 'binance')
     return {'symbols': synced_symbols, 'orders': imported_total}
 
 
@@ -356,10 +365,18 @@ def sync_webull_order_history_for_user(user_id, credential=None, setting=None):
         or credential.webull_token_environment != environment or not credential.webull_access_token
     ):
         return {'accounts': 0, 'orders': 0, 'skipped': 'Webull is not connected.'}
+    from services import credential_health
+    if credential_health.is_paused(user_id, 'webull'):
+        return {'accounts': 0, 'orders': 0, 'skipped': 'Webull sync is paused: the credentials were rejected.'}
 
-    accounts = get_webull_accounts(
-        credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
-    )
+    try:
+        accounts = get_webull_accounts(
+            credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
+        )
+    except Exception as exc:
+        credential_health.record_failure(user_id, 'webull', exc)
+        raise
+    credential_health.record_success(user_id, 'webull')
     imported_total = 0
     synced_accounts = 0
     for account_id in _enabled_webull_account_ids(setting, accounts):

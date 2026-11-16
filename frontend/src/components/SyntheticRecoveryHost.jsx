@@ -49,7 +49,7 @@ export default function SyntheticRecoveryHost({ userId }) {
       } catch { /* Order history remains the durable recovery path; retry polling. */ }
       finally { running = false; }
     };
-    poll(); const timer = setInterval(poll, 5000);
+    poll(); const timer = setInterval(() => { if (!document.hidden) poll(); }, 5000);
     return () => { stopped = true; clearInterval(timer); };
   }, [userId]);
   useEffect(() => {

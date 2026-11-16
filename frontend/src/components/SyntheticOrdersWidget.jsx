@@ -19,7 +19,7 @@ export default function SyntheticOrdersWidget() {
       if (!failed) setOrders(results.flatMap((result, index) => (result.value.data[index ? 'trailing_orders' : 'ladder_orders'] || []).map(o => ({ ...o, parentKind: index ? 'TRAILING' : 'LADDER' }))).filter(o => isWorking(o.status) || ['FAILED', 'NEEDS_REVIEW'].includes(o.status)));
       pending = false;
     };
-    load(); const timer = setInterval(load, 15000);
+    load(); const timer = setInterval(() => { if (!document.hidden) load(); }, 15000);
     return () => { stopped = true; controller.abort(); clearInterval(timer); };
   }, []);
   const filtered = orders.filter(o => broker === 'all' || o.broker === broker);

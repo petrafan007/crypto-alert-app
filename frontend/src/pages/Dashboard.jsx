@@ -2296,7 +2296,7 @@ function Dashboard({ isLightMode }) {
     });
     dashboardRefreshRef.current = coordinator;
     coordinator.request();
-    const interval = setInterval(() => coordinator.request(), 10000);
+    const interval = setInterval(() => { if (!document.hidden) coordinator.request(); }, 10000);
     const handleRefreshEvent = () => refreshDashboard();
     window.addEventListener('app:refresh-dashboard', handleRefreshEvent);
     window.addEventListener('app:synthetic-updated', handleRefreshEvent);
@@ -2751,44 +2751,12 @@ function Dashboard({ isLightMode }) {
     });
   };
 
-  const handleConfirmReplaceOrder = async (order, twoFactorCode, newConfig) => {
-    if (!order || !newConfig) {
-      setReplaceModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
-      refreshDashboard();
-      return { success: true };
-    }
-    setReplaceModalState(prev => ({ ...prev, loading: true, error: null }));
-    try {
-      const orderId = order.order_id || order.orderId || order.id;
-      const symbol = (order.symbol || replaceModalState.coin?.symbol || '').toUpperCase();
-
-      const payload = {
-        symbol,
-        new_price: newConfig.price,
-        new_quantity: newConfig.quantity
-      };
-      if (twoFactorCode) {
-        payload.two_factor_code = twoFactorCode;
-      }
-
-      const response = await axios.post(`/api/replace-order/${orderId}`, payload, { withCredentials: true });
-      if (response.data.success === true) {
-        setReplaceModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
-        // Background refresh
-        refreshDashboard();
-        return { success: true };
-      } else {
-        setReplaceModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to replace order' }));
-        return response.data;
-      }
-    } catch (err) {
-      console.error('Replace order error:', err);
-      const errMsg = err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to replace order';
-      const requires2fa = err.response?.data?.requires_2fa;
-      setReplaceModalState(prev => ({ ...prev, loading: false, error: errMsg }));
-      if (requires2fa) return { requires_2fa: true };
-      throw err;
-    }
+  // The embedded order ticket performs the replacement itself (validate, 2FA,
+  // cancel the original, place the new order). This only closes and refreshes.
+  const handleConfirmReplaceOrder = () => {
+    setReplaceModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
+    refreshDashboard();
+    return { success: true };
   };
 
   // Cancel order handlers

@@ -13,7 +13,7 @@ from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
 from services.price_history_service import ensure_price_history
-from services.totp_service import verify_totp_code
+from services.totp_service import verify_totp_code, consume_totp_code
 from routes.helpers import *
 
 # Database & Models
@@ -407,7 +407,7 @@ def check_trade_permission():
                     error_data = test_response.json()
                     error_code = error_data.get('code')
                     error_msg = error_data.get('msg', error_msg)
-                except:
+                except Exception:
                     pass
 
                 logger.warning(f"[TRADE_PERMISSION] Test order returned error {test_response.status_code}: code={error_code}, msg={error_msg}")
@@ -445,260 +445,6 @@ def check_trade_permission():
     except Exception as e:
         logger.error(f"Error checking trade permission: {e}")
         return jsonify({"has_api_key": False, "has_permission": False, "message": "Server error"}), 500
-
-
-@portfolio_bp.route('/api/place-order', methods=['POST'])
-@login_required
-def api_place_order():
-    """Place a trading order on Binance"""
-    try:
-        data = request.get_json()
-        side = data.get('side')  # BUY or SELL
-        symbol = data.get('symbol')  # e.g., 'BTCUSDT'
-        order_type = data.get('order_type')  # MARKET, LIMIT
-        quantity = data.get('quantity')
-        price = data.get('price')  # Required for LIMIT orders
-
-        if not all([side, symbol, order_type, quantity]):
-            return jsonify({'success': False, 'error': 'Missing required fields'})
-
-        from services.trading_2fa_service import require_live_trading_2fa
-        two_factor_error = require_live_trading_2fa(current_user.id, data, 'place this live Binance.US order')
-        if two_factor_error:
-            return jsonify(success=False, error=two_factor_error, requires_2fa=True), 403
-
-        # Get Binance credentials for the user
-        creds = Credential.query.filter_by(user_id=current_user.id).first()
-
-        if not creds:
-            return jsonify({'success': False, 'error': 'Binance API credentials not configured'}), 401
-
-        api_key = decrypt_secret(creds.api_key)
-        api_secret = decrypt_secret(creds.api_secret)
-        if not api_key or not api_secret:
-            return jsonify({'success': False, 'error': 'Binance API credentials not configured'}), 401
-
-        # Initialize Binance client
-        from binance.client import Client
-        client = Client(
-            api_key=api_key,
-            api_secret=api_secret,
-            tld='us'  # Use Binance.US
-        )
-
-        # Place order on Binance
-        try:
-            if order_type.upper() == 'MARKET':
-                if side.upper() == 'BUY':
-                    order = client.order_market_buy(
-                        symbol=symbol,
-                        quantity=quantity
-                    )
-                else:
-                    order = client.order_market_sell(
-                        symbol=symbol,
-                        quantity=quantity
-                    )
-            elif order_type.upper() == 'LIMIT':
-                if not price:
-                    return jsonify({'success': False, 'error': 'Price required for limit orders'})
-
-                if side.upper() == 'BUY':
-                    order = client.order_limit_buy(
-                        symbol=symbol,
-                        quantity=quantity,
-                        price=str(price)
-                    )
-                else:
-                    order = client.order_limit_sell(
-                        symbol=symbol,
-                        quantity=quantity,
-                        price=str(price)
-                    )
-            else:
-                return jsonify({'success': False, 'error': f'Unsupported order type: {order_type}'})
-
-            logger.info(f"Binance order placed successfully: {order['orderId']}")
-
-            # Log the transaction to the logs database
-            try:
-                from trading_models import AllActivity
-
-                # Extract base symbol from trading pair
-                if symbol.endswith('USD') and not symbol.endswith('USDT'):
-                    base_symbol = symbol[:-3]
-                elif symbol.endswith('USDT'):
-                    base_symbol = symbol[:-4]
-                else:
-                    base_symbol = symbol
-
-                # Calculate proceeds and fees from order response
-                executed_qty = float(order.get('executedQty', quantity))
-                fills = order.get('fills', [])
-
-                total_commission = 0.0
-                avg_price = 0.0
-
-                if fills:
-                    total_price = sum(float(fill['price']) * float(fill['qty']) for fill in fills)
-                    total_qty = sum(float(fill['qty']) for fill in fills)
-                    avg_price = total_price / total_qty if total_qty > 0 else 0
-                    total_commission = sum(float(fill['commission']) for fill in fills)
-                else:
-                    avg_price = float(order.get('price', price or 0))
-
-                proceeds = executed_qty * avg_price
-
-                # Create new activity using ORM
-                new_activity = AllActivity(
-                    date=datetime.utcnow(),
-                    type=side.upper(),
-                    asset=base_symbol.upper(),
-                    amount=executed_qty if side.upper() == 'BUY' else -executed_qty,
-                    proceeds=proceeds,
-                    fee=total_commission,
-                    txid=f"binance_{order['orderId']}",
-                    status=order['status'],
-                    details=f"Binance {order_type} order: {order['orderId']}",
-                    avg_entry=avg_price,
-                    user_id=current_user.id,
-                    exchange='binance'
-                )
-
-                db.session.add(new_activity)
-                db.session.commit()
-                trigger_portfolio_snapshot(current_user.id, current_user.username)
-                logger.info(f"Transaction logged to database: {base_symbol} {side}")
-
-                # Update the portfolio to reflect the trade
-                try:
-                    # Get the executed quantity and price
-                    executed_qty = float(order.get('executedQty', quantity))
-                    avg_price = float(order.get('price', price or 0))
-
-                    # Update the coins table
-                    if side.upper() == 'BUY':
-                        # For buys, add to the existing amount or create a new entry
-                        coin = Coin.query.filter_by(user_id=current_user.id, symbol=base_symbol).first()
-                        if coin:
-                            # Update existing coin
-                            new_amount = coin.amount + executed_qty
-                            new_avg_entry = ((coin.amount * coin.avg_entry) + (executed_qty * avg_price)) / new_amount
-                            coin.amount = new_amount
-                            coin.avg_entry = new_avg_entry
-                            coin.auto_hidden = False
-                            # A buy that brings the position to >= $1.00 unhides the coin,
-                            # even if it was hidden manually. A manual hide must not
-                            # survive a real position.
-                            if new_amount * (avg_price or 0) >= 1.00:
-                                coin.hidden = False
-                        else:
-                            # Create new coin entry
-                            coin = Coin(
-                                user_id=current_user.id,
-                                symbol=base_symbol,
-                                amount=executed_qty,
-                                avg_entry=avg_price,
-                                current=avg_price,
-                                is_manual=False,
-                                auto_hidden=False
-                            )
-                            db.session.add(coin)
-
-                        # Update USDT balance (subtract cost)
-                        total_cost = executed_qty * avg_price
-                        usdt_coin = Coin.query.filter_by(user_id=current_user.id, symbol='USDT').first()
-                        if usdt_coin:
-                            usdt_coin.amount -= total_cost
-                    else:
-                        # For sells, reduce the amount or remove the coin if fully sold
-                        coin = Coin.query.filter_by(user_id=current_user.id, symbol=base_symbol).first()
-                        if coin:
-                            new_amount = coin.amount - executed_qty
-                            if new_amount <= 0:
-                                # Remove the coin if fully sold
-                                db.session.delete(coin)
-                            else:
-                                coin.amount = new_amount
-                                # A transaction leaving >= $1.00 unhides the coin,
-                                # even if it was hidden manually.
-                                if new_amount * (avg_price or 0) >= 1.00:
-                                    coin.hidden = False
-                                    coin.auto_hidden = False
-
-                            # Update USDT balance (add proceeds)
-                            total_proceeds = executed_qty * avg_price
-                            usdt_coin = Coin.query.filter_by(user_id=current_user.id, symbol='USDT').first()
-                            if usdt_coin:
-                                usdt_coin.amount += total_proceeds
-                            else:
-                                usdt_coin = Coin(
-                                    user_id=current_user.id,
-                                    symbol='USDT',
-                                    amount=total_proceeds,
-                                    avg_entry=1.0,
-                                    current=1.0,
-                                    is_manual=False
-                                )
-                                db.session.add(usdt_coin)
-
-                    db.session.commit()
-                    logger.info(f"Portfolio updated for {base_symbol} {side} order")
-
-                except Exception as update_error:
-                    logger.error(f"Failed to update portfolio: {update_error}")
-                    # Don't fail the entire request, just log the error
-
-            except Exception as log_e:
-                logger.error(f"Failed to log transaction: {log_e}")
-
-            try:
-                status = order.get('status', 'NEW')
-                executed_qty_val = float(order.get('executedQty', quantity or 0))
-                if status == 'FILLED':
-                    fill_price_val = avg_price if avg_price > 0 else float(price or 0)
-                    total_proceeds_val = proceeds if proceeds > 0 else (executed_qty_val * fill_price_val)
-                    msg = f"✅ ORDER FILLED: {side.upper()} {executed_qty_val} {base_symbol}\nPrice: ${fill_price_val:.4f}\nTotal: ${total_proceeds_val:.2f}"
-                    send_telegram_message(current_user.username, msg)
-                    create_system_notification(
-                        user_id_or_name=current_user.id,
-                        category='order_filled',
-                        symbol=base_symbol,
-                        message=f"Filled {side.upper()} {executed_qty_val} {base_symbol} @ ${fill_price_val:.4f} (Total: ${total_proceeds_val:.2f})",
-                        current_price=fill_price_val,
-                        direction='buy' if side.upper() == 'BUY' else 'sell'
-                    )
-                elif status == 'NEW':
-                    create_system_notification(
-                        user_id_or_name=current_user.id,
-                        category='order_placed',
-                        symbol=base_symbol,
-                        message=f"Placed {side.upper()} {quantity} {base_symbol} {order_type.upper()} order" + (f" @ ${price}" if price else ""),
-                        current_price=float(price or avg_price or 0.0),
-                        direction='buy' if side.upper() == 'BUY' else 'sell'
-                    )
-            except Exception as notif_err:
-                logger.warning(f"Failed to send order notification: {notif_err}")
-
-            return jsonify({
-                'success': True,
-                'order_id': order['orderId'],
-                'status': order['status'],
-                'executed_qty': order.get('executedQty', '0'),
-                'message': f'Order placed successfully on Binance',
-                'portfolio_updated': True
-            })
-
-        except Exception as binance_e:
-            logger.error(f"Binance order failed: {binance_e}")
-            return jsonify({
-                'success': False,
-                'error': f'Order placement failed: {str(binance_e)}'
-            }), 500
-
-    except Exception as e:
-        logger.error(f"Error placing order: {e}")
-        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @portfolio_bp.route('/api/sync-portfolio', methods=['POST'])
@@ -1080,32 +826,49 @@ def api_cancel_order(order_id):
             return jsonify({'error': 'Symbol is required for order cancellation'}), 400
 
         from services.trading_2fa_service import require_live_trading_2fa
-        two_factor_error = require_live_trading_2fa(current_user.id, data, 'cancel this live Binance.US order')
-        if two_factor_error:
-            return jsonify(error=two_factor_error, requires_2fa=True), 403
 
-        # Intercept synthetic orders that are grouped in the UI
+        def _live_2fa_error(action):
+            error = require_live_trading_2fa(current_user.id, data, action)
+            return (jsonify(error=error, requires_2fa=True), 403) if error else None
+
+        # Intercept synthetic orders that are grouped in the UI. Paper
+        # strategies are cancelled without a live-trading code.
         str_order_id = str(order_id)
-        if str_order_id.startswith('ladder_'):
-            ladder_id = int(str_order_id.replace('ladder_', ''))
-            from services.ladder_order_service import cancel_ladder_order
-            cancelled = cancel_ladder_order(ladder_id, current_user.id)
-            return jsonify({'success': True, 'message': 'Ladder order cancelled successfully'})
-
-        if str_order_id.startswith('trail_'):
-            trail_id = int(str_order_id.replace('trail_', ''))
+        if str_order_id.startswith(('ladder_', 'trail_')):
+            from trading_models import LadderOrder, TrailingOrder
+            is_ladder = str_order_id.startswith('ladder_')
+            parent_id = int(str_order_id.split('_', 1)[1])
+            model = LadderOrder if is_ladder else TrailingOrder
+            parent = model.query.filter_by(id=parent_id, user_id=current_user.id).first()
+            if not parent:
+                return jsonify({'error': 'Synthetic order not found.'}), 404
+            if not parent.test_mode:
+                blocked = _live_2fa_error('cancel this live synthetic strategy')
+                if blocked:
+                    return blocked
+            if is_ladder:
+                from services.ladder_order_service import cancel_ladder_order
+                cancel_ladder_order(parent_id, current_user.id)
+                return jsonify({'success': True, 'message': 'Ladder order cancelled successfully'})
             from services.trailing_order_service import cancel_trailing_order
-            cancelled = cancel_trailing_order(trail_id, current_user.id)
+            cancel_trailing_order(parent_id, current_user.id)
             return jsonify({'success': True, 'message': 'Trailing order cancelled successfully'})
 
         if str_order_id.isdigit():
             test_order = TestOrder.query.filter_by(user_id=current_user.id, id=int(str_order_id)).first()
-            if test_order:
+            if test_order and data.get('source') != 'binance_live':
+                if str(test_order.status or '').upper() not in {'NEW', 'ACTIVE', 'PARTIALLY_FILLED', 'TRIGGERED'}:
+                    return jsonify({'error': f'Paper order {test_order.id} is {str(test_order.status).lower()} and can no longer be cancelled.'}), 409
                 test_order.status = 'CANCELED'
+                if test_order.oco_group:
+                    for leg in TestOrder.query.filter(TestOrder.user_id == current_user.id,
+                                                      TestOrder.oco_group == test_order.oco_group,
+                                                      TestOrder.status.in_(['NEW', 'TRIGGERED'])).all():
+                        leg.status = 'CANCELED'
                 db.session.commit()
                 return jsonify({
                     'success': True,
-                    'message': 'Test order cancelled successfully',
+                    'message': 'Paper order cancelled successfully',
                     'order_id': test_order.id,
                     'symbol': test_order.symbol,
                     'status': 'CANCELED'
@@ -1129,11 +892,17 @@ def api_cancel_order(order_id):
                 if not str_order_id.startswith('SIM_'):
                     return jsonify({'error': 'Live Webull orders are hidden and cannot be changed while Test Mode is active.'}), 409
                 from services.webull_paper_trading_service import cancel_webull_test_order
-                res = cancel_webull_test_order(current_user.id, str_order_id)
+                try:
+                    res = cancel_webull_test_order(current_user.id, str_order_id)
+                except ValueError as paper_err:
+                    return jsonify({'error': str(paper_err)}), 409
                 if not res.get('success'):
                     return jsonify({'error': res.get('message', 'Failed to cancel paper order')}), 400
                 return jsonify({'success': True, 'message': res.get('message', 'Paper order cancelled successfully'), 'order_id': str_order_id, 'status': 'CANCELED'})
 
+            blocked = _live_2fa_error('cancel this live Webull order')
+            if blocked:
+                return blocked
             credential = Credential.query.filter_by(user_id=current_user.id).first()
             from services.webull_service import normalize_webull_environment, cancel_webull_order, WebullConnectionError
             environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
@@ -1174,7 +943,9 @@ def api_cancel_order(order_id):
                 logger.error('Webull order cancellation error: %s', exc, exc_info=True)
                 return jsonify({'error': f'Order cancellation failed: {exc}', 'message': f'Order cancellation failed: {exc}'}), 500
 
-        # Use SQLAlchemy ORM instead of direct SQLite
+        blocked = _live_2fa_error('cancel this live Binance.US order')
+        if blocked:
+            return blocked
         creds = Credential.query.filter_by(user_id=current_user.id).first()
 
         if not creds:
@@ -1260,207 +1031,17 @@ def api_cancel_order(order_id):
 @portfolio_bp.route('/api/replace-order/<order_id>', methods=['POST'])
 @login_required
 def api_replace_order(order_id):
-    """Replace an existing Binance or Webull order with new parameters."""
-    try:
-        data = request.get_json() or {}
-        symbol = (data.get('symbol') or '').upper()
-        new_price = data.get('new_price')
-        new_quantity = data.get('new_quantity')
+    """Retired: replacements go through the order-entry endpoints.
 
-        if not symbol or new_price is None or new_quantity is None:
-            return jsonify({'error': 'Symbol, new_price, and new_quantity are required for order replacement'}), 400
-
-        from services.trading_2fa_service import require_live_trading_2fa
-        two_factor_error = require_live_trading_2fa(current_user.id, data, 'replace this live order')
-        if two_factor_error:
-            return jsonify(error=two_factor_error, requires_2fa=True), 403
-
-        str_order_id = str(order_id)
-        from services.order_replacement_service import cancel_any_order
-
-        if str_order_id.startswith(('ladder_', 'trail_')):
-            cancel_any_order(str_order_id, current_user.id)
-            settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
-            is_test = bool(settings and settings.test_mode_enabled)
-            side = data.get('side', 'BUY').upper()
-            if is_test:
-                test_order = TestOrder(
-                    user_id=current_user.id,
-                    symbol=symbol,
-                    side=side,
-                    type='LIMIT',
-                    quantity=float(new_quantity),
-                    price=float(new_price),
-                    status='FILLED',
-                    simulated_fill_price=float(new_price),
-                    simulated_fill_time=datetime.utcnow(),
-                    created_at=datetime.utcnow()
-                )
-                db.session.add(test_order)
-                db.session.commit()
-                return jsonify({
-                    'success': True,
-                    'message': 'Order replaced successfully',
-                    'replaced_order_id': str_order_id,
-                    'order_id': test_order.id,
-                    'symbol': symbol
-                })
-            else:
-                creds = Credential.query.filter_by(user_id=current_user.id).first()
-                if not creds or not creds.trading_api_key or not creds.trading_api_secret:
-                    return jsonify({'error': 'No Binance trading credentials found'}), 400
-                from binance.client import Client
-                client = Client(api_key=creds.trading_api_key, api_secret=creds.trading_api_secret, testnet=False, tld='us')
-                new_order_result = client.create_order(symbol=symbol, side=side, type='LIMIT', timeInForce='GTC', quantity=float(new_quantity), price=str(new_price))
-                new_order_record = RealOrder(
-                    user_id=current_user.id,
-                    binance_order_id=new_order_result['orderId'],
-                    symbol=symbol,
-                    side=side,
-                    type='LIMIT',
-                    price=float(new_price),
-                    quantity=float(new_quantity),
-                    status=new_order_result.get('status', 'NEW')
-                )
-                db.session.add(new_order_record)
-                db.session.commit()
-                return jsonify({
-                    'success': True,
-                    'message': 'Order replaced successfully',
-                    'replaced_order_id': str_order_id,
-                    'order_id': new_order_result.get('orderId'),
-                    'symbol': symbol
-                })
-
-        if str_order_id.isdigit():
-            test_order = TestOrder.query.filter_by(user_id=current_user.id, id=int(str_order_id)).first()
-            if test_order:
-                test_order.status = 'CANCELED'
-                new_order = TestOrder(
-                    user_id=current_user.id,
-                    symbol=symbol,
-                    side=test_order.side or data.get('side', 'BUY'),
-                    type=test_order.type or 'LIMIT',
-                    quantity=float(new_quantity),
-                    price=float(new_price),
-                    status='FILLED',
-                    simulated_fill_price=float(new_price),
-                    simulated_fill_time=datetime.utcnow(),
-                    created_at=datetime.utcnow()
-                )
-                db.session.add(new_order)
-                db.session.commit()
-                return jsonify({
-                    'success': True,
-                    'message': 'Order replaced successfully',
-                    'replaced_order_id': str_order_id,
-                    'order_id': new_order.id,
-                    'symbol': symbol
-                })
-
-        # Determine if it's Webull or Binance
-        is_webull = str_order_id.startswith('webull-')
-
-        if is_webull:
-            cancel_any_order(str_order_id, current_user.id, broker='webull')
-            return jsonify({
-                'success': True,
-                'message': 'Webull order replacement processed',
-                'replaced_order_id': str_order_id,
-                'symbol': symbol
-            })
-
-        else:
-            # Binance replace logic
-            creds = Credential.query.filter_by(user_id=current_user.id).first()
-            if not creds or not creds.trading_api_key or not creds.trading_api_secret:
-                return jsonify({'error': 'No Binance trading credentials found'}), 400
-
-            from binance.client import Client
-            client = Client(
-                api_key=creds.trading_api_key,
-                api_secret=creds.trading_api_secret,
-                testnet=False,
-                tld='us'
-            )
-
-            # Fetch order info first to know side and type
-            try:
-                order_info = client.get_order(symbol=symbol, orderId=int(order_id))
-            except Exception as e:
-                return jsonify({'error': f'Could not fetch original order: {str(e)}'}), 400
-
-            side = order_info.get('side')
-            order_type = order_info.get('type')
-
-            # Cancel the existing order
-            try:
-                cancel_result = client.cancel_order(symbol=symbol, orderId=int(order_id))
-                from services.portfolio_service import invalidate_binance_open_orders
-                invalidate_binance_open_orders(current_user.id)
-
-                try:
-                    order_record = RealOrder.query.filter(
-                        RealOrder.user_id == current_user.id,
-                        RealOrder.binance_order_id == int(order_id)
-                    ).first()
-                    if order_record:
-                        order_record.status = cancel_result.get('status', 'CANCELED')
-                        order_record.canceled_at = datetime.utcnow()
-                        order_record.updated_at = datetime.utcnow()
-                        db.session.commit()
-                except Exception as db_err:
-                    db.session.rollback()
-            except Exception as e:
-                return jsonify({'error': f'Failed to cancel original order: {str(e)}'}), 400
-
-            # Place the new order
-            try:
-                order_params = {
-                    'symbol': symbol,
-                    'side': side,
-                    'type': order_type,
-                    'quantity': float(new_quantity),
-                    'price': str(new_price)
-                }
-
-                if order_type == 'LIMIT':
-                    order_params['timeInForce'] = 'GTC'
-
-                new_order_result = client.create_order(**order_params)
-
-                # Save new order to database
-                new_order_record = RealOrder(
-                    user_id=current_user.id,
-                    binance_order_id=new_order_result['orderId'],
-                    symbol=symbol,
-                    side=side,
-                    type=order_type,
-                    price=float(new_price),
-                    quantity=float(new_quantity),
-                    status=new_order_result.get('status', 'NEW')
-                )
-                db.session.add(new_order_record)
-                db.session.commit()
-
-                return jsonify({
-                    'success': True,
-                    'message': 'Order replaced successfully',
-                    'order_id': new_order_result.get('orderId'),
-                    'replaced_order_id': str_order_id,
-                    'symbol': symbol
-                })
-
-            except Exception as e:
-                return jsonify({'error': f'Failed to place replacement order: {str(e)}'}), 400
-
-    except Exception as e:
-        logger.error(f"Replace order error: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-
-
+    Those endpoints validate the new order and confirm 2FA before the original
+    is cancelled, refuse to continue if the cancellation is not confirmed, and
+    restore the original when the replacement is rejected. This endpoint did
+    none of that, so it no longer changes anything.
+    """
+    return jsonify({
+        'success': False,
+        'error': 'Replace orders from the order ticket (Replace in the Dashboard or Orders page). Nothing was changed.',
+    }), 410
 
 
 @portfolio_bp.route('/api/order-status/<order_id>')
@@ -2146,21 +1727,10 @@ def place_test_order():
             if field not in data or not data[field]:
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
 
+        # The order being replaced is cancelled only after every validation
+        # below has passed, immediately before the new paper order is recorded.
         replacing_order_id = data.get('replacing_order_id')
         replaced_order_id = None
-        if replacing_order_id:
-            try:
-                from services.order_replacement_service import cancel_any_order
-                res = cancel_any_order(
-                    replacing_order_id=replacing_order_id,
-                    user_id=current_user.id,
-                    symbol=data.get('symbol'),
-                    test_mode=True,
-                    broker='binance'
-                )
-                replaced_order_id = res.get('order_id') or str(replacing_order_id)
-            except Exception as e:
-                logger.warning(f"Could not cancel order {replacing_order_id} during replacement: {e}")
 
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
@@ -2388,61 +1958,81 @@ def place_test_order():
             current_price = float(ticker['price'])
         except Exception as e:
             logger.error(f"Failed to get current price for {symbol}: {e}")
-            current_price = formatted_price if formatted_price > 0 else 0
+            # Never simulate against the order's own price: that would fill any limit.
+            current_price = 0
 
-        # Calculate fill price for simulation
-        if order_type == 'MARKET':
-            fill_price = current_price
-        elif order_type in ['LIMIT', 'LIMIT_MAKER']:
-            fill_price = formatted_price
-        else:
-            # For stop orders, use formatted stop price
-            if 'stopPrice' in test_params:
-                fill_price = test_params['stopPrice']
-            else:
-                fill_price = current_price
+        stop_price_for_record = test_params.get('stopPrice') if 'stopPrice' in test_params else None
+        stop_value = float(stop_price_for_record) if stop_price_for_record else None
+        limit_value = formatted_price if formatted_price > 0 else None
 
-        # Handle stopPrice for creating order record
-        stop_price_for_record = None
-        if 'stopPrice' in test_params:
-            stop_price_for_record = test_params['stopPrice']
-
-        # Simulate the published US schedule; post-only orders use maker fees.
-        from services.binance_fee_service import paper_rates
-        fee_rate = paper_rates(symbol)['makerRate' if order_type == 'LIMIT_MAKER' else 'takerRate']
-        simulated_commission = formatted_quantity * fill_price * fee_rate
-
-        # Create test order record with formatted values
-        test_order = TestOrder(
-            user_id=current_user.id,
-            symbol=symbol,
-            side=side,
-            type=order_type,
-            quantity=formatted_quantity,  # Use formatted quantity
-            price=formatted_price if formatted_price > 0 else None,  # Use formatted price
-            stop_price=stop_price_for_record,
-            time_in_force='GTC' if order_type in ['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER'] else None,
-            status='FILLED',  # Simulate immediate fill for test orders
-            simulated_fill_price=fill_price,
-            simulated_fill_time=datetime.utcnow(),
-            created_at=datetime.utcnow(),
-            notes=f'Simulated commission: ${simulated_commission:.4f} ({fee_rate*100:.2f}% published Binance.US paper rate)'
+        from services.binance_paper_matching import (
+            PaperOrderRejected, validate_new_order, immediate_fill_price, check_paper_funds, fill_order,
         )
+        from services.binance_fee_service import paper_rates
+        from services.synthetic_execution_service import parent_lock
+        if not current_price or current_price <= 0:
+            return jsonify({'success': False, 'error': f'No current market price is available for {symbol}; try again shortly.'}), 400
+        try:
+            validate_new_order(order_type, side, limit_value, stop_value, current_price)
+        except PaperOrderRejected as rejection:
+            return jsonify({'success': False, 'error': str(rejection)}), 400
+        fill_price = immediate_fill_price(order_type, side, limit_value, stop_value, current_price)
 
-        db.session.add(test_order)
+        with parent_lock('BINANCE_PAPER', current_user.id) as acquired:
+            if not acquired:
+                return jsonify({'success': False, 'error': 'The paper account is busy. Try again.'}), 409
+            if replacing_order_id:
+                from services.order_replacement_service import cancel_any_order
+                replacement = cancel_any_order(
+                    replacing_order_id=replacing_order_id, user_id=current_user.id,
+                    symbol=symbol, test_mode=True, broker='binance')
+                if not replacement.get('success'):
+                    db.session.rollback()
+                    return jsonify({'success': False, 'error': (
+                        f'The original order {replacing_order_id} could not be cancelled, so no replacement was placed. '
+                        f"{replacement.get('error') or ''}").strip()}), 409
+                replaced_order_id = replacement.get('order_id') or str(replacing_order_id)
 
-        # Apply the simulated fill and received-asset commission atomically.
-        update_test_portfolio(current_user.id, symbol, side, formatted_quantity, fill_price, fee_rate)
+            test_order = TestOrder(
+                user_id=current_user.id,
+                symbol=symbol,
+                side=side,
+                type=order_type,
+                quantity=formatted_quantity,
+                price=limit_value,
+                stop_price=stop_price_for_record,
+                time_in_force='GTC' if order_type in ['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT'] else None,
+                status='NEW',
+                created_at=datetime.utcnow(),
+            )
+            try:
+                if fill_price is None:
+                    # A resting order commits its funds; the matcher fills it
+                    # only when the market reaches its price or trigger.
+                    check_paper_funds(current_user.id, symbol, side, formatted_quantity,
+                                      limit_value or stop_value or current_price)
+                    test_order.notes = 'Resting paper order; it fills when the market reaches its price.'
+                    db.session.add(test_order)
+                else:
+                    db.session.add(test_order)
+                    fill_order(test_order, fill_price, paper_rates(symbol)['takerRate'])
+            except ValueError as funds_err:
+                db.session.rollback()
+                note = (f' The original order {replaced_order_id} had already been cancelled.'
+                        if replaced_order_id else '')
+                return jsonify({'success': False, 'error': f'{funds_err}{note}'}), 400
+            db.session.commit()
 
-        db.session.commit()
-
-        logger.info(f"Test order placed successfully for user {current_user.id}: {symbol} {side} {formatted_quantity} @ {fill_price}")
-
+        logger.info(f"Paper order recorded for user {current_user.id}: {symbol} {side} {formatted_quantity} status={test_order.status}")
+        adjusted = (f' Quantity adjusted from {quantity} to {formatted_quantity} to match trading rules.'
+                    if quantity != formatted_quantity else '')
+        outcome = (f'filled at the market price {fill_price:g}' if fill_price is not None
+                   else 'is resting until the market reaches its price')
         return jsonify({
             'success': True,
             'order': test_order.to_dict(),
             'replaced_order_id': replaced_order_id,
-            'message': f'Paper order checked against exchange rules and simulated. Quantity adjusted from {quantity} to {formatted_quantity} to match trading rules.',
+            'message': f'Paper order checked against exchange rules and {outcome}.{adjusted}',
             'formatted_values': {
                 'quantity': formatted_quantity,
                 'price': formatted_price,
@@ -2882,7 +2472,7 @@ def disable_2fa():
             return jsonify({'success': False, 'error': '2FA is not enabled'}), 400
 
         # Verify code before disabling
-        if not verify_totp_code(settings.totp_secret, code):
+        if not consume_totp_code(settings, code):
             return jsonify({'success': False, 'error': 'Invalid code. Please try again.'}), 400
 
         # Disable 2FA
@@ -2920,8 +2510,8 @@ def verify_2fa_code():
             return jsonify({'success': False, 'error': 'Set up two-factor authentication in Settings before placing live orders.'}), 400
 
         # Verify code
-        if not verify_totp_code(settings.totp_secret, code):
-            return jsonify({'success': False, 'error': 'Invalid or expired code. Please try again.'}), 400
+        if not consume_totp_code(settings, code):
+            return jsonify({'success': False, 'error': 'Invalid, expired or already-used code. Wait for the next code and try again.'}), 400
 
         # Generate a temporary token valid for 2 minutes
         import secrets
@@ -3430,6 +3020,16 @@ def place_real_order():
                         from services.synthetic_execution_service import get_synthetic_locked_funds
                         synth_locked_quote = get_synthetic_locked_funds(current_user.id, symbol, 'BUY', broker='binance', test_mode=False)
                         available_quote = max(0.0, available_quote - synth_locked_quote)
+                    elif str(replacing_order_id).isdigit():
+                        # The order being replaced still holds its quote until it
+                        # is cancelled just before submission, so count it as free.
+                        try:
+                            original = client.get_order(symbol=symbol, orderId=int(replacing_order_id))
+                            if str(original.get('side')).upper() == 'BUY' and original.get('status') in ('NEW', 'PARTIALLY_FILLED'):
+                                remaining = float(original.get('origQty') or 0) - float(original.get('executedQty') or 0)
+                                available_quote += max(0.0, remaining) * float(original.get('price') or 0)
+                        except Exception as original_err:
+                            logger.warning(f'Could not read replaced order {replacing_order_id}: {original_err}')
                     max_spendable_quote = available_quote / (1 + fee_reserve_rate)
                     requested_quote = quote_amount if order_type == 'MARKET' and has_quote else formatted_quantity * reference_price
 
@@ -3488,9 +3088,26 @@ def place_real_order():
             logger.error(f"Failed to validate order size: {e}")
             return jsonify({'success': False, 'error': f'Failed to validate order: {str(e)}'}), 400
 
+        if replacing_order_id:
+            from services.order_replacement_service import cancel_any_order
+            replacement_cancel = cancel_any_order(
+                replacing_order_id=replacing_order_id,
+                user_id=current_user.id,
+                symbol=symbol,
+                test_mode=False,
+                broker='binance'
+            )
+            if not replacement_cancel.get('success'):
+                return jsonify({
+                    'success': False,
+                    'error': (f'The original order {replacing_order_id} could not be cancelled, so no replacement was placed. '
+                              f"{replacement_cancel.get('error') or ''}").strip(),
+                }), 409
+            replaced_order_id = replacement_cancel.get('order_id') or str(replacing_order_id)
+
         # Place REAL order on Binance.US
         try:
-            logger.info(f"Placing real order with params: {{'symbol': '{symbol}', 'side': '{side}', 'type': '{order_type}', 'quantity': {formatted_quantity}, 'price': {formatted_price}, 'stopPrice': {formatted_stop_price}, 'order_value_usd': {order_value_usd}}}")
+            logger.info(f"Placing real order with params:{{'symbol': '{symbol}', 'side': '{side}', 'type': '{order_type}', 'quantity': {formatted_quantity}, 'price': {formatted_price}, 'stopPrice': {formatted_stop_price}, 'order_value_usd': {order_value_usd}}}")
             order_params = build_order_config(order_type, side, formatted_quantity, data, symbol)
 
             # PLACE THE REAL ORDER
@@ -3601,13 +3218,15 @@ def place_real_order():
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Failed to place real order: {error_msg}\n{traceback.format_exc()}")
+            from services.order_replacement_service import failed_replacement_note
+            note = failed_replacement_note(current_user.id, replacement_cancel)
             if "API-key" in error_msg or "Invalid Api-Key" in error_msg or "invalid api-key" in error_msg.lower():
                 return jsonify({
                     'success': False,
-                    'error': 'Invalid Binance API credentials',
+                    'error': 'Invalid Binance API credentials' + note,
                     'error_code': 'invalid_trading_credentials'
                 }), 400
-            return jsonify({'success': False, 'error': f'Order placement failed: {error_msg}'}), 400
+            return jsonify({'success': False, 'error': f'Order placement failed: {error_msg}{note}'}), 400
 
     except Exception as e:
         err_msg = str(e)
@@ -3675,7 +3294,19 @@ def _cancel_replaced_synthetic_order(data, user_id, test_mode):
     )
     if not res.get('success'):
         raise ValueError(res.get('error') or f"Could not cancel order {replacing_id} for replacement")
+    from flask import g
+    g.replacement_cancel = res
     return str(replacing_id)
+
+
+def _synthetic_replacement_failure(replaced_order_id, error):
+    """Explain a rejected synthetic replacement, restoring a live Binance original when possible."""
+    if not replaced_order_id:
+        return str(error)
+    from flask import g
+    from services.order_replacement_service import failed_replacement_note
+    note = failed_replacement_note(current_user.id, getattr(g, 'replacement_cancel', None))
+    return f'The replacement could not be created: {error}.{note}'
 
 
 def _synthetic_list_scope():
@@ -3743,7 +3374,7 @@ def api_create_trailing_order():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Failed to create trailing order: {e}")
-        detail = f'Old strategy {replaced_order_id} was cancelled, but the replacement could not be created: {e}' if locals().get('replaced_order_id') else str(e)
+        detail = _synthetic_replacement_failure(locals().get('replaced_order_id'), e)
         return jsonify({'success': False, 'error': detail}), 400
 
 
@@ -3873,7 +3504,7 @@ def api_create_ladder_order():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Failed to create ladder order: {e}")
-        detail = f'Old strategy {replaced_order_id} was cancelled, but the replacement could not be created: {e}' if locals().get('replaced_order_id') else str(e)
+        detail = _synthetic_replacement_failure(locals().get('replaced_order_id'), e)
         return jsonify({'success': False, 'error': detail}), 400
 
 
@@ -4542,21 +4173,9 @@ def place_test_oco_order():
             if field not in data or data[field] is None or data[field] == '':
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
 
+        # The order being replaced is cancelled only after validation passes.
         replacing_order_id = data.get('replacing_order_id')
         replaced_order_id = None
-        if replacing_order_id:
-            try:
-                from services.order_replacement_service import cancel_any_order
-                res = cancel_any_order(
-                    replacing_order_id=replacing_order_id,
-                    user_id=current_user.id,
-                    symbol=data.get('symbol'),
-                    test_mode=True,
-                    broker='binance'
-                )
-                replaced_order_id = res.get('order_id') or str(replacing_order_id)
-            except Exception as e:
-                logger.warning(f"Could not cancel order {replacing_order_id} during replacement: {e}")
 
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
@@ -4673,49 +4292,49 @@ def place_test_oco_order():
                     return jsonify({'success': False, 'error': f'Insufficient {base_asset} balance. Available: {available_base:.8f}'}), 400
                 quantity = adjusted_quantity
 
-        # Create test order records (OCO creates 2 orders)
-        # Limit order (simulate filled leg)
-        limit_order = TestOrder(
-            user_id=current_user.id,
-            symbol=symbol,
-            side=side,
-            type='LIMIT_MAKER',  # Fixed: use 'type' not 'order_type'
-            quantity=quantity,
-            price=price,
-            status='FILLED',  # Simulate immediate fill
-            simulated_fill_price=price,
-            simulated_fill_time=datetime.utcnow(),
-            created_at=datetime.utcnow()
-        )
+        # Both legs rest on the paper book, linked as one OCO. The matcher fills
+        # whichever the market reaches first and cancels the other.
+        from services.binance_paper_matching import new_oco_group, check_paper_funds, PaperOrderRejected
+        from services.synthetic_execution_service import parent_lock
+        group = new_oco_group()
+        with parent_lock('BINANCE_PAPER', current_user.id) as acquired:
+            if not acquired:
+                return jsonify({'success': False, 'error': 'The paper account is busy. Try again.'}), 409
+            try:
+                check_paper_funds(current_user.id, symbol, side, quantity, max(price, stop_limit_price))
+            except PaperOrderRejected as funds_err:
+                return jsonify({'success': False, 'error': str(funds_err)}), 400
+            if replacing_order_id:
+                from services.order_replacement_service import cancel_any_order
+                replacement = cancel_any_order(
+                    replacing_order_id=replacing_order_id, user_id=current_user.id,
+                    symbol=symbol, test_mode=True, broker='binance')
+                if not replacement.get('success'):
+                    db.session.rollback()
+                    return jsonify({'success': False, 'error': (
+                        f'The original order {replacing_order_id} could not be cancelled, so no replacement was placed. '
+                        f"{replacement.get('error') or ''}").strip()}), 409
+                replaced_order_id = replacement.get('order_id') or str(replacing_order_id)
+            limit_order = TestOrder(
+                user_id=current_user.id, symbol=symbol, side=side, type='LIMIT_MAKER',
+                quantity=quantity, price=price, status='NEW', oco_group=group,
+                created_at=datetime.utcnow(), notes='Paper OCO limit leg; rests until the market reaches it.')
+            stop_order = TestOrder(
+                user_id=current_user.id, symbol=symbol, side=side, type='STOP_LOSS_LIMIT',
+                quantity=quantity, price=stop_limit_price, stop_price=stop_price, status='NEW',
+                time_in_force=stop_limit_time_in_force, oco_group=group,
+                created_at=datetime.utcnow(), notes='Paper OCO stop-limit leg; rests until its stop triggers.')
+            db.session.add(limit_order)
+            db.session.add(stop_order)
+            db.session.commit()
 
-        # Stop limit order (not filled in simulation, cancelled by limit fill)
-        stop_order = TestOrder(
-            user_id=current_user.id,
-            symbol=symbol,
-            side=side,
-            type='STOP_LOSS_LIMIT',  # Fixed: use 'type' not 'order_type'
-            quantity=quantity,
-            price=stop_limit_price,
-            stop_price=stop_price,
-            status='CANCELED',  # Other leg cancelled in OCO
-            created_at=datetime.utcnow()
-        )
-
-        db.session.add(limit_order)
-        db.session.add(stop_order)
-
-        # Update test portfolio (only for the filled leg)
-        update_test_portfolio(current_user.id, symbol, side, quantity, price, fee_rate)
-
-        db.session.commit()
-
-        logger.info(f"Test OCO order placed for user {current_user.id}: {symbol} {side} {quantity}")
+        logger.info(f"Paper OCO recorded for user {current_user.id}: {symbol} {side} {quantity} group={group}")
 
         return jsonify({
             'success': True,
             'orders': [limit_order.to_dict(), stop_order.to_dict()],
             'replaced_order_id': replaced_order_id,
-            'message': 'Test OCO order validated and simulated successfully'
+            'message': 'Paper OCO checked against exchange rules. Both legs are resting; the first one the market reaches fills and cancels the other.'
         })
 
     except Exception as e:
@@ -4748,19 +4367,7 @@ def place_real_oco_order():
 
         replacing_order_id = data.get('replacing_order_id')
         replaced_order_id = None
-        if replacing_order_id:
-            try:
-                from services.order_replacement_service import cancel_any_order
-                res = cancel_any_order(
-                    replacing_order_id=replacing_order_id,
-                    user_id=current_user.id,
-                    symbol=data.get('symbol'),
-                    test_mode=False,
-                    broker='binance'
-                )
-                replaced_order_id = res.get('order_id') or str(replacing_order_id)
-            except Exception as e:
-                logger.warning(f"Could not cancel existing order {replacing_order_id} during replacement: {e}")
+        replacement_cancel = None
 
         has_quantity = bool(data.get('quantity'))
         has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
@@ -4840,7 +4447,13 @@ def place_real_oco_order():
             current_price = float(ticker['price'])
         except Exception as e:
             logger.error(f"Failed to get current price for {symbol}: {e}")
-            current_price = price
+            return jsonify({'success': False, 'error': f'No current market price is available for {symbol}; try again shortly.'}), 400
+
+        # Binance.US rejects an OCO whose legs are on the wrong side of the market.
+        if side == 'SELL' and not (price > current_price > stop_price):
+            return jsonify({'success': False, 'error': 'For a SELL OCO: Limit Price > Market Price > Stop Price.'}), 400
+        if side == 'BUY' and not (price < current_price < stop_price):
+            return jsonify({'success': False, 'error': 'For a BUY OCO: Limit Price < Market Price < Stop Price.'}), 400
 
         # Pre-validate price collars
         from services.binance_service import validate_order_price_collar
@@ -4918,6 +4531,17 @@ def place_real_oco_order():
         if two_factor_error:
             return jsonify(success=False, error=two_factor_error, requires_2fa=True), 403
 
+        if replacing_order_id:
+            from services.order_replacement_service import cancel_any_order
+            replacement_cancel = cancel_any_order(
+                replacing_order_id=replacing_order_id, user_id=current_user.id,
+                symbol=symbol, test_mode=False, broker='binance')
+            if not replacement_cancel.get('success'):
+                return jsonify({'success': False, 'error': (
+                    f'The original order {replacing_order_id} could not be cancelled, so no replacement was placed. '
+                    f"{replacement_cancel.get('error') or ''}").strip()}), 409
+            replaced_order_id = replacement_cancel.get('order_id') or str(replacing_order_id)
+
         # Place real OCO order on Binance.US
         try:
             order_response = client.create_oco_order(
@@ -4969,10 +4593,12 @@ def place_real_oco_order():
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Failed to place real OCO order: {error_msg}\n{traceback.format_exc()}")
+            from services.order_replacement_service import failed_replacement_note
+            replacement_note = failed_replacement_note(current_user.id, replacement_cancel)
             if "API-key" in error_msg or "Invalid Api-Key" in error_msg or "invalid api-key" in error_msg.lower():
                 return jsonify({
                     'success': False,
-                    'error': 'Invalid Binance API credentials',
+                    'error': ('Invalid Binance API credentials') + replacement_note,
                     'error_code': 'invalid_trading_credentials'
                 }), 400
             if 'PERCENT_PRICE' in error_msg:
@@ -4980,29 +4606,29 @@ def place_real_oco_order():
                 mult_down = filters.get('multiplierDown', 0.2)
                 return jsonify({
                     'success': False,
-                    'error': f'Price filter failure (PERCENT_PRICE): Binance.US restricts order prices to within {mult_down}x - {mult_up}x of current market price (${current_price:,.6f}) for {symbol}. Please adjust your price closer to market value.'
+                    'error': (f'Price filter failure (PERCENT_PRICE): Binance.US restricts order prices to within {mult_down}x - {mult_up}x of current market price (${current_price:,.6f}) for {symbol}. Please adjust your price closer to market value.') + replacement_note
                 }), 400
             if 'MIN_NOTIONAL' in error_msg or 'NOTIONAL' in error_msg:
                 return jsonify({
                     'success': False,
-                    'error': f"Order value too small. Minimum required order value for {symbol} is ${filters.get('minNotional', 10):.2f}."
+                    'error': (f"Order value too small. Minimum required order value for {symbol} is ${filters.get('minNotional', 10):.2f}.") + replacement_note
                 }), 400
             if 'LOT_SIZE' in error_msg:
                 return jsonify({
                     'success': False,
-                    'error': f"Invalid quantity. Quantity must be between {filters.get('minQty')} and {filters.get('maxQty')} in steps of {filters.get('stepSize')}."
+                    'error': (f"Invalid quantity. Quantity must be between {filters.get('minQty')} and {filters.get('maxQty')} in steps of {filters.get('stepSize')}.") + replacement_note
                 }), 400
             if 'PRICE_FILTER' in error_msg:
                 return jsonify({
                     'success': False,
-                    'error': f"Invalid price. Price must be between {filters.get('minPrice')} and {filters.get('maxPrice')} in increments of {filters.get('tickSize')}."
+                    'error': (f"Invalid price. Price must be between {filters.get('minPrice')} and {filters.get('maxPrice')} in increments of {filters.get('tickSize')}.") + replacement_note
                 }), 400
             if 'INSUFFICIENT_BALANCE' in error_msg or 'Account has insufficient balance' in error_msg:
                 return jsonify({
                     'success': False,
-                    'error': 'Insufficient balance in your Binance.US account to execute this OCO order.'
+                    'error': ('Insufficient balance in your Binance.US account to execute this OCO order.') + replacement_note
                 }), 400
-            return jsonify({'success': False, 'error': f'OCO order placement failed: {error_msg}'}), 400
+            return jsonify({'success': False, 'error': f'OCO order placement failed: {error_msg}' + replacement_note}), 400
 
     except Exception as e:
         err_msg = str(e)
@@ -5187,328 +4813,301 @@ def _tax_datetime(value):
     return parsed
 
 
-def _build_tax_transactions(raw_transactions, accounting_method='FIFO'):
-    """Build tax rows and term-specific results using defined accounting methods."""
-    from collections import defaultdict, deque
+def _build_tax_transactions(raw_transactions, accounting_method='FIFO', wash_sales=False):
+    """Tax rows and open lots for a ledger (see services.tax_engine)."""
+    from services.tax_engine import build_tax_transactions
+    return build_tax_transactions(raw_transactions, accounting_method=accounting_method, wash_sales=wash_sales)
 
-    acquisition_types = {'BUY', 'TRANSFER', 'RECEIVE', 'GIFT', 'BONUS'}
-    lots_by_asset = defaultdict(deque)
-    tax_rows = []
 
-    ordered = sorted(
-        raw_transactions,
-        key=lambda tx: (_tax_datetime(tx.get('date')) or datetime.min, int(tx.get('id') or 0)),
-    )
-    for tx in ordered:
-        tx_type = str(tx.get('type') or '').upper()
-        asset = str(tx.get('asset') or '').upper().strip()
+def _tax_corrections(user_id, source):
+    """All manual tax corrections for a source, keyed by record ID."""
+    from collections import defaultdict
+    from trading_models import TaxCorrection
+    corrections = defaultdict(dict)
+    for row in TaxCorrection.query.filter_by(user_id=user_id, source=source).all():
+        corrections[str(row.source_id)][row.field] = row.new_value
+    return corrections
+
+
+def _apply_tax_corrections(tx, corrections):
+    """Overlay the user's corrections on one ledger row."""
+    if not corrections:
+        return tx
+    for field in ('amount', 'price_sold_at', 'fee', 'cost_basis', 'usd_value'):
+        if field in corrections:
+            try:
+                tx[field] = float(corrections[field])
+                if field == 'fee':
+                    tx['fee_estimated'] = False
+            except (TypeError, ValueError):
+                pass
+    if 'asset' in corrections:
+        tx['asset'] = str(corrections['asset']).upper()
+    for field in ('date', 'acquired_date'):
+        if field in corrections:
+            try:
+                tx[field] = datetime.fromisoformat(str(corrections[field]).replace('Z', ''))
+            except (TypeError, ValueError):
+                pass
+    if corrections.get('lot_selection'):
+        tx['lot_selection'] = [part.strip() for part in str(corrections['lot_selection']).split(',') if part.strip()]
+    return tx
+
+
+def _binance_tax_ledger(user_id):
+    """Binance.US (and other crypto wallet) activity plus staking rewards as one ledger."""
+    from trading_models import AllActivity
+    from models import StakingReward
+    corrections = _tax_corrections(user_id, 'binance')
+    ledger = []
+    activities = AllActivity.query.filter(
+        AllActivity.user_id == user_id,
+        AllActivity.status.in_(['FILLED', 'completed', 'COMPLETED']),
+    ).order_by(AllActivity.date.asc()).all()
+    for activity in activities:
+        exchange = str(activity.exchange or 'binance').lower()
+        if exchange == 'webull':
+            continue
+        fee, fee_asset = activity.fee, getattr(activity, 'fee_asset', None)
+        if (fee is None or fee == 0) and activity.details:
+            match = re.search(r'Commission:\s*([\d\.]+)\s*([A-Za-z0-9]+)', str(activity.details))
+            if match:
+                fee, fee_asset = _coerce_float(match.group(1), 0.0), match.group(2).upper()
+        asset = str(activity.asset or '').strip()
         if not asset or asset == '—':
-            details_str = str(tx.get('details') or '') + ' ' + str(tx.get('txid') or '') + ' ' + str(tx.get('description') or '')
-            if 'USDT' in details_str:
-                asset = 'USDT'
-            elif 'USD' in details_str:
-                asset = 'USD'
-            elif 'GRAM' in details_str:
-                asset = 'GRAM'
-        lot_asset = str(tx.get('_asset_key') or asset).upper()
-        quantity = abs(float(tx.get('amount') or 0.0))
-        fee = abs(float(tx.get('fee') or 0.0))
-        price = float(tx.get('price_sold_at') or tx.get('avg_entry') or 0.0)
-        stored_cost = float(tx.get('cost_basis') or 0.0)
-        stored_proceeds = float(tx.get('proceeds') or 0.0)
-        if price <= 0 and quantity > 0:
-            if tx_type in acquisition_types and stored_cost > 0:
-                price = stored_cost / quantity
-            elif tx_type == 'SELL' and stored_proceeds > 0:
-                price = stored_proceeds / quantity
-            elif asset in ['USD', 'USDT', 'USDC', 'BUSD', 'DAI']:
-                price = 1.0
-        tx_date = _tax_datetime(tx.get('date'))
-        row = {
-            'id': tx.get('id'),
-            'date': _format_activity_date(tx.get('date')),
-            'type': tx_type,
-            'asset': asset,
-            'display_symbol': tx.get('display_symbol') or display_symbol(tx),
-            'is_etf': is_etf_asset(tx),
-            'instrument_type': tx.get('instrument_type'),
-            'instrument_id': tx.get('instrument_id'),
-            'amount': float(tx.get('amount') or 0.0),
-            'proceeds': stored_proceeds,
-            'fee': fee,
-            'fee_asset': tx.get('fee_asset'),
-            'txid': tx.get('txid'),
-            'cost_basis': stored_cost,
-            'gain_loss': None,
-            'gain_loss_type': None,
-            'price_sold_at': price if price > 0 else tx.get('price_sold_at'),
-            'avg_entry': price if price > 0 else tx.get('avg_entry'),
-            'exchange': tx.get('exchange') or 'binance',
-            'holding_days': None,
-            'acquisition_date': None,
-            'short_term_gain_loss': None,
-            'long_term_gain_loss': None,
-            'unclassified_gain_loss': None,
-        }
-
-        if tx_type in acquisition_types and quantity > 0:
-            if stored_cost <= 0:
-                stored_cost = stored_proceeds + fee if stored_proceeds > 0 else price * quantity + fee
-            lots_by_asset[lot_asset].append({
-                'amount': quantity,
-                'cost': stored_cost,
-                'date': tx_date,
-            })
-            row['cost_basis'] = stored_cost
-            tax_rows.append(row)
-            continue
-
-        if tx_type != 'SELL' or quantity <= 0:
-            tax_rows.append(row)
-            continue
-
-        proceeds = stored_proceeds if stored_proceeds > 0 else max(price * quantity - fee, 0.0)
-        row['proceeds'] = proceeds
-        remaining = quantity
-        cost_total = 0.0
-        short_gain = 0.0
-        long_gain = 0.0
-        unclassified_gain = 0.0
-        terms = set()
-        acquisition_dates = []
-        lots = lots_by_asset[lot_asset]
-        proceeds_per_unit = proceeds / quantity if quantity else 0.0
-
-        while remaining > 1e-12 and lots:
-            lot = lots[-1] if accounting_method == 'LIFO' else lots[0]
-            slice_amount = min(remaining, lot['amount'])
-            cost_slice = slice_amount * (lot['cost'] / lot['amount']) if lot['amount'] else 0.0
-            cost_total += cost_slice
-            slice_gain = slice_amount * proceeds_per_unit - cost_slice
-            acquisition_date = lot.get('date')
-            if acquisition_date and tx_date:
-                holding_days = max(0, (tx_date - acquisition_date).days)
-                try:
-                    anniversary_date = acquisition_date.replace(year=acquisition_date.year + 1)
-                except ValueError:
-                    anniversary_date = acquisition_date.replace(year=acquisition_date.year + 1, month=3, day=1)
-
-                term = 'long_term' if tx_date > anniversary_date else 'short_term'
-                terms.add(term)
-                acquisition_dates.append((acquisition_date, holding_days))
-                if term == 'long_term':
-                    long_gain += slice_gain
-                else:
-                    short_gain += slice_gain
-            else:
-                terms.add('unclassified')
-                unclassified_gain += slice_gain
-            lot['amount'] -= slice_amount
-            lot['cost'] -= cost_slice
-            remaining -= slice_amount
-            if lot['amount'] <= 1e-12:
-                if accounting_method == 'LIFO':
-                    lots.pop()
-                else:
-                    lots.popleft()
-
-        if remaining > 1e-12:
-            fallback_cost = max(stored_cost - cost_total, 0.0)
-            cost_total += fallback_cost
-            fallback_gain = remaining * proceeds_per_unit - fallback_cost
-            unclassified_gain += fallback_gain
-            terms.add('unclassified')
-
-        gain_loss = proceeds - cost_total
-        if not terms and tx.get('gain_loss') is not None:
-            gain_loss = float(tx.get('gain_loss') or 0.0)
-        row.update({
-            'cost_basis': cost_total,
-            'gain_loss': gain_loss,
-            'short_term_gain_loss': short_gain,
-            'long_term_gain_loss': long_gain,
-            'unclassified_gain_loss': unclassified_gain,
-            'gain_loss_type': 'mixed' if len(terms) > 1 else next(iter(terms), None),
-        })
-        if acquisition_dates:
-            oldest_date, oldest_days = min(acquisition_dates, key=lambda item: item[0])
-            row['acquisition_date'] = oldest_date.isoformat()
-            row['holding_days'] = oldest_days if len(acquisition_dates) == 1 else None
-        tax_rows.append(row)
-
-    fifo_lots = {
-        asset: [
-            {'amount': lot['amount'], 'cost': lot['cost'], 'acquisition_date': lot['date'].isoformat() if lot.get('date') else None}
-            for lot in lots if lot['amount'] > 1e-12
-        ]
-        for asset, lots in lots_by_asset.items()
-        if any(lot['amount'] > 1e-12 for lot in lots)
-    }
-    return tax_rows, fifo_lots
+            details = f"{activity.details or ''} {activity.txid or ''} {activity.description or ''}"
+            asset = 'USDT' if 'USDT' in details else ('USD' if 'USD' in details else asset)
+        ledger.append(_apply_tax_corrections({
+            'id': activity.id, 'date': activity.date, 'type': activity.type, 'asset': asset,
+            'amount': activity.amount, 'proceeds': activity.proceeds, 'cost_basis': activity.cost_basis,
+            'gain_loss': activity.gain_loss, 'fee': fee or 0.0, 'fee_asset': fee_asset,
+            'txid': activity.txid, 'details': activity.details,
+            'price_sold_at': activity.price_sold_at, 'avg_entry': getattr(activity, 'avg_entry', None),
+            'exchange': exchange, 'account': exchange,
+            '_asset_key': f'{exchange}:{str(asset).upper()}',
+            'reported_on': '1099-DA' if exchange == 'binance' else '',
+        }, corrections.get(str(activity.id))))
+    staking_corrections = _tax_corrections(user_id, 'staking')
+    for reward in StakingReward.query.filter_by(user_id=user_id).order_by(StakingReward.earned_at.asc()).all():
+        ledger.append(_apply_tax_corrections({
+            'id': f'staking-{reward.id}', 'date': reward.earned_at, 'type': 'STAKING',
+            'asset': str(reward.asset or '').upper(), 'amount': reward.amount,
+            'usd_value': reward.usd_value, 'exchange': 'binance', 'account': 'binance',
+            '_asset_key': f'binance:{str(reward.asset or "").upper()}',
+            'txid': f'staking_{reward.tran_id}' if reward.tran_id else None,
+        }, staking_corrections.get(str(reward.id))))
+    return ledger
 
 
-def _build_webull_tax_report(user_id, accounting_method='FIFO'):
-    """Create a tax report from filled live Webull orders and holdings."""
-    raw_transactions = []
+WEBULL_OPTION_MULTIPLIER = 100.0
+_EVENT_DATE = re.compile(r'-(\d{2})([A-Z]{3})(\d{2})')
+_MONTHS = {m: i for i, m in enumerate(['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'], 1)}
+
+
+def _event_contract_date(symbol):
+    match = _EVENT_DATE.search(str(symbol or '').upper())
+    if not match or match.group(2) not in _MONTHS:
+        return None
+    try:
+        return datetime(2000 + int(match.group(1)), _MONTHS[match.group(2)], int(match.group(3)))
+    except ValueError:
+        return None
+
+
+def _webull_tax_ledger(user_id):
+    """Filled Webull orders, manual Webull entries and Event settlements as one ledger."""
+    from collections import defaultdict
+    from trading_models import AllActivity
+    from event_algo_models import EventContractOutcome
     holdings = WebullHolding.query.filter_by(user_id=user_id).all()
-    holding_by_instrument = {
-        (str(holding.account_id), str(holding.instrument_id).upper()): holding
-        for holding in holdings if holding.instrument_id
-    }
+    holding_by_instrument = {(str(h.account_id), str(h.instrument_id).upper()): h for h in holdings if h.instrument_id}
     holding_by_symbol = {}
-    for holding in holdings:
-        holding_by_symbol.setdefault(
-            (str(holding.account_id), str(holding.symbol or '').upper(), str(holding.instrument_type or '').upper()),
-            holding,
-        )
+    for h in holdings:
+        holding_by_symbol.setdefault((str(h.account_id), str(h.symbol or '').upper(), str(h.instrument_type or '').upper()), h)
+    corrections = _tax_corrections(user_id, 'webull')
+    ledger, event_positions = [], defaultdict(float)
     for order in WebullOrder.query.filter_by(user_id=user_id).all():
-        status = str(order.status or '').upper()
         filled_quantity = float(order.filled_quantity or 0.0)
         filled_price = float(order.filled_price or order.price or 0.0)
         if filled_quantity <= 0 or filled_price <= 0:
             continue
         side = str(order.side or '').upper()
         tx_type = 'SELL' if side.startswith('SELL') else 'BUY'
+        inst = str(order.instrument_type or '').upper()
         holding = holding_by_instrument.get((str(order.account_id), str(getattr(order, 'instrument_id', '') or '').upper())) \
             if getattr(order, 'instrument_id', None) else None
-        holding = holding or holding_by_symbol.get(
-            (str(order.account_id), str(order.symbol or '').upper(), str(order.instrument_type or '').upper())
-        )
+        holding = holding or holding_by_symbol.get((str(order.account_id), str(order.symbol or '').upper(), inst))
+        review = []
+        # The contract multiplier belongs to the instrument, not to whether a
+        # position is still open: closed positions must keep their full value.
+        if inst == 'EVENT':
+            multiplier = 1.0
+        elif inst == 'OPTION':
+            multiplier = float(getattr(holding, 'option_multiplier', None) or WEBULL_OPTION_MULTIPLIER)
+        elif inst == 'FUTURES':
+            multiplier = float(getattr(holding, 'option_multiplier', None) or 1.0)
+            if not getattr(holding, 'option_multiplier', None):
+                review.append('Futures contract multiplier unknown; verify proceeds and basis.')
+        else:
+            multiplier = 1.0
         instrument = {
-            'symbol': order.symbol,
-            'instrument_type': order.instrument_type,
+            'symbol': order.symbol, 'instrument_type': order.instrument_type,
             'is_etf': bool(getattr(order, 'is_etf', False)) or bool(getattr(holding, 'is_etf', False)),
             'display_name': getattr(holding, 'display_name', None),
-            'instrument_id': getattr(holding, 'instrument_id', None),
-            'source': 'webull',
+            'instrument_id': getattr(holding, 'instrument_id', None), 'source': 'webull',
         }
-        fee = abs(float(order.fee or 0.0))
-        fee_asset = getattr(order, 'fee_asset', None) or 'USD'
-        inst_type_upper = str(order.instrument_type or '').upper()
-        multiplier = 1.0
-        is_unsupported_multiplier = False
-        if inst_type_upper in ('OPTION', 'FUTURES', 'EVENT'):
-            if hasattr(holding, 'option_multiplier') and holding.option_multiplier:
-                multiplier = float(holding.option_multiplier)
-            elif hasattr(holding, 'contract_multiplier') and holding.contract_multiplier:
-                multiplier = float(holding.contract_multiplier)
-            else:
-                is_unsupported_multiplier = True
-
-        if fee == 0.0:
-            if inst_type_upper == 'EVENT':
-                fee = round(filled_quantity * 0.025, 4)
-            elif inst_type_upper == 'OPTION':
-                fee = round(filled_quantity * 0.55, 4)
-            elif tx_type == 'SELL' and filled_quantity > 0 and filled_price > 0:
-                fee = max(0.01, round(filled_quantity * filled_price * 0.0000278, 2))
-
-        gross_value = filled_quantity * filled_price * multiplier if not is_unsupported_multiplier else 0.0
-
-        from trading_models import TaxCorrection
-        corrections = {c.field: c.new_value for c in TaxCorrection.query.filter_by(user_id=user_id, source='webull', source_id=str(order.id)).all()}
-
-        try:
-            adj_date = datetime.fromisoformat(corrections['date'].replace('Z', '')) if 'date' in corrections else (order.updated_at or order.created_at)
-        except:
-            adj_date = order.updated_at or order.created_at
-
-        adj_amount = float(corrections.get('amount', filled_quantity))
-        adj_price = float(corrections.get('price_sold_at', filled_price))
-        adj_fee = float(corrections.get('fee', fee))
-
-        gross_value = adj_amount * adj_price * multiplier if not is_unsupported_multiplier else 0.0
-
-        # QA-06 Canonical Lot Identity
-        provider = 'webull'
-        account_id = order.account_id or 'unknown'
-        currency = 'USD'
-        asset_symbol = corrections.get('asset') or instrument.get('instrument_id') or order.symbol
-        asset_type = 'ETF' if is_etf_asset(instrument) else (order.instrument_type or 'ASSET')
-        asset_key = f"{provider}:{account_id}:{currency}:{asset_type}:{asset_symbol}"
-        raw_transactions.append({
-            'id': order.id,
-            'date': adj_date,
-            'type': tx_type,
-            'asset': order.symbol,
-            'display_symbol': display_symbol(instrument),
-            'is_etf': is_etf_asset(instrument),
-            'instrument_type': order.instrument_type,
-            'instrument_id': instrument.get('instrument_id'),
-            '_asset_key': asset_key,
-            'amount': -adj_amount if tx_type == 'SELL' else adj_amount,
-            'proceeds': gross_value - adj_fee if tx_type == 'SELL' else 0.0,
-            'cost_basis': gross_value + adj_fee if tx_type == 'BUY' else 0.0,
-            'gain_loss': None,
-            'fee': adj_fee,
-            'fee_asset': fee_asset,
-            'txid': f'webull_{order.account_id}_{order.provider_order_id}',
-            'price_sold_at': adj_price,
-            'multiplier_warning': is_unsupported_multiplier,
-            'exchange': 'webull',
+        tx = _apply_tax_corrections({
+            'date': getattr(order, 'filled_at', None) or order.updated_at or order.created_at,
+            'amount': filled_quantity, 'price_sold_at': filled_price,
+            'fee': abs(float(order.fee or 0.0)),
+            'fee_estimated': bool(getattr(order, 'fee_estimated', False)),
+        }, corrections.get(str(order.id)))
+        quantity, price, fee = abs(float(tx['amount'])), float(tx['price_sold_at']), float(tx['fee'])
+        gross = quantity * price * multiplier
+        outcome = str(order.event_outcome or '').upper()
+        asset_symbol = corrections.get(str(order.id), {}).get('asset') or instrument.get('instrument_id') or order.symbol
+        if inst == 'EVENT' and outcome:
+            asset_symbol = f'{order.symbol}:{outcome}'
+        asset_type = 'ETF' if is_etf_asset(instrument) else (inst or 'ASSET')
+        asset_key = f"webull:{order.account_id or 'unknown'}:USD:{asset_type}:{asset_symbol}"
+        if inst == 'EVENT':
+            event_positions[(asset_key, order.symbol, outcome)] += quantity if tx_type == 'BUY' else -quantity
+        ledger.append({
+            'id': order.id, 'date': tx['date'], 'type': tx_type, 'asset': order.symbol,
+            'display_symbol': display_symbol(instrument), 'is_etf': is_etf_asset(instrument),
+            'instrument_type': order.instrument_type, 'instrument_id': instrument.get('instrument_id'),
+            '_asset_key': asset_key, 'account': order.account_id,
+            # Wash sales apply across accounts to the same security.
+            '_security_key': f'{asset_type}:{asset_symbol}' if inst in {'EQUITY', 'STOCK', 'ETF', 'OPTION', ''} else None,
+            'amount': -quantity if tx_type == 'SELL' else quantity,
+            'proceeds': gross - fee if tx_type == 'SELL' else 0.0,
+            'cost_basis': gross + fee if tx_type == 'BUY' else 0.0,
+            'fee': fee, 'fee_asset': getattr(order, 'fee_asset', None) or 'USD',
+            'fee_estimated': tx.get('fee_estimated', False),
+            'txid': f'webull_{order.account_id}_{order.provider_order_id}', 'price_sold_at': price,
+            'exchange': 'webull', '_review': review, 'reported_on': '1099-B',
         })
 
-    from trading_models import AllActivity
-    from trading_models import TaxCorrection
-    # Manually recorded Webull activities are not in the order table, so they
-    # are read from the activity ledger and merged into the same report.
-    manual_webull_activities = AllActivity.query.filter(
-        AllActivity.user_id == user_id,
-        AllActivity.exchange == 'webull',
-        AllActivity.type.in_(['BUY', 'SELL']),
-    ).order_by(AllActivity.date.asc()).all()
-    for activity in manual_webull_activities:
-        if str(activity.exchange or '').lower() != 'webull':
+    # Event contracts held to settlement are disposed of at $1 (won) or $0
+    # (lost) on the settlement date.
+    now = datetime.utcnow()
+    for (asset_key, symbol, outcome), held in event_positions.items():
+        if held <= 1e-9:
             continue
-        corrections = {c.field: c.new_value for c in TaxCorrection.query.filter_by(user_id=user_id, source='webull', source_id=str(activity.id)).all()}
-        adj_amount = float(corrections.get('amount', activity.amount or 0.0))
-        adj_price = float(corrections.get('price_sold_at', activity.price_sold_at or 0.0))
-        adj_fee = float(corrections.get('fee', activity.fee or 0.0))
-        adj_asset = corrections.get('asset', activity.asset)
-        try:
-            adj_date = datetime.fromisoformat(corrections['date'].replace('Z', '')) if 'date' in corrections else activity.date
-        except:
-            adj_date = activity.date
+        settled = EventContractOutcome.query.filter(
+            EventContractOutcome.contract_symbol == symbol,
+            EventContractOutcome.settlement_status == 'RESOLVED',
+            EventContractOutcome.outcome.isnot(None),
+        ).order_by(EventContractOutcome.id.desc()).first()
+        if settled:
+            payout = 1.0 if str(settled.outcome).upper() == outcome else 0.0
+            ledger.append({
+                'id': f'settle-{symbol}-{outcome}',
+                'date': settled.settlement_at or settled.provider_timestamp or settled.observed_at,
+                'type': 'SETTLEMENT', 'asset': symbol, 'display_symbol': f'{symbol} {outcome}',
+                'instrument_type': 'EVENT', '_asset_key': asset_key, 'amount': -held,
+                'proceeds': held * payout, 'price_sold_at': payout, 'fee': 0.0, 'exchange': 'webull',
+                'txid': f'settlement_{symbol}_{outcome}', 'reported_on': '1099-B',
+            })
+        else:
+            expiry = _event_contract_date(symbol)
+            if expiry and expiry + timedelta(days=1) < now:
+                ledger.append({
+                    'id': f'unsettled-{symbol}-{outcome}', 'date': expiry, 'type': 'NOTE', 'asset': symbol,
+                    'display_symbol': f'{symbol} {outcome}', 'instrument_type': 'EVENT', '_asset_key': asset_key,
+                    'amount': 0.0, 'exchange': 'webull',
+                    '_review': [f'{held:g} contract(s) were held to expiry but the settlement result is unknown. '
+                                'Enter the payout as a SELL to record the gain or loss.'],
+                })
 
-        raw_transactions.append({
-            'id': activity.id,
-            'date': adj_date,
-            'type': activity.type,
-            'asset': adj_asset,
-            'display_symbol': display_symbol({'symbol': adj_asset, 'source': 'webull'}),
-            'amount': adj_amount,
-            'proceeds': activity.proceeds,
-            'cost_basis': activity.cost_basis,
-            'gain_loss': activity.gain_loss,
-            'fee': adj_fee,
-            'txid': activity.txid,
-            'price_sold_at': adj_price,
-            'exchange': 'webull',
-        })
+    for activity in AllActivity.query.filter(
+        AllActivity.user_id == user_id, AllActivity.exchange == 'webull',
+    ).order_by(AllActivity.date.asc()).all():
+        tx = _apply_tax_corrections({
+            'id': activity.id, 'date': activity.date, 'type': activity.type, 'asset': activity.asset,
+            'amount': activity.amount, 'proceeds': activity.proceeds, 'cost_basis': activity.cost_basis,
+            'gain_loss': activity.gain_loss, 'fee': activity.fee or 0.0, 'txid': activity.txid,
+            'price_sold_at': activity.price_sold_at, 'exchange': 'webull', 'reported_on': '1099-B',
+        }, corrections.get(str(activity.id)))
+        tx['display_symbol'] = display_symbol({'symbol': tx['asset'], 'source': 'webull'})
+        tx['_asset_key'] = f"webull:manual:USD:ASSET:{str(tx['asset'] or '').upper()}"
+        tx['_security_key'] = f"ASSET:{str(tx['asset'] or '').upper()}"
+        ledger.append(tx)
+    return ledger
 
-    tax_data, fifo_lots = _build_tax_transactions(raw_transactions, accounting_method=accounting_method)
+
+def _tax_method(user_id):
+    from credentials import UserSetting
+    setting = UserSetting.query.filter_by(user_id=user_id).first()
+    method = str(request.args.get('method') or (setting.tax_cost_basis_method if setting else None) or 'fifo').upper()
+    return method if method in {'FIFO', 'LIFO', 'HIFO'} else 'FIFO'
+
+
+def _tax_summary(tax_data, totals, unrealized_gain, holdings_value, holdings_cost, manual_invested,
+                 accounting_method, staking, holdings_count, total_fees=None):
+    """One summary shape and one set of definitions for every tax source."""
+    staking_active, staking_pending = staking
+    dates = [tx.get('date') for tx in tax_data if tx.get('date')]
+    disposals = {'SELL', 'SETTLEMENT', 'EXPIRATION'}
+    return {
+        'accounting_method': accounting_method,
+        'total_transactions': len(tax_data),
+        'valid_transactions': len([tx for tx in tax_data if tx.get('gain_loss') is not None]),
+        'total_buys': len([tx for tx in tax_data if tx.get('type') == 'BUY']),
+        'total_sells': len([tx for tx in tax_data if tx.get('type') in disposals]),
+        'valid_sells': len([tx for tx in tax_data if tx.get('type') in disposals and tx.get('gain_loss') is not None]),
+        'excluded_sells': len([tx for tx in tax_data if tx.get('type') in disposals and tx.get('gain_loss') is None]),
+        'total_gifts': len([tx for tx in tax_data if tx.get('type') in ['GIFT', 'TRANSFER', 'RECEIVE']]),
+        # Realized plus unrealized, defined the same way for every source.
+        'total_gain_loss': totals['realized_gain'] + unrealized_gain,
+        'realized_gain': totals['realized_gain'],
+        'unrealized_gain': unrealized_gain,
+        # Holdings value against what you said you put in; not a tax figure.
+        'invested_return': (holdings_value + staking_active + staking_pending - manual_invested) if manual_invested else None,
+        'income_total': totals['income_total'],
+        'wash_sale_disallowed_total': totals['wash_sale_disallowed_total'],
+        'needs_review_count': totals['needs_review_count'],
+        'estimated_fee_rows': totals['estimated_fee_rows'],
+        'missing_basis_rows': totals['missing_basis_rows'],
+        'manual_invested_amount': manual_invested,
+        'manual_invested_updated_at': None,
+        'tracked_cost_basis': holdings_cost,
+        'current_holdings_value': holdings_value + staking_active + staking_pending,
+        'current_holdings_cost_basis': holdings_cost,
+        'portfolio_holdings_value': holdings_value,
+        'staking_active_value': staking_active,
+        'staking_pending_value': staking_pending,
+        'staking_total_value': staking_active + staking_pending,
+        'total_fees_paid': total_fees if total_fees is not None else sum(float(tx.get('fee') or 0.0) for tx in tax_data),
+        'total_buy_volume': sum(float(tx.get('cost_basis') or 0.0) for tx in tax_data if tx.get('type') == 'BUY'),
+        'total_sell_proceeds': totals['total_sell_proceeds'],
+        'short_term_gain_loss': totals['short_term_gain_loss'],
+        'long_term_gain_loss': totals['long_term_gain_loss'],
+        'unclassified_gain_loss': totals['unclassified_gain_loss'],
+        'assets_traded': sorted({tx.get('asset') for tx in tax_data if tx.get('asset')}),
+        'assets_with_current_holdings': holdings_count,
+        'date_range': {'start': min(dates, default=None), 'end': max(dates, default=None)},
+    }
+
+
+def _build_webull_tax_report(user_id, accounting_method='FIFO'):
+    """Tax report from filled Webull orders, settlements and holdings."""
+    from services.tax_engine import summarize
+    tax_data, open_lots = _build_tax_transactions(_webull_tax_ledger(user_id), accounting_method, wash_sales=True)
     holdings_map = {}
-    holdings = [holding for holding in holdings if not getattr(holding, 'hidden', False)]
-    for holding in holdings:
+    for holding in WebullHolding.query.filter_by(user_id=user_id).all():
         amount = float(holding.quantity or 0.0)
-        if amount <= 0:
+        if getattr(holding, 'hidden', False) or amount <= 0:
             continue
-        holding_asset = {
-            'symbol': holding.symbol,
-            'source': 'webull',
-            'instrument_type': holding.instrument_type,
-            'is_etf': bool(holding.is_etf),
-            'display_name': holding.display_name,
-        }
+        holding_asset = {'symbol': holding.symbol, 'source': 'webull', 'instrument_type': holding.instrument_type,
+                         'is_etf': bool(holding.is_etf), 'display_name': holding.display_name}
         asset = display_symbol(holding_asset)
-        holding_is_etf = is_etf_asset(holding_asset)
         price = float(holding.last_price or 0.0)
         current_value = float(holding.current_value or (amount * price))
         entry = holdings_map.setdefault(asset, {
-            'amount': 0.0, 'cost_basis': 0.0, 'current_value': 0.0,
-            'current_price': price, 'source': 'webull', 'display_symbol': asset,
-            'symbol': str(holding.symbol or '').upper(), 'is_etf': holding_is_etf,
-            'instrument_type': holding.instrument_type,
+            'amount': 0.0, 'cost_basis': 0.0, 'current_value': 0.0, 'current_price': price, 'source': 'webull',
+            'display_symbol': asset, 'symbol': str(holding.symbol or '').upper(),
+            'is_etf': is_etf_asset(holding_asset), 'instrument_type': holding.instrument_type,
         })
         entry['amount'] += amount
         entry['cost_basis'] += amount * float(holding.cost_price or 0.0)
@@ -5517,237 +5116,210 @@ def _build_webull_tax_report(user_id, accounting_method='FIFO'):
             entry['current_price'] = entry['current_value'] / entry['amount'] if entry['current_value'] else price
     for entry in holdings_map.values():
         entry['avg_price_per_unit'] = entry['cost_basis'] / entry['amount'] if entry['amount'] else 0.0
-
-    realized_gain = sum(float(tx.get('gain_loss') or 0.0) for tx in tax_data if tx.get('type') == 'SELL')
-    total_fees = sum(float(tx.get('fee') or 0.0) for tx in tax_data)
-    total_buy_cost = sum(float(tx.get('cost_basis') or 0.0) for tx in tax_data if tx.get('type') == 'BUY')
-    total_sell_proceeds = sum(float(tx.get('proceeds') or 0.0) for tx in tax_data if tx.get('type') == 'SELL')
+    totals = summarize(tax_data)
     holdings_value = sum(entry['current_value'] for entry in holdings_map.values())
     holdings_cost = sum(entry['cost_basis'] for entry in holdings_map.values())
-    unrealized_gain = holdings_value - holdings_cost
-    manual_invested = get_manual_tax_investment(user_id, 'webull')
     return {
         'transactions': tax_data,
-        'summary': {
-            'total_transactions': len(tax_data),
-            'valid_transactions': len([tx for tx in tax_data if tx.get('gain_loss') is not None]),
-            'total_buys': len([tx for tx in tax_data if tx.get('type') == 'BUY']),
-            'total_sells': len([tx for tx in tax_data if tx.get('type') == 'SELL']),
-            'valid_sells': len([tx for tx in tax_data if tx.get('type') == 'SELL' and tx.get('gain_loss') is not None]),
-            'excluded_sells': len([tx for tx in tax_data if tx.get('type') == 'SELL' and tx.get('gain_loss') is None]),
-            'total_gifts': 0,
-            'total_gain_loss': realized_gain + unrealized_gain,
-            'realized_gain': realized_gain,
-            'unrealized_gain': unrealized_gain,
-            'manual_invested_amount': manual_invested,
-            'manual_invested_updated_at': None,
-            'tracked_cost_basis': holdings_cost,
-            'current_holdings_value': holdings_value,
-            'current_holdings_cost_basis': holdings_cost,
-            'portfolio_holdings_value': holdings_value,
-            'staking_active_value': 0.0,
-            'staking_pending_value': 0.0,
-            'staking_total_value': 0.0,
-            'total_fees_paid': total_fees,
-            'total_buy_volume': total_buy_cost,
-            'total_sell_proceeds': total_sell_proceeds,
-            'short_term_gain_loss': sum(float(tx.get('short_term_gain_loss') or 0.0) for tx in tax_data),
-            'long_term_gain_loss': sum(float(tx.get('long_term_gain_loss') or 0.0) for tx in tax_data),
-            'assets_traded': sorted({tx.get('asset') for tx in tax_data if tx.get('asset')}),
-            'assets_with_current_holdings': len(holdings_map),
-            'date_range': {
-                'start': min((tx.get('date') for tx in tax_data if tx.get('date')), default=None),
-                'end': max((tx.get('date') for tx in tax_data if tx.get('date')), default=None),
-            },
-        },
+        'summary': _tax_summary(tax_data, totals, holdings_value - holdings_cost, holdings_value, holdings_cost,
+                                get_manual_tax_investment(user_id, 'webull'), accounting_method,
+                                staking=(0.0, 0.0), holdings_count=len(holdings_map)),
         'current_holdings': holdings_map,
-        'fifo_lots': fifo_lots,
+        'fifo_lots': open_lots,
         'source': 'webull',
     }
+
+
+def _build_binance_tax_report(user_id, accounting_method='FIFO'):
+    from models import Coin
+    from services.tax_engine import summarize
+    ledger = _binance_tax_ledger(user_id)
+    tax_data, open_lots = _build_tax_transactions(ledger, accounting_method)
+    current_coins = Coin.query.filter_by(user_id=user_id, hidden=False).all()
+    performance = _calculate_portfolio_performance(
+        [tx for tx in ledger if tx.get('type') in {'BUY', 'SELL'}], current_coins)
+    staking_active = staking_pending = 0.0
+    try:
+        from credentials import User
+        user = db.session.get(User, user_id)
+        cred = get_user_credentials(user.username) if user else None
+        # Staking balances need the Binance.US key, nothing else.
+        if cred and cred.api_key and cred.api_secret:
+            staking_active, staking_pending = calculate_staking_value_for_user(cred, user_id)
+    except ValueError as ve:
+        logger.warning(f"Skipping staking value for tax report: {ve}")
+    except Exception as staking_err:
+        logger.error(f"Tax report staking valuation error: {staking_err}", exc_info=True)
+    holdings_value = float(performance['holdings_value'])
+    holdings_cost = float(performance['holdings_cost'])
+    totals = summarize(tax_data)
+    return {
+        'transactions': tax_data,
+        'summary': _tax_summary(tax_data, totals, holdings_value - holdings_cost, holdings_value, holdings_cost,
+                                get_manual_tax_investment(user_id), accounting_method,
+                                staking=(staking_active, staking_pending),
+                                holdings_count=len(performance['holdings_map']),
+                                total_fees=float(performance['total_fees_paid'])),
+        'current_holdings': performance['holdings_map'],
+        'fifo_lots': open_lots,
+        'source': 'binance',
+    }
+
+
+def _build_tax_report(user_id, source, accounting_method):
+    if source == 'webull':
+        return _build_webull_tax_report(user_id, accounting_method=accounting_method)
+    return _build_binance_tax_report(user_id, accounting_method=accounting_method)
+
 
 @portfolio_bp.route('/api/tax-report')
 @login_required
 def api_tax_report():
-    """Generate comprehensive tax report with cost basis and gain/loss calculations"""
+    """Tax report with per-account lots, holding periods, income and review flags."""
     try:
-        from trading_models import AllActivity
-        from models import Coin
-        from credentials import UserSetting
         source = str(request.args.get('source') or 'binance').lower()
-        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-        accounting_method = str(request.args.get('method') or (setting.tax_cost_basis_method if setting else 'fifo')).upper()
         if source not in {'binance', 'webull'}:
             return jsonify({'error': 'Unsupported tax report source'}), 400
-        if source == 'webull':
-            return jsonify(_build_webull_tax_report(current_user.id, accounting_method=accounting_method))
-        # Use actual Binance balances from coins table, not calculated transaction totals
-        # sync_coins_from_transactions() overwrites correct balances with wrong calculated amounts
-
-        # Get all completed transactions using ORM
-        activities = AllActivity.query.filter(
-            AllActivity.user_id == current_user.id,
-            AllActivity.status.in_(['FILLED', 'completed'])
-        ).order_by(AllActivity.date.asc()).all()
-        activities = [
-            activity for activity in activities
-            if str(activity.exchange or '').lower() != 'webull'
-        ]
-
-        # Convert to list of dictionaries
-        transactions = []
-        for activity in activities:
-            fee = activity.fee
-            fee_asset = getattr(activity, 'fee_asset', None)
-            if (fee is None or fee == 0) and activity.details:
-                import re
-                match = re.search(r'Commission:\s*([\d\.]+)\s*([A-Za-z0-9]+)', str(activity.details))
-                if match:
-                    try:
-                        fee = float(match.group(1))
-                        fee_asset = match.group(2).upper()
-                    except (ValueError, TypeError):
-                        pass
-            tx_asset = str(activity.asset or '').strip()
-            if not tx_asset or tx_asset == '—':
-                det_str = str(activity.details or '') + ' ' + str(activity.txid or '') + ' ' + str(activity.description or '')
-                if 'USDT' in det_str:
-                    tx_asset = 'USDT'
-                elif 'USD' in det_str:
-                    tx_asset = 'USD'
-            tx_price = activity.price_sold_at or getattr(activity, 'avg_entry', None)
-            if (tx_price is None or float(tx_price or 0) <= 0) and activity.amount and abs(float(activity.amount)) > 0:
-                if activity.type == 'BUY' and activity.cost_basis and float(activity.cost_basis) > 0:
-                    tx_price = float(activity.cost_basis) / abs(float(activity.amount))
-                elif activity.type == 'SELL' and activity.proceeds and float(activity.proceeds) > 0:
-                    tx_price = float(activity.proceeds) / abs(float(activity.amount))
-                elif tx_asset in ['USD', 'USDT', 'USDC', 'BUSD', 'DAI']:
-                    tx_price = 1.0
-
-            from trading_models import TaxCorrection
-            corrections = {c.field: c.new_value for c in TaxCorrection.query.filter_by(user_id=current_user.id, source='binance', source_id=str(activity.id)).all()}
-            adj_amount = float(corrections.get('amount', activity.amount or 0.0))
-            adj_price = float(corrections.get('price_sold_at', tx_price or 0.0))
-            adj_fee = float(corrections.get('fee', fee or 0.0))
-            adj_asset = corrections.get('asset', tx_asset)
-            try:
-                adj_date = datetime.fromisoformat(corrections['date'].replace('Z', '')) if 'date' in corrections else activity.date
-            except:
-                adj_date = activity.date
-
-            tx_dict = {
-                'id': activity.id,
-                'date': adj_date,
-                'type': activity.type,
-                'asset': adj_asset,
-                'amount': adj_amount,
-                'proceeds': activity.proceeds,
-                'cost_basis': activity.cost_basis,
-                'gain_loss': activity.gain_loss,
-                'fee': adj_fee,
-                'fee_asset': fee_asset,
-                'txid': activity.txid,
-                'status': activity.status,
-                'details': activity.details,
-                'price_sold_at': adj_price,
-                'avg_entry': getattr(activity, 'avg_entry', None) or adj_price,
-                'exchange': activity.exchange or 'coinbase'
-            }
-            transactions.append(tx_dict)
-
-        tax_data, fifo_lots = _build_tax_transactions(transactions, accounting_method=accounting_method)
-
-        # Get actual current holdings from the coins table (which reflects real balances)
-        current_coins = Coin.query.filter_by(user_id=current_user.id, hidden=False).all()
-
-        performance = _calculate_portfolio_performance(transactions, current_coins)
-        current_holdings = performance['holdings_map']
-        portfolio_holdings_value = float(performance['holdings_value'])
-        portfolio_holdings_cost = performance['holdings_cost']
-
-        staking_active_value = 0.0
-        staking_pending_value = 0.0
-        try:
-            username = getattr(current_user, 'username', None)
-            cred = get_user_credentials(username) if username else None
-            # Only attempt if we have credentials to avoid ValueError spam
-            if cred and (cred.api_key or cred.openai_key or cred.zai_key):
-                 # Try-catch specifically for the configuration error
-                try:
-                    staking_active_value, staking_pending_value = calculate_staking_value_for_user(
-                        cred,
-                        current_user.id
-                    )
-                except ValueError as ve:
-                    # Expected if keys are missing/invalid
-                    logger.warning(f"Skipping staking value for tax report: {ve}")
-                    staking_active_value = 0.0
-                    staking_pending_value = 0.0
-            else:
-                 staking_active_value = 0.0
-                 staking_pending_value = 0.0
-
-        except Exception as staking_err:
-            logger.error(f"Tax report staking valuation error: {staking_err}", exc_info=True)
-            staking_active_value = 0.0
-            staking_pending_value = 0.0
-
-        total_staking_value = staking_active_value + staking_pending_value
-        combined_holdings_value = portfolio_holdings_value + total_staking_value
-
-        manual_invested = get_manual_tax_investment(current_user.id)
-        manual_updated_at = None  # This field is deprecated in new schema
-
-        # Calculate summary statistics for the table/meta data
-        valid_transactions = [t for t in tax_data if t['gain_loss'] is not None]
-        sell_transactions = [t for t in valid_transactions if t['type'] == 'SELL']
-
-        # Calculate total gain/loss as: Current Holdings Value - (Manual Contributions + Total Fees)
-        total_gain_loss = combined_holdings_value - (manual_invested + performance['total_fees_paid'])
-
-        summary = {
-            'total_transactions': len(tax_data),  # Total including orphaned
-            'valid_transactions': len(valid_transactions),  # Only those with proper cost basis
-            'total_buys': len([t for t in tax_data if t['type'] == 'BUY']),
-            'total_sells': len([t for t in tax_data if t['type'] == 'SELL']),
-            'valid_sells': len(sell_transactions),  # Only sells with cost basis
-            'excluded_sells': len([t for t in tax_data if t['type'] == 'SELL' and t['gain_loss'] is None]),
-            'total_gifts': len([t for t in tax_data if t['type'] in ['GIFT', 'BONUS', 'TRANSFER', 'RECEIVE']]),
-            'total_gain_loss': total_gain_loss,
-            'realized_gain': performance['realized_pnl'],
-            'unrealized_gain': performance['unrealized_pnl'],
-            'manual_invested_amount': manual_invested,
-            'manual_invested_updated_at': manual_updated_at,
-            'tracked_cost_basis': portfolio_holdings_cost,
-            'current_holdings_value': combined_holdings_value,
-            'current_holdings_cost_basis': portfolio_holdings_cost,
-            'portfolio_holdings_value': portfolio_holdings_value,
-            'staking_active_value': staking_active_value,
-            'staking_pending_value': staking_pending_value,
-            'staking_total_value': total_staking_value,
-            'total_fees_paid': performance['total_fees_paid'],
-            'total_buy_volume': performance['total_buy_cost'],
-            'total_sell_proceeds': performance['total_sell_proceeds'],
-            'short_term_gain_loss': sum(float(t.get('short_term_gain_loss') or 0.0) for t in tax_data),
-            'long_term_gain_loss': sum(float(t.get('long_term_gain_loss') or 0.0) for t in tax_data),
-            'assets_traded': list(set(t['asset'] for t in tax_data)),
-            'assets_with_current_holdings': len(current_holdings),
-            'date_range': {
-                'start': min(t['date'] for t in tax_data) if tax_data else None,
-                'end': max(t['date'] for t in tax_data) if tax_data else None
-            }
-        }
-
-        return jsonify({
-            'transactions': tax_data,
-            'summary': summary,
-            'current_holdings': current_holdings,
-            'fifo_lots': fifo_lots,
-            'source': 'binance',
-        })
-
+        return jsonify(_build_tax_report(current_user.id, source, _tax_method(current_user.id)))
     except Exception as e:
-        logger.error(f"Error generating tax report: {str(e)}")
+        logger.error(f"Error generating tax report: {e}", exc_info=True)
         return jsonify({"error": "Failed to generate tax report"}), 500
+
+
+FORM_8949_HEADERS = ['Part', '(a) Description', '(b) Date acquired', '(c) Date sold', '(d) Proceeds',
+                     '(e) Cost basis', '(f) Code', '(g) Adjustment', '(h) Gain or (loss)', 'Reported on', 'Needs review']
+FORM_8949_KEYS = ['part', 'description', 'date_acquired', 'date_sold', 'proceeds', 'cost_basis', 'code',
+                  'adjustment', 'gain_loss', 'reported_on', 'needs_review']
+
+
+def _form_8949_xlsx(rows, totals, income_total):
+    import io
+    import xlsxwriter
+    buf = io.BytesIO()
+    book = xlsxwriter.Workbook(buf, {'in_memory': True})
+    money = book.add_format({'num_format': '#,##0.00'})
+    bold = book.add_format({'bold': True})
+    money_keys = {'proceeds', 'cost_basis', 'adjustment', 'gain_loss'}
+    for part, title in (('I', 'Part I Short-term'), ('II', 'Part II Long-term')):
+        sheet = book.add_worksheet(title)
+        sheet.write_row(0, 0, FORM_8949_HEADERS[1:], bold)
+        part_rows = [r for r in rows if r['part'] == part]
+        for i, row in enumerate(part_rows, start=1):
+            for j, key in enumerate(FORM_8949_KEYS[1:]):
+                if key in money_keys:
+                    sheet.write_number(i, j, row[key], money)
+                else:
+                    sheet.write(i, j, row[key])
+        t = totals[part]
+        last = len(part_rows) + 2
+        sheet.write(last, 0, 'Total', bold)
+        for col, key in ((3, 'proceeds'), (4, 'cost_basis'), (6, 'adjustments'), (7, 'gain_loss')):
+            sheet.write_number(last, col, t[key], money)
+        sheet.set_column(0, 0, 32)
+        sheet.set_column(1, 9, 15)
+    summary = book.add_worksheet('Schedule D summary')
+    summary.write_row(0, 0, ['Part', 'Proceeds', 'Cost basis', 'Adjustments', 'Gain or (loss)', 'Rows'], bold)
+    for i, part in enumerate(('I', 'II'), start=1):
+        t = totals[part]
+        summary.write_row(i, 0, [part, t['proceeds'], t['cost_basis'], t['adjustments'], t['gain_loss'], t['rows']])
+    summary.write(4, 0, f'Ordinary income (staking, rewards): {income_total:.2f}')
+    summary.write(5, 0, 'Verify every figure against your broker 1099 before filing.')
+    book.close()
+    buf.seek(0)
+    return buf
+
+
+@portfolio_bp.route('/api/tax-report/form-8949', methods=['GET'])
+@login_required
+def api_tax_form_8949():
+    """Form 8949 rows and Schedule D totals for one tax year (JSON, CSV or XLSX)."""
+    import csv
+    import io
+    from services.tax_engine import form_8949_rows, schedule_d_totals
+    source = str(request.args.get('source') or 'binance').lower()
+    if source not in {'binance', 'webull'}:
+        return jsonify({'error': 'Unsupported tax report source'}), 400
+    year = request.args.get('year')
+    if year in ('', 'all'):
+        year = None
+    if year and not str(year).isdigit():
+        return jsonify({'error': 'year must be a four-digit year'}), 400
+    report = _build_tax_report(current_user.id, source, _tax_method(current_user.id))
+    rows = form_8949_rows(report['transactions'], year)
+    totals = schedule_d_totals(rows)
+    fmt = str(request.args.get('format') or 'json').lower()
+    label = f"{source}_form_8949_{year or 'all_years'}"
+    if fmt == 'csv':
+        out = io.StringIO()
+        writer = csv.writer(out)
+        writer.writerow(FORM_8949_HEADERS)
+        for row in rows:
+            writer.writerow([row[k] for k in FORM_8949_KEYS])
+        writer.writerow([])
+        for part, name in (('I', 'Part I short-term total'), ('II', 'Part II long-term total')):
+            t = totals[part]
+            writer.writerow([part, name, '', '', t['proceeds'], t['cost_basis'], '', t['adjustments'], t['gain_loss'], '', ''])
+        writer.writerow(['', f"Ordinary income (staking, rewards): {report['summary']['income_total']:.2f}"])
+        return send_file(io.BytesIO(out.getvalue().encode('utf-8')), mimetype='text/csv',
+                         as_attachment=True, download_name=f'{label}.csv')
+    if fmt == 'xlsx':
+        return send_file(_form_8949_xlsx(rows, totals, report['summary']['income_total']),
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                         as_attachment=True, download_name=f'{label}.xlsx')
+    return jsonify({'success': True, 'rows': rows, 'totals': totals, 'year': year,
+                    'income_total': report['summary']['income_total'],
+                    'accounting_method': report['summary']['accounting_method']})
+
+
+@portfolio_bp.route('/api/tax-report/reconciliation', methods=['GET', 'PUT'])
+@login_required
+def api_tax_reconciliation():
+    """Compare the report with the totals printed on the broker's 1099."""
+    from trading_models import TaxFormTotals
+    from services.tax_engine import form_8949_rows, schedule_d_totals
+    source = str(request.args.get('source') or 'binance').lower()
+    year = str(request.args.get('year') or '').strip()
+    if source not in {'binance', 'webull'} or not year.isdigit():
+        return jsonify({'error': 'source and a four-digit year are required'}), 400
+    fields = ('proceeds', 'cost_basis', 'wash_sale_disallowed', 'short_term_gain_loss', 'long_term_gain_loss')
+    record = TaxFormTotals.query.filter_by(user_id=current_user.id, source=source, tax_year=int(year)).first()
+    if request.method == 'PUT':
+        data = request.get_json(silent=True) or {}
+        if record is None:
+            record = TaxFormTotals(user_id=current_user.id, source=source, tax_year=int(year))
+            db.session.add(record)
+        for field in fields:
+            if field not in data:
+                continue
+            value = data[field]
+            if value in (None, ''):
+                setattr(record, field, None)
+                continue
+            try:
+                setattr(record, field, float(value))
+            except (TypeError, ValueError):
+                db.session.rollback()
+                return jsonify({'error': f'{field} must be a number'}), 400
+        record.updated_at = datetime.utcnow()
+        db.session.commit()
+    report = _build_tax_report(current_user.id, source, _tax_method(current_user.id))
+    totals = schedule_d_totals(form_8949_rows(report['transactions'], year))
+    ours = {
+        'proceeds': totals['I']['proceeds'] + totals['II']['proceeds'],
+        'cost_basis': totals['I']['cost_basis'] + totals['II']['cost_basis'],
+        'wash_sale_disallowed': totals['I']['adjustments'] + totals['II']['adjustments'],
+        'short_term_gain_loss': totals['I']['gain_loss'],
+        'long_term_gain_loss': totals['II']['gain_loss'],
+    }
+    broker = {field: getattr(record, field) if record else None for field in fields}
+    differences = {field: (round(ours[field] - broker[field], 2) if broker[field] is not None else None) for field in fields}
+    entered = [d for d in differences.values() if d is not None]
+    return jsonify({'success': True, 'source': source, 'year': int(year),
+                    'form': '1099-DA' if source == 'binance' else '1099-B',
+                    'report': {k: round(v, 2) for k, v in ours.items()}, 'broker': broker,
+                    'differences': differences,
+                    'matches': bool(entered) and all(abs(d) < 1.0 for d in entered)})
+
 
 @portfolio_bp.route("/api/hide-coin", methods=["POST"])
 @login_required
@@ -7206,13 +6778,18 @@ def update_tax_transaction(source, source_id):
     if not field or value is None:
         return jsonify({'error': 'Missing field or value'}), 400
 
-    allowed_fields = {'date', 'asset', 'amount', 'price_sold_at', 'fee'}
+    allowed_fields = {'date', 'asset', 'amount', 'price_sold_at', 'fee', 'cost_basis',
+                      'acquired_date', 'lot_selection', 'usd_value'}
     if field not in allowed_fields:
         return jsonify({'error': 'Field not editable'}), 400
 
     if source == 'binance':
         from trading_models import AllActivity
         record = AllActivity.query.filter_by(id=source_id, user_id=current_user.id).first()
+    elif source == 'staking':
+        from models import StakingReward
+        source_id = str(source_id).replace('staking-', '')
+        record = StakingReward.query.filter_by(id=source_id, user_id=current_user.id).first() if source_id.isdigit() else None
     elif source == 'webull':
         from models import WebullOrder
         record = WebullOrder.query.filter_by(id=source_id, user_id=current_user.id).first()
@@ -7247,61 +6824,28 @@ def update_tax_transaction(source, source_id):
 @portfolio_bp.route("/api/tax-report/export", methods=["GET"])
 @login_required
 def export_tax_report_csv():
+    """Export exactly the rows the Tax Report page shows, corrections included."""
     try:
         import io
         import csv
-        from credentials import UserSetting
         source = str(request.args.get('source') or 'binance').lower()
-        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-        accounting_method = str(request.args.get('method') or (setting.tax_cost_basis_method if setting else 'fifo')).upper()
         if source not in {'binance', 'webull'}:
             return jsonify({'error': 'Unsupported tax report source'}), 400
-        if source == 'webull':
-            transactions = _build_webull_tax_report(current_user.id, accounting_method=accounting_method)['transactions']
-        else:
-            from trading_models import AllActivity
-            activities = AllActivity.query.filter_by(user_id=current_user.id).order_by(AllActivity.date.desc()).all()
-            transactions, _ = _build_tax_transactions([
-                {
-                    'id': activity.id,
-                    'date': activity.date,
-                    'type': activity.type,
-                    'asset': activity.asset,
-                    'amount': activity.amount,
-                    'proceeds': activity.proceeds,
-                    'cost_basis': activity.cost_basis,
-                    'gain_loss': activity.gain_loss,
-                    'fee': activity.fee,
-                    'txid': activity.txid,
-                    'price_sold_at': activity.price_sold_at,
-                    'exchange': activity.exchange or 'binance',
-                }
-                for activity in activities
-                if str(activity.exchange or '').lower() != 'webull'
-            ], accounting_method=accounting_method)
-
+        transactions = _build_tax_report(current_user.id, source, _tax_method(current_user.id))['transactions']
         output = io.StringIO()
         writer = csv.writer(output)
-
-        # Headers
-        writer.writerow(['Date', 'Type', 'Asset', 'Amount', 'Price Traded At', 'Proceeds', 'Fee', 'Cost Basis', 'Gain/Loss', 'Description', 'Exchange', 'TxID'])
-
+        writer.writerow(['Date', 'Type', 'Asset', 'Account', 'Amount', 'Price Traded At', 'Proceeds', 'Fee',
+                         'Fee Estimated', 'Cost Basis', 'Gain/Loss', 'Term', 'Wash Sale Disallowed', 'Income',
+                         'Needs Review', 'Exchange', 'TxID'])
         for act in transactions:
             writer.writerow([
-                act.get('date'),
-                act.get('type'),
-                act.get('asset'),
-                act.get('amount'),
-                act.get('price_sold_at') or '',
-                act.get('proceeds') or 0,
-                act.get('fee') or 0,
-                act.get('cost_basis') or 0,
-                act.get('gain_loss') or 0,
-                '',
-                act.get('exchange') or '',
-                act.get('txid') or ''
+                act.get('date'), act.get('type'), act.get('display_symbol') or act.get('asset'), act.get('account') or '',
+                act.get('amount'), act.get('price_sold_at') or '', act.get('proceeds') or 0, act.get('fee') or 0,
+                'yes' if act.get('fee_estimated') else '', act.get('cost_basis') or 0,
+                act.get('gain_loss') if act.get('gain_loss') is not None else '', act.get('gain_loss_type') or '',
+                act.get('wash_sale_disallowed') or '', act.get('income') or '',
+                '; '.join(act.get('needs_review') or []), act.get('exchange') or '', act.get('txid') or '',
             ])
-
         output.seek(0)
         return send_file(
             io.BytesIO(output.getvalue().encode('utf-8')),
@@ -7310,5 +6854,5 @@ def export_tax_report_csv():
             download_name=f"{source}_tax_report_{datetime.now().strftime('%Y%m%d')}.csv"
         )
     except Exception as e:
-        logger.error(f"Error exporting tax report: {e}")
+        logger.error(f"Error exporting tax report: {e}", exc_info=True)
         return jsonify({"error": "Failed to export tax report"}), 500

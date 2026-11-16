@@ -2717,17 +2717,17 @@ def event_algo_worker_loop(app, stop_event=None):
                         continue
                     if config.user_id in _ACTIVE_SCAN_USERS:
                         continue
-                    result = run_event_strategy_scan(config.user_id, config=config, worker_id=f"paper-worker-{uuid4().hex[:12]}")
+                    # The scan owns and removes its scoped session, which detaches
+                    # ``config``; keep plain IDs for anything done afterwards.
+                    owner_id, scanned_config_id = config.user_id, config.id
+                    result = run_event_strategy_scan(owner_id, config=config, worker_id=f"paper-worker-{uuid4().hex[:12]}")
                     if not result.get("success"):
-                        # The scan owns/removes its scoped session in its
-                        # finally block, so reload before persisting recovery
-                        # state on a failed run.
-                        failed_config = db.session.get(EventStrategyConfig, config.id)
+                        failed_config = db.session.get(EventStrategyConfig, scanned_config_id)
                         if failed_config:
                             failed_config.worker_status = "DEGRADED"
                         _record_engine_log(
-                            config.user_id, "WORKER_SCAN_ERROR", result.get("message") or "Paper scan failed.",
-                            level="ERROR", config_id=config.id, notify=True,
+                            owner_id, "WORKER_SCAN_ERROR", result.get("message") or "Paper scan failed.",
+                            level="ERROR", config_id=scanned_config_id, notify=True,
                         )
                         db.session.commit()
             except Exception as exc:

@@ -34,7 +34,8 @@ app.config['SECRET_KEY'] = require_session_secret(os.getenv('SECRET_KEY'))
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 configure_public_proxy_security(app)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql:///cryptoalertapp?host=/var/run/postgresql&port=5433'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
+    'DATABASE_URL', 'postgresql:///cryptoalertapp?host=/var/run/postgresql&port=5433')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_size': 50,

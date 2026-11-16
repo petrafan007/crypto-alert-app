@@ -129,9 +129,12 @@ def import_webull_orders(user_id, orders):
         )
         if fee is not None and (fill_accepted or record.fee is None):
             record.fee = _number(fee, None)
+            record.fee_estimated = False
         elif fee is not None:
             pass
         elif str(record.status or '').upper() in {'FILLED', 'COMPLETED'}:
+            # Webull did not report a fee: estimate it, and say so wherever it is used.
+            record.fee_estimated = True
             filled_qty = float(record.filled_quantity or 0.0)
             fill_price = float(record.filled_price or record.price or 0.0)
             inst = str(record.instrument_type or '').upper()
@@ -153,6 +156,9 @@ def import_webull_orders(user_id, orders):
             record.status = normalise_status(incoming_status)
         record.created_at = _webull_order_datetime(_first_value(order, 'created_at', 'create_time', 'placed_time', 'place_time', 'submitted_time', 'filled_time_at')) or record.created_at
         record.updated_at = later(record.updated_at, incoming_updated_at)
+        filled_at = _webull_order_datetime(_first_value(order, 'filled_time', 'filled_time_at', 'fill_time', 'last_fill_time', 'filledTime'))
+        if filled_at:
+            record.filled_at = filled_at
         record.synced_at = now
         imported += 1
     db.session.commit()

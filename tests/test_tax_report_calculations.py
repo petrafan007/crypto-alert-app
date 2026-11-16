@@ -45,8 +45,8 @@ class TaxReportCalculationTests(unittest.TestCase):
         self.assertAlmostEqual(sale['long_term_gain_loss'], 200.0)
         self.assertAlmostEqual(sale['short_term_gain_loss'], 50.0)
         self.assertEqual(sale['holding_days'], None)
-        self.assertAlmostEqual(fifo_lots['BTC'][0]['amount'], 0.5)
-        self.assertAlmostEqual(fifo_lots['BTC'][0]['cost'], 100.0)
+        self.assertAlmostEqual(fifo_lots['BINANCE:BTC'][0]['amount'], 0.5)
+        self.assertAlmostEqual(fifo_lots['BINANCE:BTC'][0]['cost'], 100.0)
 
     def test_exact_365_day_holding_is_short_term(self):
         transactions, _ = _build_tax_transactions([

@@ -130,7 +130,7 @@ const priceMatchesRanges = (price, ranges = []) => {
 function EventCountdown({ cutoff, serverOffset }) {
   const [clock, setClock] = useState(Date.now());
   useEffect(() => {
-    const interval = window.setInterval(() => setClock(Date.now()), 33);
+    const interval = window.setInterval(() => setClock(Date.now()), 100);
     return () => window.clearInterval(interval);
   }, []);
   const remaining = cutoff ? cutoff.getTime() - (clock + serverOffset) : null;

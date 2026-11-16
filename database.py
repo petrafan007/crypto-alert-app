@@ -65,7 +65,7 @@ def init_db(app=None):
         AICopilotSession, AIConversation, AICache, AIAnalysisSchedule, PriceHistory,
         WebullAccountSnapshot, WebullHolding, WebullOrder, BinanceOrder, OrderHistorySyncState,
         WebullWatchlistItem, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition,
-        WebullTestOrder, WebullScheduledOrder,
+        WebullTestOrder, WebullScheduledOrder, AlertState, CredentialHealth,
     )
     from event_algo_models import EventStrategyConfig, EventStrategyRun, EventStrategyLog, EventStrategyAIEvaluation, EventMarketSnapshot, EventStrategyDecision, EventStrategyOrder, EventStrategyPosition, EventStrategyPerformance, EventContractOutcome, EventStrategyReport
     from portfolio_algo_models import (PortfolioStrategyConfig, PortfolioStrategyAccount,
@@ -73,7 +73,7 @@ def init_db(app=None):
         PortfolioStrategyLot, PortfolioEquitySnapshot, PortfolioAudit, PortfolioMarketObservation,
         PortfolioSignalDecision, PortfolioStrategyRevision, PortfolioAIReview, PortfolioOptionCoverage)
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
-    from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder, LadderOrder, LadderRung, SyntheticExecution, SyntheticRecovery
+    from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder, LadderOrder, LadderRung, SyntheticExecution, SyntheticRecovery, TaxCorrection, TaxFormTotals
     
     target_app = app if app is not None else current_app
     ctx = target_app.app_context() if target_app else None
@@ -285,6 +285,10 @@ def init_db(app=None):
             ("event_strategy_orders", "settled_at", "TIMESTAMP"),
             ("event_strategy_configs", "ai_config", "TEXT DEFAULT '{}'"),
             ("ai_conversations", "client_request_id", "VARCHAR(100)"),
+            ("test_orders", "oco_group", "VARCHAR(40)"),
+            ("trading_settings", "totp_last_used_step", "BIGINT"),
+            ("webull_orders", "fee_estimated", "BOOLEAN DEFAULT FALSE"),
+            ("webull_orders", "filled_at", "TIMESTAMP"),
         ]
         # ── Guard against idle-in-transaction sessions blocking ALTER TABLE ──
         # ALTER TABLE requires AccessExclusive lock, which is incompatible
@@ -324,6 +328,47 @@ def init_db(app=None):
                         print(f"Migration FAILED for {table}.{col} after retry: {retry_ex}")
                 else:
                     print(f"Migration note for {table}.{col}: {ex}")
+
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(db.text("SET LOCAL lock_timeout = '5s'"))
+                # Rewards synced from the exchange are not tied to a local staked-coin row.
+                conn.execute(db.text("ALTER TABLE staking_rewards ALTER COLUMN staked_coin_id DROP NOT NULL"))
+                conn.execute(db.text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_staking_rewards_user_tran "
+                    "ON staking_rewards (user_id, tran_id) WHERE tran_id IS NOT NULL"))
+        except Exception as ex:
+            print(f"Migration note for staking rewards: {ex}")
+
+        # One-time import of the legacy alert_state.json into the database.
+        try:
+            import json as _json, os as _os
+            legacy = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'alert_state.json')
+            if _os.path.exists(legacy) and AlertState.query.count() == 0:
+                with open(legacy) as handle:
+                    states = _json.load(handle)
+                for key, state in (states or {}).items():
+                    user_part = str(key).split(':', 1)[0]
+                    if state and user_part.isdigit():
+                        db.session.add(AlertState(user_id=int(user_part), alert_key=key, state=str(state)))
+                db.session.commit()
+                _os.replace(legacy, legacy + '.imported')
+        except Exception as ex:
+            db.session.rollback()
+            print(f"Migration note for alert states: {ex}")
+
+        try:
+            with db.engine.begin() as conn:
+                # Fees stored before v4.17 do not say whether Webull reported them.
+                # Rows matching the app's estimate formula exactly were estimated.
+                conn.execute(db.text(
+                    "UPDATE webull_orders SET fee_estimated = TRUE WHERE fee_estimated IS NOT TRUE AND fee IS NOT NULL AND ("
+                    " (upper(instrument_type) = 'EVENT' AND fee = round(CAST(filled_quantity * 0.025 AS numeric), 4))"
+                    " OR (upper(instrument_type) = 'OPTION' AND fee = round(CAST(filled_quantity * 0.55 AS numeric), 4))"
+                    " OR (upper(side) LIKE 'SELL%' AND upper(coalesce(instrument_type, '')) NOT IN ('EVENT', 'OPTION')"
+                    "     AND fee = greatest(0.01, round(CAST(filled_quantity * coalesce(filled_price, price, 0) * 0.0000278 AS numeric), 2))))"))
+        except Exception as ex:
+            print(f"Migration note for estimated Webull fees: {ex}")
 
         try:
             with db.engine.begin() as conn:

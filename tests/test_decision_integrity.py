@@ -88,7 +88,8 @@ class EthEndToEndTests(DecisionTestCase):
         data = Mock()
         data.quote.return_value = 2600.0
         data.bars.return_value = [{'time': (self.now - timedelta(hours=200 - i)).timestamp(),
-                                   'high': 2501, 'low': 2499, 'close': 2500, 'volume': 1000}
+                                   # A range wide enough to clear the volatility noise floor.
+                                   'high': 2510, 'low': 2490, 'close': 2500, 'volume': 1000}
                                   for i in range(150)]
         data.dominance_ok.return_value = True
         return data
@@ -104,7 +105,7 @@ class EthEndToEndTests(DecisionTestCase):
         self.assertEqual(row.entry_price, 2600.0)
         state = json.loads(row.state_json)
         self.assertEqual(state['current_price'], 2600.0)
-        self.assertEqual(state['features']['entry_channel_high'], 2501)
+        self.assertEqual(state['features']['entry_channel_high'], 2510)
         self.assertEqual(state['features']['completed_hourly_bars'], 150)
         self.assertEqual(row.action_taken, 'confirm')
 

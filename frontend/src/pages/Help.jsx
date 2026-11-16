@@ -48,12 +48,15 @@ const TOC_GROUPS = [
         title: 'Automated Protection',
         items: [
             { id: 'auto-buy-sell', label: 'Auto-Buy & Auto-Sell Triggers' },
+            { id: 'alerts-health', label: 'Alerts, Webull Token & Connection Health' },
         ]
     },
     {
         title: 'Trading & Staking',
         items: [
             { id: 'trading-center', label: 'Trading Center' },
+            { id: 'orders-page', label: 'Orders, Replacing & Synthetic Orders' },
+            { id: 'paper-trading', label: 'Paper (Test Mode) Trading' },
             { id: 'staking', label: 'Staking' },
         ]
     },
@@ -351,7 +354,7 @@ export default function Help({ isLightMode }) {
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.8' }}>
                     <li>Have the <strong>Webull App Key</strong> and <strong>App Secret</strong> issued for the environment you intend to use.</li>
                     <li>Choose <strong>Production</strong> only for your live Webull account or <strong>Sandbox</strong> only for a Webull test account. Credentials cannot be used across environments.</li>
-                    <li>Enable app-level trading 2FA before submitting or cancelling live Webull orders if you want the app's six-digit confirmation safeguard.</li>
+                    <li>Set up app two-factor authentication (Settings → Security) before trading: every live Webull or Binance.US order, replacement and cancellation requires a fresh six-digit code.</li>
                 </ul>
 
                 <SubHeading>Connect and verify Webull</SubHeading>
@@ -474,12 +477,13 @@ export default function Help({ isLightMode }) {
                     <li>Enable 2FA in Settings and scan the QR code with an authenticator app</li>
                     <li>Verify by entering the 6-digit code</li>
                     <li>When 2FA is enabled on your profile, you will be prompted for your 6-digit code upon logging in</li>
-                    <li>When "Require 2FA for Trading" is enabled, you will also need to confirm Binance.US and live Webull order placement, protected order cancellation, dust conversion, and Cancel Auto-Buy/Auto-Sell Trigger actions with a code</li>
+                    <li>Live trading always requires a code: Binance.US and live Webull order placement, replacement and cancellation, live synthetic strategies, dust conversion, and cancelling Auto-Buy/Auto-Sell triggers. Paper (Test Mode) orders never ask for one.</li>
+                    <li>Each code works <strong>once</strong>. If you just used a code (for example to log in), wait for the next one in your authenticator app before confirming a trade.</li>
                     <li>Webull simulated paper orders use the paper-order review confirmation without requiring an authenticator code; this exception never applies to live Webull orders</li>
                 </ol>
 
                 <Tip>
-                    Store your recovery codes securely in case you lose access to your authenticator.
+                    There are no recovery codes. Back up your authenticator (most apps offer encrypted backup or sync); if you lose it, the administrator must reset 2FA for your account.
                 </Tip>
                 <Tip>
                     Every six-digit field uses the standard browser one-time-code metadata. If the Bitwarden shield appears but its suggestion menu no longer opens when you focus the field, open the Bitwarden extension's Autofill settings, enable <strong>Show autofill suggestions on form fields</strong>, and turn off <strong>Display suggestions when icon is selected</strong> for immediate suggestions. Bitwarden—not the website—controls whether that extension popup opens automatically.
@@ -589,11 +593,16 @@ export default function Help({ isLightMode }) {
                     <li><strong>Auto-Buy</strong> begins confirmation if the price surges by more than Volatility % within that same window</li>
                 </ul>
                 <Example>
-                    If XRP is at $3.00 and you set Volatility % to 5, enabling Auto-Sell arms a trigger around
-                    $2.85 (a 5% drop) and enabling Auto-Buy arms a trigger around $3.15 (a 5% surge). Editing the
-                    Volatility % field afterward immediately recalculates and updates both the live trigger price
-                    shown in Open Orders and the actual threshold the background monitor uses.
+                    With Volatility % at 5 and a 24-hour window, Auto-Sell qualifies when XRP is 5% below its price
+                    24 hours earlier, and Auto-Buy when it is 5% above. The reference is a <strong>rolling</strong> window, so
+                    the trigger price shown in Open Orders moves as the 24-hour-ago price changes. Editing Volatility %
+                    immediately updates both the displayed trigger and the threshold the monitor uses.
                 </Example>
+                <p style={{ marginBottom: '16px' }}>
+                    Before an Auto-Sell, the app cancels only <strong>this coin&apos;s own sell orders</strong> (exact symbol match, any
+                    quote currency) so the full balance is free, and cancels any synthetic sell strategy on the coin through
+                    the strategy itself. Orders for other coins and buy orders are never touched.
+                </p>
 
                 <SubHeading>Confirmation against temporary swings</SubHeading>
                 <p style={{ marginBottom: '16px' }}>
@@ -626,6 +635,18 @@ export default function Help({ isLightMode }) {
                 </p>
             </Section>
 
+
+            {/* Alerts & connection health */}
+            <Section id="alerts-health" icon={<FaBolt />} title="Alerts, Webull Token & Connection Health">
+                <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
+                    <li><strong>Price alerts</strong> fire once when a price crosses your threshold and re-arm after the price moves back about 1%. Percentage thresholds are measured from your <strong>average entry</strong>, which changes when you buy more. Alerts only use a freshly fetched price; a stale price never triggers one.</li>
+                    <li><strong>Webull holdings</strong> support the same alerts: turn on the alert for a holding and set a lower or upper price (or %). They are checked every minute against the latest Webull sync.</li>
+                    <li><strong>Webull token</strong> — the app re-checks your Webull access token every six hours, shows its expiry in Settings, and notifies you three days before it expires and immediately if Webull reports it invalid.</li>
+                    <li><strong>Connection health</strong> — if Binance.US or Webull rejects your saved credentials three times in a row, background syncing for that account pauses (so the exchange is not flooded with rejected requests), a red banner appears, and you get a notification. Saving new keys, a successful Test Connection, or <strong>Retry now</strong> resumes it.</li>
+                    <li><strong>Toast popups</strong> — the Settings toggle silences routine alerts (fills, prices, sentiment). Errors and warnings always show.</li>
+                </ul>
+            </Section>
+
             {/* Trading Center */}
             <Section id="trading-center" icon={<FaChartLine />} title="Trading Center">
                 <p style={{ marginBottom: '16px' }}>
@@ -653,6 +674,28 @@ export default function Help({ isLightMode }) {
             </Section>
 
             {/* Staking */}
+
+            {/* Orders, replacement and synthetic orders */}
+            <Section id="orders-page" icon={<FaChartLine />} title="Orders, Replacing & Synthetic Orders">
+                <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
+                    <li>The <strong>Orders</strong> page lists open and past orders for Binance.US and Webull, refreshed every 15 seconds while the tab is visible.</li>
+                    <li><strong>Replace</strong> opens the order ticket prefilled from the original. The app checks the new order and your 2FA code first, then cancels the original, and only places the replacement once the cancellation is confirmed. If the original cannot be cancelled (it filled, partly filled, or the exchange refused), nothing new is placed and you are told why.</li>
+                    <li>If the replacement is then rejected, a simple limit or stop-limit original is put back with its original terms where possible; otherwise the message says plainly that no order is working.</li>
+                    <li><strong>Synthetic orders</strong> (ladders, trailing stops, smart brackets) are strategies the app monitors and executes for you. They appear in the Synthetic Orders table with their legs, trigger prices and trading session.</li>
+                    <li><strong>Webull OCO / OTOCO tickets</strong> are checked as you type: legs on the same side must differ in price by at least 0.1%, a stop-limit&apos;s limit must sit on the fillable side of its stop, and native combo orders can only be sent during regular market hours.</li>
+                </ul>
+            </Section>
+
+            {/* Paper trading */}
+            <Section id="paper-trading" icon={<FaShieldAlt />} title="Paper (Test Mode) Trading">
+                <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
+                    <li>Binance.US Test Mode uses fake funds (deposit them from the Trading page) and the exchange&apos;s real rules.</li>
+                    <li>Market orders fill at the current price. Limit orders fill immediately only if the market is already at or through your price (at the market price), otherwise they <strong>rest</strong> until the market reaches them, just like a live order.</li>
+                    <li>Stop and take-profit orders wait for their trigger; a stop that would trigger immediately is rejected, as Binance.US does. Both legs of a paper OCO rest until one fills, which cancels the other.</li>
+                    <li>You get a notification when a resting paper order fills.</li>
+                </ul>
+            </Section>
+
             <Section id="staking" icon={<FaCoins />} title="Staking">
                 <p style={{ marginBottom: '16px' }}>
                     Manage Binance.US staking positions for supported proof-of-stake assets directly in the app.
@@ -702,12 +745,17 @@ export default function Help({ isLightMode }) {
                     Generate separate capital gains/losses reports for Binance.US and Webull activity.
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
-                    <li><strong>Provider-specific reports</strong> — use Tax Report → Binance.US or Tax Report → Webull to keep exchange activity separate</li>
-                    <li><strong>Cost basis method</strong> — choose FIFO, LIFO, or HIFO in Settings → Tax Configuration</li>
-                    <li><strong>Tax-year filtering</strong> — generate annual reports scoped to a specific tax year (e.g. 2026, 2025, 2024...) or all time</li>
-                    <li><strong>Short-Term vs. Long-Term Capital Gains</strong> — automatically calculates holding periods and breaks down short-term vs. long-term gains</li>
-                    <li><strong>Unified transaction ledger</strong> — every buy, sell, deposit, withdrawal, staking reward, and fee formatted in Eastern Time</li>
-                    <li><strong>CSV & Excel export</strong> — download filtered annual tax summaries and transaction logs for your tax records</li>
+                    <li><strong>Provider-specific reports</strong> — Tax Report → Binance.US (crypto wallets, reported on Form 1099-DA) or Tax Report → Webull (securities, options and Event contracts, reported on Form 1099-B)</li>
+                    <li><strong>Cost basis method</strong> — FIFO (the IRS default), LIFO or HIFO in Settings → Tax Configuration. For <strong>specific identification</strong>, double-click a sale&apos;s <em>Lots Used</em> cell and enter the purchase IDs from the ID column.</li>
+                    <li><strong>Per-account lots</strong> — basis is tracked separately for each wallet or brokerage account. A sale with no purchase in its own wallet uses a purchase from another wallet and is flagged so you can record the transfer.</li>
+                    <li><strong>Holding period</strong> — long-term only when sold after the one-year anniversary date of the purchase.</li>
+                    <li><strong>Staking rewards</strong> are synced from Binance.US and reported as ordinary income at their USD value when received; they start new lots at that value.</li>
+                    <li><strong>Wash sales</strong> (Webull securities) — a loss is disallowed when the same security is bought within 30 days before or after, across accounts; it is added to the replacement shares&apos; basis and shown with code W.</li>
+                    <li><strong>Event contracts</strong> held to settlement are recorded as sold at $1 (won) or $0 (lost) on the settlement date. If a result is unknown the contract is flagged for review.</li>
+                    <li><strong>Needs review</strong> — rows with missing purchases, estimated broker fees, unknown multipliers or unknown settlements are flagged ⚠ with the reason; double-click a cell to correct it.</li>
+                    <li><strong>Form 8949</strong> — download Part I (short-term) and Part II (long-term) rows with Schedule D totals as CSV or Excel for the selected year.</li>
+                    <li><strong>1099 Reconciliation</strong> — enter the totals from your broker&apos;s 1099 to see any differences from this report.</li>
+                    <li><strong>Total Gain/Loss</strong> means realized plus unrealized gains for both brokers. This report is a record-keeping aid, not tax advice; verify it against your 1099 and consult a tax professional.</li>
                 </ul>
             </Section>
 
@@ -723,8 +771,8 @@ export default function Help({ isLightMode }) {
                     <li><strong>Run Sentiment Analysis Now</strong> — trigger a full AI sentiment pass on demand</li>
                     <li><strong>Include Beta</strong> — opt in to beta releases when upgrading</li>
                     <li><strong>AI Integrations Enabled</strong> — toggle all configured AI integrations from the Settings header. API keys, Telegram credentials, and the News API key are masked on screen; every configured provider has a consistent <strong>Test API Connection</strong> button.</li>
-                    <li><strong>Upgrade App</strong> — queries GitHub live for the latest eligible published release, shows that exact tag for confirmation, then rechecks GitHub immediately before installing it. Beta releases are included only when Include Beta is enabled.</li>
-                    <li><strong>Delete Account</strong> — permanently removes your credentials, 2FA, settings, and tax data (export your tax report first!)</li>
+                    <li><strong>Upgrade App</strong> — queries GitHub live for the latest eligible published release, shows that exact tag for confirmation, then rechecks GitHub immediately before installing it. Beta releases are included only when Include Beta is enabled. The upgrade stops without changing anything if the installed copy has local edits.</li>
+                    <li><strong>Delete Account</strong> — after you type your username and password, permanently removes your account and every record that belongs to it in every table (credentials, 2FA, settings, orders, history and tax data). Export your tax report first.</li>
                 </ul>
             </Section>
 

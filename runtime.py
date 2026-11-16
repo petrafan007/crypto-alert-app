@@ -41,9 +41,33 @@ def run_worker(app, stop=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['init-db', 'worker'])
+    parser.add_argument('command', choices=['init-db', 'worker', 'purge-user', 'orphan-report', 'purge-orphans'])
+    parser.add_argument('--user-id', type=int)
+    parser.add_argument('--confirm', help='exact username (purge-user) or "yes" (purge-orphans); omit for a dry run')
     args = parser.parse_args()
     from main import app
+    if args.command in ('purge-user', 'orphan-report', 'purge-orphans'):
+        import json
+        from services import user_purge
+        with app.app_context():
+            if args.command == 'orphan-report':
+                print(json.dumps(user_purge.orphan_report(), indent=2))
+                return
+            if not args.user_id:
+                parser.error('--user-id is required')
+            if args.command == 'purge-user':
+                if not args.confirm:
+                    print(json.dumps(user_purge.purge_plan(args.user_id), indent=2))
+                    print('Dry run only. Re-run with --confirm <username> to delete.')
+                    return
+                print(json.dumps(user_purge.purge_user(args.user_id, confirm_username=args.confirm), indent=2))
+                return
+            if args.confirm != 'yes':
+                print(json.dumps(user_purge.orphan_report().get(args.user_id, {}), indent=2))
+                print('Dry run only. Re-run with --confirm yes to delete these leftover rows.')
+                return
+            print(json.dumps(user_purge.purge_orphans(args.user_id), indent=2))
+            return
     if args.command == 'init-db':
         from database import init_db
         init_db(app)

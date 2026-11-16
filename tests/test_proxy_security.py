@@ -73,30 +73,5 @@ class ProxySecurityTests(unittest.TestCase):
         self.assertTrue(self.app.config["REMEMBER_COOKIE_HTTPONLY"])
         self.assertEqual(self.app.config["REMEMBER_COOKIE_SAMESITE"], "Lax")
 
-    def test_desktop_download_url_uses_forwarded_https_origin(self):
-        app = Flask(__name__)
-        app.config["SECRET_KEY"] = "desktop-url-test-key"
-        app.register_blueprint(system_bp)
-        configure_public_proxy_security(app)
-
-        with patch(
-            "routes.system.get_user_from_desktop_session",
-            return_value=SimpleNamespace(username="test-user"),
-        ):
-            response = app.test_client().get(
-                "/api/desktop/check-update?current_version=1.0.0",
-                headers={
-                    "X-Forwarded-Proto": "https",
-                    "X-Forwarded-Host": "csdapp.online",
-                },
-                environ_base={"REMOTE_ADDR": "127.0.0.1"},
-            )
-
-        self.assertEqual(
-            response.get_json()["download_url"],
-            "https://csdapp.online/api/desktop/download-update",
-        )
-
-
 if __name__ == "__main__":
     unittest.main()

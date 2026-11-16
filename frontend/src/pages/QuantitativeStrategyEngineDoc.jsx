@@ -441,12 +441,13 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                 <p style={{ marginBottom: '16px', lineHeight: '1.7' }}>
                     The engine runs autonomously, but several layers of protection prevent catastrophic runaway behavior.
                 </p>
-                <SubHeading>Global Circuit Breaker</SubHeading>
+                <SubHeading>Kill Switch (No Automatic Drawdown Halt)</SubHeading>
                 <p style={{ lineHeight: '1.7', marginBottom: '12px' }}>
-                    The system monitors <strong>Total Portfolio Equity</strong> after every scan. If simulated equity
-                    falls to <strong>90% of the starting bankroll or below</strong>, the engine pauses new entries.
-                    Existing positions can still be monitored and exited. Review the pause in the dashboard;
-                    an explicit Stop separately freezes execution.
+                    This paper engine has <strong>no automatic portfolio drawdown halt</strong>: losses are measured and
+                    reported (maximum drawdown, module P&amp;L) but never pause the experiment by themselves. To stop new
+                    entries, use the <strong>Kill switch</strong>; existing positions are still monitored and exited.
+                    An explicit Stop freezes execution entirely. Module-level limits (position caps, the futures daily
+                    loss ceiling and the Event module&apos;s own risk controls) still apply.
                 </p>
                 <SubHeading>Stall Detection via Lease Tokens</SubHeading>
                 <p style={{ lineHeight: '1.7', marginBottom: '12px' }}>
@@ -460,8 +461,8 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                     positions can put actual weights above targets; an allocation target is not a guarantee of exact exposure.
                 </p>
                 <Warning>
-                    The portfolio circuit uses the starting bankroll. Reported peak-to-trough drawdown and the
-                    Event module's separate daily risk controls have different baselines.
+                    Reported peak-to-trough drawdown and the Event module&apos;s separate daily risk controls have
+                    different baselines. Neither one stops the engine automatically.
                 </Warning>
             </Section>
 

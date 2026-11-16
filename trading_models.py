@@ -33,6 +33,7 @@ class TestOrder(db.Model):
     created_at = Column(DateTime, default=datetime.utcnow)
     validation_response = Column(Text, nullable=True)  # JSON from Binance test endpoint
     notes = Column(Text, nullable=True)
+    oco_group = Column(String(40), nullable=True)  # Links the two legs of a paper OCO
     
     __table_args__ = (
         Index('idx_test_orders_user', 'user_id'),
@@ -56,7 +57,8 @@ class TestOrder(db.Model):
             'simulated_fill_price': self.simulated_fill_price,
             'simulated_fill_time': self.simulated_fill_time.isoformat() if self.simulated_fill_time else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'notes': self.notes
+            'notes': self.notes,
+            'oco_group': self.oco_group
         }
 
 class RealOrder(db.Model):
@@ -176,6 +178,8 @@ class TradingSettings(db.Model):
     require_confirmation = Column(Boolean, default=True)
     require_2fa = Column(Boolean, default=False)  # Require 2FA for all orders
     totp_secret = Column(String(32), nullable=True)  # TOTP secret for 2FA
+    # Last consumed TOTP time step: a code authorizes one action only.
+    totp_last_used_step = Column(BigInteger, nullable=True)
     default_time_in_force = Column(String(10), default='GTC')
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=True)
@@ -458,6 +462,26 @@ class SyntheticRecovery(db.Model):
     replacement_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     __table_args__ = (Index('ix_synthetic_recovery_parent', 'user_id', 'parent_kind', 'parent_id', unique=True),)
+
+
+class TaxFormTotals(db.Model):
+    """Totals the user copied from a broker 1099, for reconciliation."""
+    __tablename__ = 'tax_form_totals'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    source = Column(String(20), nullable=False)  # 'binance' (1099-DA) or 'webull' (1099-B)
+    tax_year = Column(Integer, nullable=False)
+    proceeds = Column(Float, nullable=True)
+    cost_basis = Column(Float, nullable=True)
+    wash_sale_disallowed = Column(Float, nullable=True)
+    short_term_gain_loss = Column(Float, nullable=True)
+    long_term_gain_loss = Column(Float, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('uq_tax_form_totals_user_source_year', 'user_id', 'source', 'tax_year', unique=True),
+    )
 
 
 class TaxCorrection(db.Model):

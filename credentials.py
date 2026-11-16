@@ -600,7 +600,7 @@ class UserSetting(db.Model):
     ai_cache_duration_hours = db.Column(db.Integer, default=24)
     ai_analysis_window_start = db.Column(db.String, default='09:00')
     ai_analysis_window_end = db.Column(db.String, default='17:00')
-    ai_max_tokens = db.Column(db.Integer, default=4000)
+    ai_max_tokens = db.Column(db.Integer, default=2000)
     ai_web_search_enabled = db.Column(db.Boolean, default=True)
     tax_manual_invested_updated = db.Column(db.String)
     tax_webull_manual_invested_updated = db.Column(db.String)

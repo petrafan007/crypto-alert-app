@@ -338,7 +338,7 @@ class SyntheticLifecycleTests(unittest.TestCase):
         db.session.commit()
         with self.app.test_request_context(method='POST', json={'two_factor_code': '123456'}), \
                 patch.object(portfolio, 'current_user', SimpleNamespace(id=1)), \
-                patch('services.trading_2fa_service.verify_totp_code', return_value=True):
+                patch('services.trading_2fa_service.consume_totp_code', return_value=True):
             response = portfolio.api_cancel_ladder_order.__wrapped__(live.id)
             self.assertTrue(response.get_json()['success'])
 

@@ -26,7 +26,7 @@ export default function ResearchWorkbench() {
   };
   useEffect(() => {
     const controller = new AbortController(); load(controller.signal);
-    const timer = setInterval(() => load(controller.signal), 5000);
+    const timer = setInterval(() => { if (!document.hidden) load(controller.signal); }, 5000);
     return () => { controller.abort(); clearInterval(timer); };
   }, []);
   const action = async work => {

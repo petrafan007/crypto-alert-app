@@ -1,93 +1,51 @@
 #!/bin/bash
-# upgrade.sh - Crypto & Securities Dashboard Auto-Upgrade Script
-
-set -e
-
-# Ensure PATH has standard binary locations, mainly for when invoked via restricted systemd environments
+# upgrade.sh - Crypto & Securities Dashboard in-app upgrade.
+#
+# Safe by design: it never discards local changes. If the checkout has
+# uncommitted edits to tracked files, it stops and says so instead of
+# resetting them away.
+set -euo pipefail
 export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 LOG_FILE="$PROJECT_DIR/upgrade.log"
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
 
-log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
-}
-
-TARGET_VERSION=$1
-
-log "Starting Crypto & Securities Dashboard Upgrade..."
-if [ -n "$TARGET_VERSION" ]; then
-    log "Target version: $TARGET_VERSION"
-fi
-
-# 1. Navigate to the local app directory (the live instance, not the source!)
+TARGET_VERSION="${1:-}"
 cd "$PROJECT_DIR"
+log "Starting Crypto & Securities Dashboard upgrade${TARGET_VERSION:+ to $TARGET_VERSION}..."
 
-# 2. Pull the latest code from GitHub
-log "Pulling latest changes from petrafan007/crypto-alert-app..."
-git fetch origin --tags -f || log "Warning: Git fetch tags failed."
-git checkout main || log "Warning: Git checkout main failed."
-git reset --hard origin/main || log "Warning: Git reset failed."
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    log "ERROR: tracked files have local changes; refusing to upgrade over them. Commit or stash them first."
+    git status --short | tee -a "$LOG_FILE"
+    exit 1
+fi
 
+git fetch origin --tags --force
 if [ -n "$TARGET_VERSION" ]; then
-    log "Checking out target version: $TARGET_VERSION"
-    git checkout -f "$TARGET_VERSION" || log "Error: Git checkout $TARGET_VERSION failed."
-    git reset --hard "$TARGET_VERSION" || log "Warning: Git reset to $TARGET_VERSION failed."
+    git rev-parse --verify --quiet "refs/tags/$TARGET_VERSION" >/dev/null || { log "ERROR: tag $TARGET_VERSION not found."; exit 1; }
+    git checkout --quiet main
+    git merge --ff-only "refs/tags/$TARGET_VERSION"
+else
+    git checkout --quiet main
+    git merge --ff-only origin/main
 fi
-# 3. Update Python dependencies
-log "Updating Python dependencies..."
-if [ -d ".venv" ]; then
-    source .venv/bin/activate
-elif [ -d "venv" ]; then
-    source venv/bin/activate
-fi
-pip install -r requirements.txt | tee -a "$LOG_FILE"
+log "Checked out $(git describe --tags --always)."
 
-# 4. Update Node dependencies & rebuild frontend
-log "Updating Node dependencies and rebuilding frontend..."
-cd frontend
-npm install | tee -a "$LOG_FILE"
-npm run build | tee -a "$LOG_FILE"
-cd ..
+PY="$PROJECT_DIR/venv/bin/python3"
+[ -x "$PY" ] || PY="$PROJECT_DIR/.venv/bin/python3"
+[ -x "$PY" ] || { log "ERROR: no virtual environment found (venv or .venv)."; exit 1; }
 
-# 5. Run any database migrations
-log "Running database migrations..."
-if [ -f "migrations/migrate_v1_47.py" ]; then
-    python3 migrations/migrate_v1_47.py | tee -a "$LOG_FILE"
-fi
-if [ -f "migrations/migrate_v1_48.py" ]; then
-    python3 migrations/migrate_v1_48.py | tee -a "$LOG_FILE"
-fi
-if [ -f "migrations/migrate_v1_49.py" ]; then
-    python3 migrations/migrate_v1_49.py | tee -a "$LOG_FILE"
-fi
-if [ -f "migrations/migrate_v1_55.py" ]; then
-    python3 migrations/migrate_v1_55.py | tee -a "$LOG_FILE"
-fi
-if [ -f "migrations/migrate_v1_56.py" ]; then
-    python3 migrations/migrate_v1_56.py | tee -a "$LOG_FILE"
-fi
-if [ -f "migrations/migrate_v1_57.py" ]; then
-    python3 migrations/migrate_v1_57.py | tee -a "$LOG_FILE"
-fi
+log "Installing Python dependencies..."
+"$PY" -m pip install -r requirements.txt | tee -a "$LOG_FILE"
 
-if [ -f "update_db_prompts.py" ]; then
-    python3 update_db_prompts.py | tee -a "$LOG_FILE"
-fi
+log "Installing Node dependencies and rebuilding the frontend..."
+(cd frontend && npm ci | tee -a "$LOG_FILE" && npm run build | tee -a "$LOG_FILE")
 
-# 6. Restart the application service
-log "Restarting application..."
-if systemctl is-active --quiet crypto-dashboard.service; then
-    log "Restarting crypto-dashboard.service..."
-    sudo systemctl restart crypto-dashboard.service
-fi
+log "Applying database migrations..."
+"$PY" runtime.py init-db | tee -a "$LOG_FILE"
+"$PY" update_db_prompts.py | tee -a "$LOG_FILE"
 
-# If running manually via python3 main.py (test environment), restart it
-if pgrep -f "python3 main.py" > /dev/null; then
-    log "Restarting manual python3 main.py instance..."
-    pkill -f "python3 main.py" || true
-    sleep 2
-    nohup python3 main.py > /dev/null 2>&1 &
-fi
-
-log "Upgrade Complete! System is back online."
+log "Restarting services..."
+sudo systemctl restart crypto-dashboard.service crypto-dashboard-worker.service
+log "Upgrade complete: $(git describe --tags --always)."

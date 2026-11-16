@@ -1,0 +1,12 @@
+[Unit]
+Description=Crypto Dashboard nightly database backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=jcavallarojr
+Group=jcavallarojr
+Environment=BACKUP_DIR=/home/jcavallarojr/backups/crypto-dashboard
+ExecStart=/var/www/html/csdapp/scripts/backup_db.sh
+Nice=10
+IOSchedulingClass=idle

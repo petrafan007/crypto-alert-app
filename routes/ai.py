@@ -791,20 +791,13 @@ def api_ai_settings():
 
         if request.method == "GET":
             # Return AI settings
-            logger.error(f"=== DEBUG: api_ai_settings GET called for user: {username} ===")
             ai_settings = get_user_ai_settings(username)
-            logger.error(f"=== DEBUG: Base AI settings loaded ===")
 
             # Get user object to get user_id for AI prompts
-            logger.error(f"=== DEBUG: Querying User with username: {username} ===")
             user_obj = User.query.filter_by(username=username).first()
-            logger.error(f"=== DEBUG: User query result: {user_obj is not None} ===")
-            logger.error(f"=== DEBUG: User object found: {user_obj is not None} ===")
             if user_obj:
-                logger.error(f"=== DEBUG: User ID: {user_obj.id} ===")
                 # Get AI prompts from database
                 ai_prompts = get_user_ai_prompts(user_obj.id)
-                logger.error(f"=== DEBUG: AI prompts found: {ai_prompts is not None} ===")
                 if ai_prompts:
                     # Convert AI prompts to the format expected by frontend
                     ai_settings['ai_prompts'] = {
@@ -821,17 +814,11 @@ def api_ai_settings():
                         'watchlist_sentiment_prompt_pre': getattr(ai_prompts, 'watchlist_sentiment_prompt_pre', '') or '',
                         'watchlist_sentiment_prompt_post': getattr(ai_prompts, 'watchlist_sentiment_prompt_post', '') or ''
                     }
-                    logger.error("=== DEBUG: AI prompts added to settings ===")
-                else:
-                    logger.error("=== DEBUG: No AI prompts found, using defaults ===")
-            else:
-                logger.error("=== DEBUG: User not found in database! ===")
 
             # Remove the old ai_custom_prompts if it exists
             if 'ai_custom_prompts' in ai_settings:
                 del ai_settings['ai_custom_prompts']
 
-            logger.error("=== DEBUG: Final AI settings response generated ===")
             from services.credential_views import decision_status_for_user
             credential = Credential.query.filter_by(user_id=current_user.id).first()
             ai_settings.update(decision_status_for_user(current_user.id, credential))
@@ -1002,72 +989,22 @@ def api_ai_settings():
                 data['automated_trigger_confirmation_minutes'] = confirmation_minutes
 
             save_decision_settings(user_setting, data)
-            # Map of allowed fields to update
-            allowed_fields = [
-                'ai_enabled', 'ai_provider', 'ai_model', 'ai_reasoning_level',
-                'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
-                'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
-                'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
-                'ai_provider_quaternary', 'ai_model_quaternary', 'ai_reasoning_level_quaternary',
-                'ai_risk_tolerance', 'ai_confidence_threshold', 'ai_notifications_enabled',
-                'ai_analysis_frequency', 'ai_cache_duration_hours', 'ai_analysis_window_start',
-                'ai_analysis_window_end', 'ai_max_tokens', 'ai_web_search_enabled',
-                'tax_manual_invested_updated', 'tax_cost_basis_method',
-                'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
-                'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
-                'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours',
-                'volatility_hours', 'automated_trigger_confirmation_minutes', 'ai_outcome_neutral_threshold_pct', 'copilot_chat_pre',
-                'copilot_chat_post', 'sentiment_chart_default_range',
-                'event_strategy_audit_prompt',
-                *SENTIMENT_THRESHOLD_FIELDS
-            ]
+            from services import user_settings_writer
+            user_settings_writer.normalize_aliases(data)
+            setting_errors = user_settings_writer.validate(data)
+            if setting_errors:
+                db.session.rollback()
+                return jsonify({"success": False, "message": " ".join(setting_errors.values()),
+                                "errors": setting_errors}), 400
 
-            for key, value in data.items():
-                logger.error(f"=== DEBUG LOOP: checking key '{key}' against allowed list. In list? {key in allowed_fields} ===")
-                if key == "ai_prompts" and isinstance(value, dict):
-                    # Update AIPrompt fields for this user
-                    ai_prompts = AIPrompt.query.filter_by(user_id=user_obj.id).first()
-                    if not ai_prompts:
-                        ai_prompts = AIPrompt(user_id=user_obj.id)
-                        db.session.add(ai_prompts)
-                    # Update all known prompt fields if present in payload
-                    prompt_fields = [
-                        'market_analysis_pre', 'market_analysis_post',
-                        'risk_assessment_pre', 'risk_assessment_post',
-                        'portfolio_review_pre', 'portfolio_review_post',
-                        'coin_analysis_pre', 'coin_analysis_post',
-                        'sentiment_prompt_pre', 'sentiment_prompt_post',
-                        'watchlist_sentiment_prompt_pre', 'watchlist_sentiment_prompt_post',
-                        'event_strategy_audit_prompt'
-                    ]
-                    for field in prompt_fields:
-                        if field in value:
-                            setattr(ai_prompts, field, value[field])
-                    continue
+            def _prompt_record():
+                record = AIPrompt.query.filter_by(user_id=user_obj.id).first()
+                if not record:
+                    record = AIPrompt(user_id=user_obj.id)
+                    db.session.add(record)
+                return record
 
-                # Explicit column updates
-                if key in allowed_fields:
-                    logger.error(f"=== DEBUG: Updating {key} to {value} ===")
-                    # Handle type conversions if necessary (frontend sends JSON types, DB expects specific types)
-                    # For boolean fields
-                    if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled']:
-                         setattr(user_setting, key, bool(value))
-                    # For int fields
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours', 'automated_trigger_confirmation_minutes']:
-                        try:
-                            parsed_value = int(value)
-                            setattr(user_setting, key, parsed_value)
-                        except:
-                            pass
-                    # For float fields
-                    elif key in ['ai_confidence_threshold', 'ai_outcome_neutral_threshold_pct', *SENTIMENT_THRESHOLD_FIELDS]:
-                        try:
-                            setattr(user_setting, key, float(value))
-                        except:
-                            pass
-                    # For string fields
-                    else:
-                        setattr(user_setting, key, str(value))
+            user_settings_writer.apply(user_setting, data, _prompt_record)
             db.session.commit()
             from services.credential_views import decision_status_for_user
             return jsonify({"success": True, "message": "AI settings updated", **decision_status_for_user(current_user.id, cred)})
@@ -1227,6 +1164,10 @@ def api_test_binance_connection():
             binance_type = "Binance.US"
             account = client.get_account()
             logger.info("Binance.US connection successful")
+            saved = Credential.query.filter_by(user_id=current_user.id).first()
+            if saved and saved.api_key == api_key and saved.api_secret == api_secret:
+                from services import credential_health
+                credential_health.record_success(current_user.id, 'binance')
 
         except BinanceAPIException as api_e:
             connection_attempts.append(f"Binance.US: {api_e.message}")
@@ -2847,7 +2788,7 @@ def api_market_analysis_workflow():
                         "expires_at": (last_conv.created_at + timedelta(hours=cache_duration_hours)).isoformat()
                     }
                     return jsonify(cached_data)
-                except:
+                except Exception:
                     pass
 
             return jsonify({
@@ -2879,7 +2820,7 @@ def api_market_analysis_workflow():
                         "expires_at": (last_conv.created_at + timedelta(hours=cache_duration_hours)).isoformat()
                     }
                     return jsonify(cached_data)
-                except:
+                except Exception:
                     pass
 
             return jsonify({
@@ -3049,7 +2990,7 @@ def api_market_analysis_workflow():
         logger.error(f"Market analysis workflow error for user {username}: {e}")
         try:
             db.session.rollback()
-        except:
+        except Exception:
             pass
         return jsonify({
             "success": False,
@@ -3097,7 +3038,7 @@ def api_portfolio_review_workflow():
                             "expires_at": (last_conv.created_at + timedelta(hours=cache_duration_hours)).isoformat()
                         }
                         return jsonify(cached_data)
-                    except:
+                    except Exception:
                         pass
                 return jsonify({
                     "success": False,
@@ -3121,7 +3062,7 @@ def api_portfolio_review_workflow():
                             "expires_at": (last_conv.created_at + timedelta(hours=cache_duration_hours)).isoformat()
                         }
                         return jsonify(cached_data)
-                    except:
+                    except Exception:
                         pass
                 return jsonify({
                     "success": False,
@@ -3267,7 +3208,7 @@ def api_portfolio_review_workflow():
         logger.error(f"Portfolio review workflow error for user {username}: {e}", exc_info=True)
         try:
             db.session.rollback()
-        except:
+        except Exception:
             pass
         return jsonify({
             "success": False,
