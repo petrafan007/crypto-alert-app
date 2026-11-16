@@ -5,6 +5,7 @@ import threading
 import json
 import time
 import re
+import math
 import traceback
 from flask import Blueprint, send_file, request, jsonify, render_template, current_app, redirect, url_for, session, make_response
 from flask_login import current_user, login_required, login_user, logout_user
@@ -329,7 +330,7 @@ def api_true_portfolio_value_live():
             staking_active, staking_pending = calculate_staking_value_for_user(cred, current_user.id)
             total_value += staking_active + staking_pending
         except Exception:
-            pass
+            logger.warning("Staking value unavailable; the total excludes staked balances", exc_info=True)
         return jsonify({"total_value": total_value})
 
 
@@ -407,8 +408,8 @@ def check_trade_permission():
                     error_data = test_response.json()
                     error_code = error_data.get('code')
                     error_msg = error_data.get('msg', error_msg)
-                except Exception:
-                    pass
+                except (ValueError, TypeError, AttributeError, KeyError):
+                    logger.debug("Binance.US error response is not JSON; using its text", exc_info=True)
 
                 logger.warning(f"[TRADE_PERMISSION] Test order returned error {test_response.status_code}: code={error_code}, msg={error_msg}")
 
@@ -2284,8 +2285,8 @@ def get_real_orders_only():
             if price_val <= 0 and quantity_val:
                 try:
                     price_val = abs(float(activity.get('proceeds') or 0)) / abs(quantity_val)
-                except Exception:
-                    pass
+                except (ValueError, TypeError, ZeroDivisionError):
+                    logger.debug("Activity price could not be derived from proceeds", exc_info=True)
 
             source = 'auto_sell' if is_auto_sell else ('auto_buy' if is_auto_buy else 'binance')
             origin_label = 'Auto-Sell' if is_auto_sell else ('Auto-Buy' if is_auto_buy else 'Binance.US')
@@ -3976,8 +3977,8 @@ def get_open_orders():
             if o_copy.get('time') and not o_copy.get('created_at'):
                 try:
                     o_copy['created_at'] = datetime.fromtimestamp(o_copy['time'] / 1000, tz=timezone.utc).isoformat()
-                except Exception:
-                    pass
+                except (ValueError, TypeError, OverflowError, OSError):
+                    logger.debug("Order timestamp could not be converted", exc_info=True)
             symbol = str(o_copy.get('symbol') or '').upper()
             base_asset = symbol[:-4] if symbol.endswith('USDT') else symbol[:-3] if symbol.endswith('USD') else symbol
             price = next(
@@ -5741,7 +5742,7 @@ def _fetch_stock_price_yf(symbol, user_id=None):
         if stream_price and stream_price > 0:
             return stream_price
     except Exception:
-        pass
+        logger.debug("Webull streaming price unavailable; trying the next price source", exc_info=True)
 
     # 2. Check Webull OpenAPI market snapshot
     try:
@@ -6184,7 +6185,7 @@ def api_stakeable_coins():
         try:
             db.session.rollback()
         except Exception:
-            pass
+            logger.debug("Session rollback after an earlier error also failed", exc_info=True)
         return jsonify(_stakeable_coins_cache.get("data", []))
 
 @portfolio_bp.route("/api/staking/stake", methods=["POST"])
@@ -6816,6 +6817,23 @@ def update_tax_transaction(source, source_id):
 
     if not record:
         return jsonify({'error': 'Record not found'}), 404
+
+    # Reject values the report could not use, instead of saving them and
+    # silently ignoring them when the report is built.
+    text_value = str(value).strip()
+    if field in {'amount', 'price_sold_at', 'fee', 'cost_basis', 'usd_value'}:
+        try:
+            if not math.isfinite(float(text_value)):
+                raise ValueError
+        except (TypeError, ValueError):
+            return jsonify({'error': f'{field.replace("_", " ").title()} must be a number.'}), 400
+    elif field in {'date', 'acquired_date'}:
+        try:
+            datetime.fromisoformat(text_value.replace('Z', ''))
+        except ValueError:
+            return jsonify({'error': 'Enter the date as YYYY-MM-DD or YYYY-MM-DDTHH:MM.'}), 400
+    elif field == 'lot_selection' and any(not part.strip() for part in text_value.split(',')) and text_value:
+        return jsonify({'error': 'Enter purchase IDs separated by commas.'}), 400
 
     override = TaxCorrection.query.filter_by(
         user_id=current_user.id, source=source, source_id=str(source_id), field=field

@@ -334,7 +334,7 @@ def fetch_live_price(
                 if p > 0:
                     return p
         except Exception:
-            pass
+            logger.debug("Webull futures snapshot unavailable; trying the next price source", exc_info=True)
 
         # Try Yahoo Finance futures mapping (e.g. ES=F, NQ=F, CL=F, GC=F)
         root_sym = clean_sym[:2] if len(clean_sym) >= 2 and clean_sym[:2] in FUTURES_TICKER_MAP else clean_sym
@@ -347,7 +347,7 @@ def fetch_live_price(
             if p and float(p) > 0:
                 return float(p)
         except Exception:
-            pass
+            logger.debug("Yahoo Finance futures price unavailable", exc_info=True)
 
         existing = WebullTestPosition.query.filter_by(user_id=user_id, symbol=clean_sym).first()
         if existing and existing.last_price and existing.last_price > 0:
@@ -358,7 +358,7 @@ def fetch_live_price(
     if clean_type == 'CRYPTO':
         # Try Binance
         try:
-            from routes.trading import fetch_binance_price
+            from services.binance_service import fetch_binance_price
             p = fetch_binance_price(clean_sym)
             if p and float(p) > 0:
                 return float(p)
@@ -368,7 +368,7 @@ def fetch_live_price(
                 if p2 and float(p2) > 0:
                     return float(p2)
         except Exception:
-            pass
+            logger.debug("Binance.US price unavailable; trying the next price source", exc_info=True)
 
         # Try Webull snapshot
         try:
@@ -386,7 +386,7 @@ def fetch_live_price(
                 if price > 0:
                     return price
         except Exception:
-            pass
+            logger.debug("Webull market snapshot unavailable; trying the next price source", exc_info=True)
 
         # Try Yahoo Finance for Crypto (e.g. BTC-USD)
         try:
@@ -398,7 +398,7 @@ def fetch_live_price(
             if price and float(price) > 0:
                 return float(price)
         except Exception:
-            pass
+            logger.debug("Yahoo Finance crypto price unavailable", exc_info=True)
 
     # 5. EQUITY / ETF pricing
     # Try Webull snapshot first
@@ -648,8 +648,8 @@ def _paper_history_note(order):
                 lc = json.loads(order.combo_orders)
                 if lc.get('note'):
                     return lc['note']
-            except Exception:
-                pass
+            except (ValueError, TypeError, AttributeError, KeyError):
+                logger.debug("Paper order note is not valid JSON", exc_info=True)
         return 'Paper cash settlement at expiration; not a broker fill.'
     if order.status == 'Expired':
         return 'Unfilled instruction expired; no trade was recorded.'
@@ -795,8 +795,8 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
                         fee = float(lc['fee'])
                 elif 'fee' in lc:
                     fee = float(lc['fee'])
-            except Exception:
-                pass
+            except (ValueError, TypeError, AttributeError, KeyError):
+                logger.debug("Paper settlement data is not valid JSON", exc_info=True)
 
         if (str(o.instrument_type or '').upper() == 'EVENT' or str(o.symbol or '').startswith('KX')) and str(status).upper() not in ('CANCELLED', 'REJECTED', 'EXPIRED'):
             # Official Webull fee schedule: $0.01 exchange fee + $0.01 commission = $0.02 per contract

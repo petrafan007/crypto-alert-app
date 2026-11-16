@@ -677,7 +677,7 @@ def force_sentiment_analysis():
                 try:
                     db.session.rollback()
                 except Exception:
-                    pass
+                    logger.debug("Session rollback after an earlier error also failed", exc_info=True)
                 try:
                     if source == 'webull':
                         try:
@@ -730,7 +730,7 @@ def force_sentiment_analysis():
                                 from core.extensions import db as _db
                                 _db.session.rollback()
                             except Exception:
-                                pass
+                                logger.debug("Session rollback after an earlier error also failed", exc_info=True)
 
         thread = threading.Thread(target=run_async)
         thread.start()
@@ -2788,8 +2788,8 @@ def api_market_analysis_workflow():
                         "expires_at": (last_conv.created_at + timedelta(hours=cache_duration_hours)).isoformat()
                     }
                     return jsonify(cached_data)
-                except Exception:
-                    pass
+                except (ValueError, TypeError, AttributeError, KeyError):
+                    logger.debug("Cached AI report is not valid JSON; it will be regenerated", exc_info=True)
 
             return jsonify({
                 "success": False,
@@ -2820,8 +2820,8 @@ def api_market_analysis_workflow():
                         "expires_at": (last_conv.created_at + timedelta(hours=cache_duration_hours)).isoformat()
                     }
                     return jsonify(cached_data)
-                except Exception:
-                    pass
+                except (ValueError, TypeError, AttributeError, KeyError):
+                    logger.debug("Cached AI report is not valid JSON; it will be regenerated", exc_info=True)
 
             return jsonify({
                 "success": False,
@@ -2991,7 +2991,7 @@ def api_market_analysis_workflow():
         try:
             db.session.rollback()
         except Exception:
-            pass
+            logger.debug("Session rollback after an earlier error also failed", exc_info=True)
         return jsonify({
             "success": False,
             "error": str(e),
@@ -3038,8 +3038,8 @@ def api_portfolio_review_workflow():
                             "expires_at": (last_conv.created_at + timedelta(hours=cache_duration_hours)).isoformat()
                         }
                         return jsonify(cached_data)
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError, AttributeError, KeyError):
+                        logger.debug("Cached AI report is not valid JSON; it will be regenerated", exc_info=True)
                 return jsonify({
                     "success": False,
                     "message": f"Analysis window: {analysis_window_start} - {analysis_window_end}. Use manual refresh for off-hours analysis.",
@@ -3062,8 +3062,8 @@ def api_portfolio_review_workflow():
                             "expires_at": (last_conv.created_at + timedelta(hours=cache_duration_hours)).isoformat()
                         }
                         return jsonify(cached_data)
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError, AttributeError, KeyError):
+                        logger.debug("Cached AI report is not valid JSON; it will be regenerated", exc_info=True)
                 return jsonify({
                     "success": False,
                     "message": f"AI analysis scheduled every {cache_duration_hours} hours. Use manual refresh to run immediately.",
@@ -3209,7 +3209,7 @@ def api_portfolio_review_workflow():
         try:
             db.session.rollback()
         except Exception:
-            pass
+            logger.debug("Session rollback after an earlier error also failed", exc_info=True)
         return jsonify({
             "success": False,
             "error": str(e),

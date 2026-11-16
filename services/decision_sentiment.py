@@ -121,7 +121,7 @@ def run_sentiment(generative, kwargs, context):
                     observed = datetime.now(timezone.utc).isoformat()
                     captured.extend(dict(i, available_at=observed) for i in items if isinstance(i, dict))
             except Exception:
-                pass
+                logger.warning("A sentiment evidence source failed; continuing with the others", exc_info=True)
     state = build_state(context, captured, datetime.now(timezone.utc))
     from services.decision_contracts import build_sentiment_questions
     questions = build_sentiment_questions(user_id, context.get('is_watchlist', False), prompt_overrides)

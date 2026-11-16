@@ -154,7 +154,7 @@ def create_system_notification(
         try:
             db.session.rollback()
         except Exception:
-            pass
+            logger.debug("Session rollback after an earlier error also failed", exc_info=True)
         return None
 
 def save_notification_record(

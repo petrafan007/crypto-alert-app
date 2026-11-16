@@ -680,7 +680,7 @@ def update_coins_from_binance_balances(user_id, balances, client=None):
                         if fresh_price and fresh_price > 0:
                             existing_coin.current = fresh_price
                     except Exception:
-                        pass
+                        logger.debug("Fresh Binance.US price unavailable; keeping the stored price", exc_info=True)
 
                     # Backfill a missing/zero avg_entry (e.g. left over from an Auto-Buy
                     # execution or a prior price-fetch failure) with the latest known price.

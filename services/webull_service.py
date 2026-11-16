@@ -372,8 +372,8 @@ def _response_payload(response, action):
                     data_url = parsed['data'].get('agreement_url') or parsed['data'].get('url')
                     if data_url and str(data_url).startswith('http'):
                         agreement_url = str(data_url)
-        except Exception:
-            pass
+        except (ValueError, TypeError, AttributeError, KeyError):
+            logger.debug("Webull error response is not JSON; using its text", exc_info=True)
 
         http_status = getattr(response, 'status_code', 'unknown')
 
@@ -852,7 +852,7 @@ def get_webull_market_bars(
                 p = float(price)
                 bars_by_time[t] = {'time': t, 'open': p, 'high': p, 'low': p, 'close': p, 'volume': 0}
         except Exception:
-            pass
+            logger.debug("Webull market snapshot unavailable; trying the next price source", exc_info=True)
 
     return [bars_by_time[timestamp] for timestamp in sorted(bars_by_time)]
 
@@ -3024,7 +3024,7 @@ def get_webull_option_chain_data(app_key=None, app_secret=None, environment='pro
         if underlying_prev_close > 0:
             underlying_change_pct = round(((underlying_price - underlying_prev_close) / underlying_prev_close) * 100, 2)
     except Exception:
-        pass
+        logger.debug("Yahoo Finance underlying price unavailable for the option chain", exc_info=True)
 
     market_open = _is_equity_market_open()
     market_status = 'OPEN' if market_open else 'CLOSED'

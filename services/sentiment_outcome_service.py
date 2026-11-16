@@ -3,6 +3,9 @@
 import json
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 DIRECTIONAL_SENTIMENT_VARIABLES = {
@@ -490,7 +493,7 @@ def _resolve_fixed_horizon_price(record, target_at, now_utc):
             if price > 0:
                 return price, datetime.fromtimestamp(int(time.time()), tz=dt_timezone.utc)
         except Exception:
-            pass
+            logger.debug("Current crypto price unavailable for sentiment grading", exc_info=True)
     return None, None
 
 

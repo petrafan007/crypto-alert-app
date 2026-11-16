@@ -3105,7 +3105,7 @@ def api_webull_place_order():
                     for leg in rejected_legs if isinstance(leg, dict)
                 ])
         except Exception:
-            pass
+            logger.debug("Could not log the rejected Webull combo legs", exc_info=True)
         message = str(exc)
         original_restored = False
         if cancelled_for_replace:
@@ -4309,7 +4309,8 @@ def trigger_auto_sell():
                 try:
                     coin.volatility_pct = float(volatility_pct)
                 except (ValueError, TypeError):
-                    pass
+                    # Never arm the trigger with an old percentage the user did not just enter.
+                    return jsonify({"success": False, "error": "Volatility % must be a number."}), 400
             
             pct_val = float(coin.volatility_pct or 0)
             if pct_val <= 0:
@@ -4503,7 +4504,8 @@ def trigger_auto_buy():
                 try:
                     coin.volatility_pct = float(volatility_pct)
                 except (ValueError, TypeError):
-                    pass
+                    # Never arm the trigger with an old percentage the user did not just enter.
+                    return jsonify({"success": False, "error": "Volatility % must be a number."}), 400
 
             pct_val = float(coin.volatility_pct or 0)
             if pct_val <= 0:

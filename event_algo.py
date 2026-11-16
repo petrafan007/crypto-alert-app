@@ -121,7 +121,7 @@ def _get_crypto_spot_quote(symbol, *, user_id=None, connection=None):
         if underlying_observation(quote)['price'] is not None:
             return quote
     except Exception:
-        pass
+        logger.debug("Webull streaming quote cache unavailable for this Event underlying; trying stored history", exc_info=True)
     try:
         from models import PriceHistory
         row = PriceHistory.query.filter_by(symbol=clean).order_by(PriceHistory.timestamp.desc()).first()
@@ -130,7 +130,7 @@ def _get_crypto_spot_quote(symbol, *, user_id=None, connection=None):
                     'underlying_price_source': 'PRICE_HISTORY', 'underlying_timestamp_basis': 'RECORDED_OBSERVATION',
                     'underlying_price_retrieved_at': datetime.now(timezone.utc).isoformat()}
     except Exception:
-        pass
+        logger.debug("Stored price history unavailable for this Event underlying", exc_info=True)
     return None
 
 
@@ -457,7 +457,8 @@ def _record_engine_log(user_id, event_type, message, *, level="INFO", config_id=
                     if dup:
                         should_notify = False
                 except Exception:
-                    pass
+                    db.session.rollback()
+                    logger.warning("Duplicate Event notification check failed; notifying anyway", exc_info=True)
             if should_notify:
                 try:
                     from services.notification_service import create_system_notification
@@ -477,7 +478,7 @@ def _record_engine_log(user_id, event_type, message, *, level="INFO", config_id=
         try:
             db.session.rollback()
         except Exception:
-            pass
+            logger.debug("Session rollback after an earlier error also failed", exc_info=True)
         return None
 
 
@@ -989,8 +990,8 @@ def _market_cutoff(market):
                 parsed_d = datetime.fromisoformat(str(raw).strip())
                 dt = parsed_d.replace(hour=23, minute=59, second=59, tzinfo=ZoneInfo("America/New_York"))
                 return dt.astimezone(timezone.utc).replace(tzinfo=None)
-            except Exception:
-                pass
+            except (ValueError, TypeError, OverflowError, OSError):
+                logger.debug("Event date could not be parsed; trying the next format", exc_info=True)
         value = _utc_naive(raw)
         if value:
             return value
@@ -1468,8 +1469,8 @@ def report_to_dict(report):
             parsed = json.loads(trimmed)
             if isinstance(parsed, dict):
                 content = _format_audit_dict_to_markdown(parsed)
-        except Exception:
-            pass
+        except (ValueError, TypeError, AttributeError, KeyError):
+            logger.debug("Event audit content is not JSON; showing it as text", exc_info=True)
 
     # Clean legacy reports where content has stringified telemetry in blockquotes
     if "> {'worker_status':" in content or "> {'durations_monitored':" in content or "> {'scans_per_hour':" in content:
@@ -1528,8 +1529,8 @@ def _parse_audit_report_json(raw_text):
         data = json.loads(cleaned)
         if isinstance(data, dict):
             parsed_dict = data
-    except Exception:
-        pass
+    except (ValueError, TypeError, AttributeError, KeyError):
+        logger.debug("Event audit text is not a JSON object; trying embedded JSON", exc_info=True)
     if not parsed_dict:
         match = re.search(r"\{[\s\S]*\}", raw_text)
         if match:
@@ -1537,8 +1538,8 @@ def _parse_audit_report_json(raw_text):
                 data = json.loads(match.group(0))
                 if isinstance(data, dict):
                     parsed_dict = data
-            except Exception:
-                pass
+            except (ValueError, TypeError, AttributeError, KeyError):
+                logger.debug("Embedded Event audit JSON could not be parsed", exc_info=True)
 
     if parsed_dict:
         md = parsed_dict.get("content_markdown")
@@ -1555,8 +1556,8 @@ def _parse_audit_report_json(raw_text):
                             "summary": parsed_dict.get("summary") or inner_json.get("summary") or "",
                             "content_markdown": _format_audit_dict_to_markdown(inner_json),
                         }
-                except Exception:
-                    pass
+                except (ValueError, TypeError, AttributeError, KeyError):
+                    logger.debug("Markdown-wrapped Event audit JSON could not be parsed", exc_info=True)
             # If it's valid markdown without raw JSON
             if not md_trimmed.startswith("{"):
                 status_val = str(parsed_dict.get("overall_status") or parsed_dict.get("status") or "UNKNOWN").upper()

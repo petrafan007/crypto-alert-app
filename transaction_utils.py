@@ -76,8 +76,8 @@ def _parse_commission(details: str, default_quote: str = 'USDT') -> Tuple[float,
             else:
                 quote = default_quote
             return total, quote.upper()
-        except Exception:
-            pass
+        except (ValueError, TypeError, AttributeError, KeyError):
+            DEFAULT_LOGGER.debug("Fee details are not valid JSON; trying the text format", exc_info=True)
 
     match = re.search(r'Commission:\s*([0-9.eE+-]+)\s*([A-Za-z]+)', details)
     if match:

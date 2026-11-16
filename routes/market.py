@@ -251,7 +251,7 @@ def api_coin_data_live():
                         elif _to_float(coin.initial_price) > 0:
                             avg_entry_val = _to_float(coin.initial_price)
                     except Exception:
-                        pass
+                        logger.warning("FIFO average entry unavailable; keeping the stored average entry", exc_info=True)
                 pct_change = 0.0
                 if total_amount > 0.00000001 and avg_entry_val > 0:
                     pct_change = ((current_price - avg_entry_val) / avg_entry_val) * 100
@@ -529,7 +529,7 @@ def api_coin_data():
                         elif _to_float(coin.initial_price) > 0:
                             avg_entry_val = _to_float(coin.initial_price)
                     except Exception:
-                        pass
+                        logger.warning("FIFO average entry unavailable; keeping the stored average entry", exc_info=True)
                 pct_change = round(((current_price - avg_entry_val) / avg_entry_val * 100), 6) if (total_amount > 0.00000001 and avg_entry_val > 0 and current_price) else 0.0
                 purchase_date = coin.purchase_date
                 coin_news = news_cache.get(coin.id) or news_cache.get(symbol) or {}
@@ -662,7 +662,7 @@ def api_coin_data():
         try:
             db.session.rollback()
         except Exception:
-            pass
+            logger.debug("Session rollback after an earlier error also failed", exc_info=True)
         # No "sources" here: an error is not an empty account.
         return jsonify({"portfolio": [], "error": "Error retrieving portfolio data"}), 500
 

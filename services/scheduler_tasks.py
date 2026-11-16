@@ -140,7 +140,7 @@ def safe_background_iteration(f):
             try:
                 db.session.rollback()
             except Exception:
-                pass
+                logger.debug("Session rollback after an earlier error also failed", exc_info=True)
             res = f(*args, **kwargs)
             try:
                 db.session.commit()
@@ -153,12 +153,12 @@ def safe_background_iteration(f):
             try:
                 db.session.rollback()
             except Exception:
-                pass
+                logger.debug("Session rollback after an earlier error also failed", exc_info=True)
         finally:
             try:
                 db.session.remove()
             except Exception:
-                pass
+                logger.debug("Session cleanup failed", exc_info=True)
     return wrapper
 
 class ObjectView(object):

@@ -192,7 +192,7 @@ def get_user_ai_settings(username: str) -> dict:
                 try:
                     db.session.rollback()
                 except Exception:
-                    pass
+                    logger.debug("Session rollback after an earlier error also failed", exc_info=True)
                 user_setting = None
             if user_setting:
                 settings['ai_enabled'] = user_setting.ai_enabled

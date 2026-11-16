@@ -222,6 +222,23 @@ class DbBackedTests(unittest.TestCase):
         self.assertLess(len(calls), staking_service.STAKING_REWARD_MAX_REQUESTS)
         self.assertEqual(StakingReward.query.filter_by(user_id=3).count(), 1)
 
+    def test_tax_corrections_reject_values_the_report_cannot_use(self):
+        from trading_models import AllActivity, TaxCorrection
+        from routes import portfolio
+        AllActivity.__table__.create(db.engine, checkfirst=True)
+        TaxCorrection.__table__.create(db.engine, checkfirst=True)
+        db.session.add(AllActivity(id=7, user_id=1, type='BUY', asset='BTC', amount=1, status='completed', date=datetime(2025, 1, 1)))
+        db.session.commit()
+        user = SimpleNamespace(id=1)
+        cases = [({'field': 'fee', 'value': 'abc'}, 400), ({'field': 'date', 'value': '13/45/2025'}, 400),
+                 ({'field': 'fee', 'value': '1.25'}, 200), ({'field': 'date', 'value': '2025-02-03'}, 200)]
+        for body, expected in cases:
+            with self.app.test_request_context(method='PATCH', json=body), patch.object(portfolio, 'current_user', user):
+                result = portfolio.update_tax_transaction.__wrapped__('binance', '7')
+                status = result[1] if isinstance(result, tuple) else 200
+                self.assertEqual(status, expected, body)
+        self.assertEqual(TaxCorrection.query.count(), 2)
+
     def test_failed_live_binance_cancel_is_not_success(self):
         from services import order_replacement_service as svc
 

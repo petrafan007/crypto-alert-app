@@ -18,8 +18,8 @@ from services.common import _coerce_float
 # Ensure Binance.US API calls always use IPv4
 try:
     urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
-except Exception:
-    pass
+except AttributeError as ipv4_error:
+    logger.warning('Could not force IPv4 for Binance.US staking requests: %s', ipv4_error)
 
 # Successful read responses only; per-key locks coalesce concurrent dashboard requests.
 from threading import Lock
@@ -119,7 +119,7 @@ def calculate_staking_value_for_user(cred, user_id=None):
                 if candidate and candidate > 0:
                     return float(candidate)
         except Exception:
-            pass
+            logger.debug("Stored coin price unavailable for staking valuation", exc_info=True)
         return default
 
     found_symbols = set()
@@ -238,7 +238,7 @@ def get_user_staked_balance_map(user_id, cred=None):
             if user_obj:
                 cred = get_user_credentials(user_obj.username)
         except Exception:
-            pass
+            logger.warning("Could not load staking credentials for the user", exc_info=True)
 
     try:
         staked_records = StakedCoin.query.filter_by(user_id=user_id).all()
@@ -391,7 +391,8 @@ def build_staking_balance_view(cred, asset_param=None):
                 if coin_record:
                     candidate = coin_record.current or coin_record.avg_entry
                     if candidate and candidate > 0: return float(candidate)
-            except Exception: pass
+            except Exception:
+                logger.debug("Stored coin price unavailable for staking valuation", exc_info=True)
             return default
         
         staking_data = []
@@ -432,7 +433,8 @@ def build_staking_balance_view(cred, asset_param=None):
                         asset_metadata.setdefault(symbol, asset_info)
                         if product_key:
                             asset_metadata_by_product[f"{symbol}:{product_key}"] = asset_info
-        except Exception: pass
+        except Exception:
+            logger.warning("Binance.US staking asset metadata unavailable; APY may show as 0", exc_info=True)
 
         def get_asset_metadata(symbol: str, product_id=None):
             normalized = (symbol or '').upper()
@@ -479,7 +481,8 @@ def build_staking_balance_view(cred, asset_param=None):
                                     po.status = 'COMPLETED'
                                     db_dirty = True
                             except Exception:
-                                pass
+                                db.session.rollback()
+                                logger.warning("Could not mark completed unstake orders", exc_info=True)
                         continue
 
                     if status_raw in {'FAILED', 'CANCELLED', 'CANCELED'}:
@@ -501,7 +504,7 @@ def build_staking_balance_view(cred, asset_param=None):
                             if recent_order and recent_order.action:
                                 txn_type = recent_order.action.lower()
                         except Exception:
-                            pass
+                            logger.debug("Could not infer the staking transaction type from recent orders", exc_info=True)
 
                     metadata = get_asset_metadata(asset, txn.get('productId')) or {}
                     initiated_time = _coerce_float(txn.get('initiatedTime'), 0.0)
@@ -609,7 +612,8 @@ def build_staking_balance_view(cred, asset_param=None):
                         matched.status = 'unstaking'
                         db.session.commit()
                     except Exception:
-                        pass
+                        db.session.rollback()
+                        logger.warning("Could not save the unstaking status", exc_info=True)
 
                 is_active_earning = False
             elif pending_unstake_amt > 0:
@@ -636,7 +640,8 @@ def build_staking_balance_view(cred, asset_param=None):
                         matched.status = 'active'
                         db.session.commit()
                     except Exception:
-                        pass
+                        db.session.rollback()
+                        logger.warning("Could not save the active staking status", exc_info=True)
 
             positions.append(pos)
             active_positions.append(pos)
@@ -691,7 +696,8 @@ def build_staking_balance_view(cred, asset_param=None):
                         matched_record.status = new_status
                         db.session.commit()
                     except Exception:
-                        pass
+                        db.session.rollback()
+                        logger.warning("Could not save the staking status from exchange history", exc_info=True)
 
             pending_positions.append(pos)
             pending_usd += txn.get('currentValue', 0)
@@ -721,7 +727,8 @@ def build_staking_balance_view(cred, asset_param=None):
                             po.status = 'COMPLETED'
                             db_dirty = True
                     except Exception:
-                        pass
+                        db.session.rollback()
+                        logger.warning("Could not mark completed unstake orders", exc_info=True)
                     continue
 
             price = asset_price(record.symbol) or 0
@@ -777,7 +784,8 @@ def _build_staking_dashboard_payload(cred):
         from models import StakingReward
         rewards = StakingReward.query.filter_by(user_id=current_user.id).all()
         total_rewards_usd = sum(r.usd_value for r in rewards if r.usd_value)
-    except Exception: pass
+    except Exception:
+        logger.warning("Staking rewards total unavailable", exc_info=True)
 
     return {
         'totalStakedValue': summary.get('totalUsd', 0.0),

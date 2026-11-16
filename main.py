@@ -9,8 +9,9 @@ load_dotenv(override=True)
 try:
     import urllib3.util.connection as urllib3_cn
     urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
-except Exception:
-    pass
+except (ImportError, AttributeError) as ipv4_error:
+    import logging
+    logging.getLogger(__name__).warning('Could not force IPv4 for outbound requests: %s', ipv4_error)
 
 from core.extensions import db, login_manager, scheduler
 from core.proxy_security import configure_public_proxy_security
@@ -68,7 +69,7 @@ def load_user(user_id):
         try:
             db.session.rollback()
         except Exception:
-            pass
+            logger.debug("Session rollback after an earlier error also failed", exc_info=True)
         return None
 
 app.register_blueprint(auth_bp)

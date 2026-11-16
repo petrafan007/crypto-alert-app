@@ -10,6 +10,9 @@ from zoneinfo import ZoneInfo
 from core.extensions import db
 from models import WebullTestOrder, WebullTestPosition
 from services.portfolio_strategy_signals import session_bounds, in_session
+import logging
+
+logger = logging.getLogger(__name__)
 
 ET = ZoneInfo('America/New_York')
 OPTION_SYMBOL = re.compile(r'^(.+?)\s+(\d{4}-\d{2}-\d{2})\s+\$([\d.]+)\s+(CALL|PUT)$')
@@ -99,14 +102,14 @@ def reconcile_paper_options(user_id, now=None, close_resolver=None, quote_resolv
         try:
             close_prices[key] = (close_resolver or historical_expiry_price)(*key)
         except Exception:
-            pass
+            logger.debug("Historical option close unavailable for paper expiry", exc_info=True)
     for key in quote_keys:
         try:
             quote_prices[key] = (quote_resolver or fetch_live_price)(user_id, key[0], 'OPTION',
                 option_expiration=key[1], option_strike=key[2], option_type=key[3], execution_side=key[4])
             quote_times[key] = time.monotonic()
         except Exception:
-            pass
+            logger.debug("Live option quote unavailable for the paper position", exc_info=True)
     db.session.commit()
     account = _lock_webull_test_account(user_id, wait=False)
     if account is None:
@@ -314,8 +317,8 @@ def reconcile_paper_events(user_id, now=None, force=False):
                     if orig_order.combo_orders:
                         try:
                             existing_data = json.loads(orig_order.combo_orders)
-                        except Exception:
-                            pass
+                        except (ValueError, TypeError, AttributeError, KeyError):
+                            logger.debug("Paper order combo data is not valid JSON", exc_info=True)
                     existing_data.update(settlement_payload)
                     orig_order.combo_orders = json.dumps(existing_data)
             else:
@@ -365,8 +368,8 @@ def reconcile_paper_events(user_id, now=None, force=False):
             if leg_s.combo_orders:
                 try:
                     p_data = json.loads(leg_s.combo_orders)
-                except Exception:
-                    pass
+                except (ValueError, TypeError, AttributeError, KeyError):
+                    logger.debug("Paper combo leg data is not valid JSON", exc_info=True)
             p_data['fee'] = p_fee
             if 'cost' in p_data and 'proceeds' in p_data:
                 cost_val = float(p_data['cost'])

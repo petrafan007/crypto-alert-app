@@ -68,7 +68,7 @@ def _integrity_failure(user_id, symbol, price, signal, now):
                 return (f'gate price {price} is outside the recent price band '
                         f'for {symbol} (recent median {median})')
     except Exception:
-        pass
+        logger.warning("Could not read prior quantitative evaluations", exc_info=True)
     return None
 
 

@@ -136,7 +136,7 @@ def import_binance_orders(user_id, orders):
                         if m:
                             record.commission_asset = m.group(1).upper()
             except Exception:
-                pass
+                logger.debug("Could not link the order to its activity record", exc_info=True)
             if record.commission is None:
                 fq = float(record.filled_quantity or 0.0)
                 fp = float(record.filled_price or record.price or 0.0)

@@ -2,6 +2,7 @@
 import gzip
 import hashlib
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -10,6 +11,8 @@ from datetime import timedelta
 from pathlib import Path
 from core.extensions import db
 from research_data_models import ResearchJob as Job,ResearchDataset as Dataset,ResearchCollectionConfig as Config,utcnow
+
+logger = logging.getLogger(__name__)
 from services.research_dataset import encoded,unpack,stamp,iso,get_dataset,build_archive,save_dataset,canonical
 
 
@@ -291,7 +294,7 @@ def _catch_up_missed_iv(now):
             if request in covered:continue
             if not ResearchCapture.query.filter(ResearchCapture.user_id==cfg.user_id,ResearchCapture.kind=='option_quotes',ResearchCapture.received_at>=left.replace(tzinfo=None),ResearchCapture.received_at<right.replace(tzinfo=None)).first():continue
             try:enqueue(cfg.user_id,'daily_iv',request)
-            except ValueError:pass
+            except ValueError as exc:logger.debug('Daily IV job not queued: %s', exc)
             break
 
 

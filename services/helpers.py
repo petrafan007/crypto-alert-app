@@ -1,5 +1,8 @@
 import datetime
 import pytz
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_eastern_now():
     return datetime.datetime.now(pytz.timezone('US/Eastern'))
@@ -31,8 +34,8 @@ def coerce_datetime(val):
     if isinstance(val, str):
         try:
             return datetime.datetime.fromisoformat(val.replace('Z', '+00:00'))
-        except Exception:
-            pass
+        except (ValueError, TypeError, AttributeError):
+            logger.debug("Timestamp is not ISO formatted; trying the next format", exc_info=True)
     return None
 
 def format_date_only(dt):

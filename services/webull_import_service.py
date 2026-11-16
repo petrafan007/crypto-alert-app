@@ -10,6 +10,9 @@ from services.position_metadata import enrich_event_positions
 from models import ExternalSentimentSignal, WebullAccountSnapshot, WebullHolding, WebullOrder
 from services.asset_identity import display_symbol, is_etf_asset
 from services.order_reconcile import accept_status, fill_advances, later, normalise_status
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _number(value, default=0.0):
@@ -569,7 +572,7 @@ def get_webull_portfolio_rows(user_id):
                     ),
                 }
     except Exception:
-        pass  # Non-fatal: pill simply won't appear if metadata is unavailable
+        logger.warning("Stored Webull account list is unreadable; using the provider list", exc_info=True)
     for account_id, snapshot in snapshots.items():
         if account_id not in account_meta:
             account_meta[account_id] = {

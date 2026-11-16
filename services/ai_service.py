@@ -706,7 +706,7 @@ def _is_equity_asset(sym, user_id=None):
         if coin_query.first():
             return False
     except Exception:
-        pass
+        logger.debug("Holding lookup failed while classifying the asset; treating it by symbol", exc_info=True)
     if s.endswith('USDT') or (s.endswith('USD') and s not in ['USD'] and len(s) > 6):
         return False
     if s in ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK', 'MATIC', 'NEAR', 'SUI', 'APT', 'SHIB', 'PEPE']:
@@ -1738,7 +1738,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             from routes.helpers import fetch_crypto_price
             current_price = fetch_crypto_price(symbol)
         except Exception:
-            pass
+            logger.debug("Current crypto price unavailable for the sentiment record", exc_info=True)
         if current_price is None and not is_watchlist:
             c = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
             if c and c.current:
@@ -1908,10 +1908,10 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
 
         if not snapshot_price or snapshot_price <= 0:
             try:
-                from routes.trading import fetch_binance_price
+                from services.binance_service import fetch_binance_price
                 snapshot_price = float(fetch_binance_price(symbol) or 0.0)
             except Exception:
-                pass
+                logger.debug("Binance.US price unavailable for the sentiment snapshot", exc_info=True)
 
         sentiment_history = record_sentiment_history(
             user_id=user_id,
@@ -1985,7 +1985,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             # Ensure any aborted transaction is rolled back before we attempt to record the fallback
             db.session.rollback()
         except Exception:
-            pass
+            logger.debug("Session rollback after an earlier error also failed", exc_info=True)
 
         # NEVER set sentiment to "Error" on the user's asset!
         # Fall back gracefully to 'Hold' (portfolio) or 'Watch' (watchlist), or preserve prior valid sentiment.
@@ -2014,7 +2014,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             try:
                 db.session.rollback()
             except Exception:
-                pass
+                logger.debug("Session rollback after an earlier error also failed", exc_info=True)
         return fallback_sentiment, fallback_reason
 
 def get_last_scheduled_time(anchor_time_str, freq_hours_int, now_utc=None):
@@ -2066,7 +2066,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
         try:
             db.session.rollback()
         except Exception:
-            pass
+            logger.debug("Session rollback after an earlier error also failed", exc_info=True)
 
         if not is_ai_enabled(username) and not force:
             logger.info(f"Skipping portfolio sentiment analysis for {username} - AI disabled")
@@ -2219,7 +2219,7 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
         try:
             db.session.rollback()
         except Exception:
-            pass
+            logger.debug("Session rollback after an earlier error also failed", exc_info=True)
 
         if not is_ai_enabled(username) and not force:
             logger.info(f"Skipping watchlist sentiment analysis for {username} - AI disabled")

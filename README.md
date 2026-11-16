@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.17.3
+**Version:** 4.17.4
 
 ## Recent Updates
+
+### v4.17.4
+* **No more silently swallowed errors:** all 75 broad `except Exception: pass` blocks now log what failed (debug for routine fallbacks such as trying the next price source or a failed cleanup rollback, warning for anything that affects data), catch only the errors they expect where possible, and roll back failed database writes. A test now fails if one is reintroduced.
+* **Two dead price fallbacks restored:** the sentiment snapshot and the Webull paper crypto price imported a module that no longer existed, so that fallback never ran; they now use the Binance.US price service.
+* **Auto-Buy/Auto-Sell reject an invalid Volatility %** instead of quietly arming the trigger with the previously stored percentage.
+* **Tax corrections are validated when saved:** a non-numeric amount or fee, or an unreadable date, is refused with a message instead of being saved and then ignored by the report.
 
 ### v4.17.3
 * **Startup no longer waits behind backups:** database start-up checks only alter columns that are actually missing. `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` takes an exclusive lock even when nothing changes, so a restart during a long backup could time out.
