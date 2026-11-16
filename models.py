@@ -289,6 +289,9 @@ class WebullWatchlistItem(db.Model):
     last_price = db.Column(db.Float, nullable=True)
     currency = db.Column(db.String(12), default='USD')
     alert_enabled = db.Column(db.Boolean, default=False)
+    # Price alert thresholds, checked by services.webull_monitoring.
+    down_alert = db.Column(db.Float, nullable=True)
+    up_alert = db.Column(db.Float, nullable=True)
     note = db.Column(db.Text, default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

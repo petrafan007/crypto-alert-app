@@ -239,6 +239,85 @@ class DbBackedTests(unittest.TestCase):
                 self.assertEqual(status, expected, body)
         self.assertEqual(TaxCorrection.query.count(), 2)
 
+    def test_event_contracts_held_to_expiry_get_their_settlement_recorded(self):
+        from models import WebullOrder
+        from event_algo_models import EventContractOutcome
+        from services.tax_settlements import resolve_held_event_settlements
+        WebullOrder.__table__.create(db.engine, checkfirst=True)
+        EventContractOutcome.__table__.create(db.engine, checkfirst=True)
+        db.session.add_all([
+            WebullOrder(user_id=4, account_id='a', provider_order_id='1', symbol='KXBTCD-26AUG3111-T77999.99',
+                        instrument_type='EVENT', side='BUY', filled_quantity=38, filled_price=0.4, event_outcome='NO'),
+            WebullOrder(user_id=4, account_id='a', provider_order_id='2', symbol='KXBTCD-26AUG3102-T77999.99',
+                        instrument_type='EVENT', side='BUY', filled_quantity=5, filled_price=0.5, event_outcome='YES'),
+            WebullOrder(user_id=4, account_id='a', provider_order_id='3', symbol='KXBTCD-26AUG3102-T77999.99',
+                        instrument_type='EVENT', side='SELL', filled_quantity=5, filled_price=0.7, event_outcome='YES'),
+        ])
+        db.session.commit()
+        evidence = {'settled_outcome': 'YES', 'settlement_price': 1.0, 'payout_date': '2026-08-31T15:05:21+00:00',
+                    'market': {'close_time': '2026-08-31T15:00:00Z'}, 'source_url': 'https://example.invalid'}
+        looked_up = []
+        resolved, unknown = resolve_held_event_settlements(
+            4, now=datetime(2026, 11, 15), lookup=lambda symbol, now: looked_up.append(symbol) or evidence)
+        self.assertEqual(resolved, ['KXBTCD-26AUG3111-T77999.99'])
+        self.assertEqual(looked_up, ['KXBTCD-26AUG3111-T77999.99'])  # the closed position is never looked up
+        row = EventContractOutcome.query.one()
+        self.assertEqual((row.outcome, row.settlement_status, row.settlement_price), ('YES', 'RESOLVED', 1.0))
+        self.assertEqual(resolve_held_event_settlements(4, now=datetime(2026, 11, 15), lookup=lambda s, n: evidence), ([], []))
+
+    def test_webull_watchlist_alert_fires_once_and_rearms(self):
+        from credentials import User
+        from models import WebullWatchlistItem, AlertState, Notification, WebullHolding
+        from services import webull_monitoring
+        for model in (WebullWatchlistItem, AlertState, WebullHolding):
+            model.__table__.create(db.engine, checkfirst=True)
+        db.session.add(User(id=8, username='watcher', pwd_hash='x', email='w@example.invalid'))
+        item = WebullWatchlistItem(user_id=8, symbol='NVDA', instrument_type='EQUITY', alert_enabled=True, up_alert=150.0)
+        db.session.add(item)
+        db.session.commit()
+        now = datetime.utcnow()
+        prices = iter([155.0, 156.0, 140.0, 151.0])
+        with patch('services.notification_service.send_telegram_message', return_value=False):
+            for expected in (1, 0, 0, 1):
+                item.refreshed_at = None
+                db.session.commit()
+                price = next(prices)
+                self.assertEqual(webull_monitoring.check_webull_watchlist_alerts(now, price_lookup=lambda s, u, p=price: p), expected)
+        self.assertEqual(Notification.query.filter_by(user_id=8).count(), 2)
+
+    def test_stale_watchlist_price_never_alerts(self):
+        from credentials import User
+        from models import WebullWatchlistItem, AlertState
+        from services import webull_monitoring
+        for model in (WebullWatchlistItem, AlertState):
+            model.__table__.create(db.engine, checkfirst=True)
+        db.session.add(User(id=9, username='stale', pwd_hash='x', email='s@example.invalid'))
+        db.session.add(WebullWatchlistItem(user_id=9, symbol='KXBTCD-X', instrument_type='EVENT', alert_enabled=True,
+                                           down_alert=0.5, last_price=0.1, refreshed_at=datetime.utcnow() - timedelta(hours=1)))
+        db.session.commit()
+        self.assertEqual(webull_monitoring.check_webull_watchlist_alerts(price_lookup=lambda s, u: 0.1), 0)
+
+    def test_alert_endpoint_updates_the_webull_row_not_a_crypto_coin(self):
+        from models import WebullWatchlistItem, WatchlistCoin
+        from routes import system
+        WebullWatchlistItem.__table__.create(db.engine, checkfirst=True)
+        WatchlistCoin.__table__.create(db.engine, checkfirst=True)
+        item = WebullWatchlistItem(user_id=1, symbol='ETH', instrument_type='ETF')
+        coin = WatchlistCoin(user_id=1, symbol='ETH')
+        db.session.add_all([item, coin])
+        db.session.commit()
+        user = SimpleNamespace(id=1)
+        for body, status in (({'id': f'webull-watchlist-{item.id}', 'source': 'webull', 'symbol': 'ETH', 'direction': 'up', 'value': 4000}, 200),
+                             ({'id': f'webull-watchlist-{item.id}', 'source': 'webull', 'symbol': 'ETH', 'alert_enabled': True}, 200),
+                             ({'id': f'webull-watchlist-{item.id}', 'source': 'webull', 'symbol': 'ETH', 'direction': 'down', 'value': 'abc'}, 400)):
+            with self.app.test_request_context(method='POST', json=body), patch.object(system, 'current_user', user):
+                result = system.set_watch_alert.__wrapped__()
+                self.assertEqual(result[1] if isinstance(result, tuple) else 200, status, body)
+        db.session.refresh(item)
+        db.session.refresh(coin)
+        self.assertEqual((item.up_alert, item.alert_enabled), (4000.0, True))
+        self.assertIsNone(coin.up_alert)
+
     def test_failed_live_binance_cancel_is_not_success(self):
         from services import order_replacement_service as svc
 

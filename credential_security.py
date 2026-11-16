@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 ENV_KEY_NAME = "CREDENTIALS_ENCRYPTION_KEY"
 SETTINGS_TABLE = "credential_settings"
 SETTINGS_KEY = "credentials_encryption_key"
+KEY_FILE_ENV = "CREDENTIALS_KEY_FILE"
 
 
 class EncryptionKeyError(RuntimeError):
@@ -72,9 +73,14 @@ decrypt_credential = decrypt_secret
 
 @lru_cache(maxsize=1)
 def _get_fernet() -> Fernet:
-    raw_key = os.getenv(ENV_KEY_NAME)
+    # The key never lives in the database it protects: environment first,
+    # then an owner-only key file. A key still found in the database (older
+    # releases kept it there) is moved to the key file once.
+    raw_key = os.getenv(ENV_KEY_NAME) or _read_key_file()
     if not raw_key:
         raw_key = _load_persisted_key()
+        if raw_key:
+            _migrate_key_out_of_database(raw_key)
     if not raw_key:
         raise EncryptionKeyError(
             "Credential encryption key is not configured. Set it in Settings or via environment."
@@ -82,6 +88,74 @@ def _get_fernet() -> Fernet:
 
     normalized_key = _normalize_key(raw_key)
     return Fernet(normalized_key.encode("utf-8"))
+
+
+def key_file_path() -> str:
+    """Owner-only key file, outside the database and outside Git (instance/ is ignored)."""
+    default = os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "credentials.key")
+    return os.getenv(KEY_FILE_ENV, default)
+
+
+def _read_key_file() -> Optional[str]:
+    try:
+        with open(key_file_path(), "r", encoding="utf-8") as handle:
+            value = handle.read().strip()
+        return value or None
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        logger.error("Credential key file could not be read: %s", exc)
+        return None
+
+
+def _write_key_file(normalized: str) -> None:
+    """Atomically write the key with 0600 permissions, then verify it reads back."""
+    path = key_file_path()
+    directory = os.path.dirname(path)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    temporary = f"{path}.{os.getpid()}.tmp"
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(normalized + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    os.chmod(path, 0o600)
+    if _read_key_file() != normalized:
+        raise EncryptionKeyError("The credential key file did not read back correctly.")
+
+
+def _delete_database_key() -> None:
+    if not has_app_context():
+        return
+    try:
+        db.session.execute(text(f"DELETE FROM {SETTINGS_TABLE} WHERE key = :key"), {'key': SETTINGS_KEY})
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        logger.error("Could not remove the credential key from the database: %s", exc)
+
+
+def _migrate_key_out_of_database(raw_key: str) -> None:
+    """Write the database-held key to the key file, then remove it from the database."""
+    try:
+        normalized = _normalize_key(raw_key)
+        existing = _read_key_file()
+        if existing and existing != normalized:
+            logger.error("The credential key file differs from the database key; leaving both untouched.")
+            return
+        if not existing:
+            _write_key_file(normalized)
+        _delete_database_key()
+        logger.warning("Moved the credential encryption key out of the database into %s. "
+                       "Keep a copy of this file somewhere safe: without it, saved API keys cannot be decrypted.",
+                       key_file_path())
+    except Exception as exc:
+        logger.error("Could not move the credential key out of the database: %s", exc)
 
 
 def _looks_base64(candidate: bytes) -> bool:
@@ -122,7 +196,7 @@ def _normalize_key(raw_value: str) -> str:
 
 
 def _load_persisted_key() -> Optional[str]:
-    """Load the encryption key from the database."""
+    """Load a legacy encryption key from the database (releases before v4.17.5)."""
     if not has_app_context():
         # If we are outside of an app context (e.g. some scripts), we can't check DB.
         # Fallback to env var or fail.
@@ -143,60 +217,29 @@ def _load_persisted_key() -> Optional[str]:
 
 
 def persist_encryption_key(raw_value: str) -> None:
-    """
-    Persist a new encryption key into database, update the process env var, and refresh the cached Fernet instance.
-    """
-    raw_value = raw_value or ""
-    normalized = _normalize_key(raw_value)
-
-    if has_app_context():
-        try:
-            # Upsert logic for Postgres/Generic SQL
-            # First try update
-            result = db.session.execute(
-                text(f"UPDATE {SETTINGS_TABLE} SET value = :value WHERE key = :key"),
-                {'value': normalized, 'key': SETTINGS_KEY}
-            )
-            if result.rowcount == 0:
-                # If no row updated, insert
-                db.session.execute(
-                    text(f"INSERT INTO {SETTINGS_TABLE} (key, value) VALUES (:key, :value)"),
-                    {'key': SETTINGS_KEY, 'value': normalized}
-                )
-            db.session.commit()
-        except Exception as e:
-            logger.error(f"Failed to persist encryption key to DB: {e}")
-            db.session.rollback()
-
+    """Save a new encryption key to the key file (never the database) and use it."""
+    normalized = _normalize_key(raw_value or "")
+    _write_key_file(normalized)
+    _delete_database_key()
     # Ensure in-process lookups (and any child processes) see the key.
     os.environ[ENV_KEY_NAME] = normalized
-
-    # Reset cached Fernet so subsequent encrypt/decrypt calls use the new key.
     _get_fernet.cache_clear()
-    logger.info("Credential encryption key persisted successfully.")
+    logger.info("Credential encryption key saved to %s.", key_file_path())
 
 
 def clear_persisted_encryption_key() -> None:
-    """
-    Remove the stored encryption key. This forces the system to fallback to env or error.
-    """
-    if has_app_context():
-        try:
-            db.session.execute(
-                text(f"DELETE FROM {SETTINGS_TABLE} WHERE key = :key"),
-                {'key': SETTINGS_KEY}
-            )
-            db.session.commit()
-        except Exception as e:
-            logger.error(f"Failed to clear encryption key from DB: {e}")
-            db.session.rollback()
-
+    """Remove the saved key file and any legacy database copy."""
+    try:
+        os.unlink(key_file_path())
+    except FileNotFoundError:
+        logger.debug("No credential key file to remove.")
+    _delete_database_key()
     _get_fernet.cache_clear()
     logger.info("Persisted credential encryption key cleared.")
 
 
 def is_persisted_key_available() -> bool:
-    return _load_persisted_key() is not None
+    return _read_key_file() is not None or _load_persisted_key() is not None
 
 
 def normalize_secret_for_storage(value: Optional[str]) -> Optional[str]:

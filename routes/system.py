@@ -4126,11 +4126,40 @@ def set_watch_alert():
     alert_enabled = data.get("alert_enabled", None)
     
     logger.info(f"set_watch_alert called: symbol={symbol}, direction={direction}, value={value}, alert_enabled={alert_enabled}")
-    
+
+    if value not in ("", None):
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "The alert price must be a number."}), 400
+        if value <= 0:
+            return jsonify({"success": False, "error": "The alert price must be greater than 0."}), 400
+
+    # Webull watchlist rows live in their own table; never fall through to a
+    # crypto watchlist coin that happens to share the symbol.
+    raw_id = str(data.get("id") or "")
+    if raw_id.startswith("webull-watchlist-") or str(data.get("source") or "").lower() == "webull":
+        from models import WebullWatchlistItem
+        try:
+            item_id = int(raw_id.removeprefix("webull-watchlist-"))
+        except ValueError:
+            return jsonify({"success": False, "error": "Invalid Webull watchlist item"}), 400
+        item = WebullWatchlistItem.query.filter_by(id=item_id, user_id=current_user.id).first()
+        if not item:
+            return jsonify({"success": False, "error": "Webull watchlist item not found"}), 404
+        if direction == "down":
+            item.down_alert = round(value, 4) if value not in ("", None) else None
+        elif direction == "up":
+            item.up_alert = round(value, 4) if value not in ("", None) else None
+        if alert_enabled is not None:
+            item.alert_enabled = bool(alert_enabled)
+        db.session.commit()
+        return jsonify({"success": True})
+
     w = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
     if not w:
         logger.error(f"Watchlist coin not found: {symbol}")
-        return jsonify({"success": False, "error": "Watchlist coin not found"})
+        return jsonify({"success": False, "error": "Watchlist coin not found"}), 404
     
     logger.info(f"Found watchlist coin: {w.symbol}, current down_alert={w.down_alert}, up_alert={w.up_alert}")
     

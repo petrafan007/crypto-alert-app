@@ -483,6 +483,9 @@ export default function Help({ isLightMode }) {
                 </ol>
 
                 <Tip>
+                    Saved API keys are encrypted with a key kept in the file <code>instance/credentials.key</code> (or the <code>CREDENTIALS_ENCRYPTION_KEY</code> environment variable), never in the database. Keep a copy of that key somewhere safe, such as your password manager: database backups do not contain it, and without it saved API keys cannot be decrypted.
+                </Tip>
+                <Tip>
                     There are no recovery codes. Back up your authenticator (most apps offer encrypted backup or sync); if you lose it, the administrator must reset 2FA for your account.
                 </Tip>
                 <Tip>
@@ -641,6 +644,7 @@ export default function Help({ isLightMode }) {
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Price alerts</strong> fire once when a price crosses your threshold and re-arm after the price moves back about 1%. Percentage thresholds are measured from your <strong>average entry</strong>, which changes when you buy more. Alerts only use a freshly fetched price; a stale price never triggers one.</li>
                     <li><strong>Webull holdings</strong> support the same alerts: turn on the alert for a holding and set a lower or upper price (or %). They are checked every minute against the latest Webull sync.</li>
+                    <li><strong>Webull watchlist items</strong> take a lower and upper alert price in the Watchlist table. Stock and ETF prices are refreshed every couple of minutes while an alert is set.</li>
                     <li><strong>Webull token</strong> — the app re-checks your Webull access token every six hours, shows its expiry in Settings, and notifies you three days before it expires and immediately if Webull reports it invalid.</li>
                     <li><strong>Connection health</strong> — if Binance.US or Webull rejects your saved credentials three times in a row, background syncing for that account pauses (so the exchange is not flooded with rejected requests), a red banner appears, and you get a notification. Saving new keys, a successful Test Connection, or <strong>Retry now</strong> resumes it.</li>
                     <li><strong>Toast popups</strong> — the Settings toggle silences routine alerts (fills, prices, sentiment). Errors and warnings always show.</li>
@@ -751,7 +755,7 @@ export default function Help({ isLightMode }) {
                     <li><strong>Holding period</strong> — long-term only when sold after the one-year anniversary date of the purchase.</li>
                     <li><strong>Staking rewards</strong> are synced from Binance.US and reported as ordinary income at their USD value when received; they start new lots at that value.</li>
                     <li><strong>Wash sales</strong> (Webull securities) — a loss is disallowed when the same security is bought within 30 days before or after, across accounts; it is added to the replacement shares&apos; basis and shown with code W.</li>
-                    <li><strong>Event contracts</strong> held to settlement are recorded as sold at $1 (won) or $0 (lost) on the settlement date. If a result is unknown the contract is flagged for review.</li>
+                    <li><strong>Event contracts</strong> held to settlement are recorded as sold at $1 (won) or $0 (lost) on the settlement date. Results are looked up automatically every six hours from the exchange&apos;s finalized market; a contract is flagged for review only while no final result exists.</li>
                     <li><strong>Needs review</strong> — rows with missing purchases, estimated broker fees, unknown multipliers or unknown settlements are flagged ⚠ with the reason; double-click a cell to correct it.</li>
                     <li><strong>Form 8949</strong> — download Part I (short-term) and Part II (long-term) rows with Schedule D totals as CSV or Excel for the selected year.</li>
                     <li><strong>1099 Reconciliation</strong> — enter the totals from your broker&apos;s 1099 to see any differences from this report.</li>

@@ -3449,7 +3449,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     return formatQuantityForTicket(value, 6);
   };
 
-  const useEquityCashAmount = (dollars, rawQuantity) => shouldUseEquityCashAmount({
+  const wantsEquityCashAmount = (dollars, rawQuantity) => shouldUseEquityCashAmount({
     instrumentType: selectedInstrumentType,
     side: orderForm.side,
     orderType: orderForm.type,
@@ -3499,7 +3499,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     const computedQty = (fractionalQuantityAllowed || selectedInstrumentType === 'EQUITY')
       ? generatedQuantity(rawQuantity)
       : wholeQuantity > 0 ? String(wholeQuantity) : '';
-    const cashAmountMode = useEquityCashAmount(numQuote, rawQuantity);
+    const cashAmountMode = wantsEquityCashAmount(numQuote, rawQuantity);
     setOrderValidationError('');
     if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && isFractionalQuantity(rawQuantity)) {
       setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
@@ -3585,7 +3585,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         const qty = (fractionalQuantityAllowed || selectedInstrumentType === 'EQUITY')
           ? generatedQuantity(rawQuantity)
           : wholeQuantity > 0 ? String(wholeQuantity) : '';
-        const cashAmountMode = useEquityCashAmount(targetDollars, rawQuantity);
+        const cashAmountMode = wantsEquityCashAmount(targetDollars, rawQuantity);
         if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && isFractionalQuantity(rawQuantity)) {
           setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
         }

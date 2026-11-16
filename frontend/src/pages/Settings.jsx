@@ -356,6 +356,8 @@ export default function Settings({ isLightMode }) {
   // Delete Account State
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteConfirmUsername, setDeleteConfirmUsername] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
   const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
@@ -1731,9 +1733,6 @@ export default function Settings({ isLightMode }) {
       showAppAlert('Failed to export tax data. Please try again.');
     }
   };
-
-  const [deleteConfirmUsername, setDeleteConfirmUsername] = useState('');
-  const [deletePassword, setDeletePassword] = useState('');
 
   const handleDeleteAccount = async () => {
     setDeleteLoading(true);

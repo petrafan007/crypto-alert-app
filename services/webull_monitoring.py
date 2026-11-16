@@ -40,8 +40,7 @@ def check_webull_price_alerts(now=None):
     """Notify once per crossing for every Webull holding with alerts enabled."""
     from credentials import User
     from models import WebullHolding
-    from services.notification_service import save_notification_record, send_telegram_message
-    from services.scheduler_tasks import get_last_alert_state, set_last_alert_state
+    from services.notification_service import save_notification_record
     now = now or datetime.utcnow()
     sent = 0
     holdings = WebullHolding.query.filter(WebullHolding.alert_enabled.is_(True),
@@ -55,31 +54,88 @@ def check_webull_price_alerts(now=None):
         if not user:
             continue
         lower, upper = _thresholds(holding)
-        label = holding.display_name or holding.symbol
-        source = f'webull:{holding.account_id}'
-        for direction, threshold, crossed, rearmed in (
-            ('down', lower, lower is not None and price <= lower, lower is not None and price > lower * (1 + REARM_BUFFER)),
-            ('up', upper, upper is not None and price >= upper, upper is not None and price < upper * (1 - REARM_BUFFER)),
-        ):
-            if threshold is None:
-                continue
-            state = get_last_alert_state(user.id, holding.symbol, direction, source, threshold)
-            if crossed:
-                if state not in ('saved', 'sent'):
-                    message = (f'{label} {"fell below" if direction == "down" else "rose above"} '
-                               f'${threshold:,.4f} (now ${price:,.4f}) in Webull account {holding.account_id}.')
-                    save_notification_record(user.id, holding.id, 'webull', holding.symbol, direction, 'price',
-                                             threshold, threshold, price, message=message)
-                    set_last_alert_state(user.id, holding.symbol, direction, 'saved', source, threshold)
-                    state = 'saved'
-                    sent += 1
-                if state != 'sent':
-                    text = (f'⚠️ {label} (Webull) {"fell below" if direction == "down" else "rose above"} '
-                            f'${threshold:,.4f}. Current price: ${price:,.4f}')
-                    if send_telegram_message(user.username, text):
-                        set_last_alert_state(user.id, holding.symbol, direction, 'sent', source, threshold)
-            elif state in ('saved', 'sent') and rearmed:
-                set_last_alert_state(user.id, holding.symbol, direction, None, source, threshold)
+        label = f'{holding.display_name or holding.symbol} in Webull account {holding.account_id}'
+
+        def record(direction, threshold, message, holding=holding, user=user):
+            save_notification_record(user.id, holding.id, 'webull', holding.symbol, direction, 'price',
+                                     threshold, threshold, holding.last_price, message=message)
+
+        sent += _cross_and_notify(user, holding.symbol, f'webull:{holding.account_id}', label,
+                                  price, lower, upper, record)
+    return sent
+
+
+WATCHLIST_REFRESH_AGE = timedelta(minutes=2)
+QUOTABLE_TYPES = {'', 'EQUITY', 'STOCK', 'ETF'}
+
+
+def _cross_and_notify(user, symbol, source, label, price, lower, upper, notify_record):
+    """Shared one-alert-per-crossing logic; returns the number of new alerts."""
+    from services.notification_service import send_telegram_message
+    from services.scheduler_tasks import get_last_alert_state, set_last_alert_state
+    sent = 0
+    for direction, threshold, crossed, rearmed in (
+        ('down', lower, lower is not None and price <= lower, lower is not None and price > lower * (1 + REARM_BUFFER)),
+        ('up', upper, upper is not None and price >= upper, upper is not None and price < upper * (1 - REARM_BUFFER)),
+    ):
+        if threshold is None:
+            continue
+        state = get_last_alert_state(user.id, symbol, direction, source, threshold)
+        verb = 'fell below' if direction == 'down' else 'rose above'
+        if crossed:
+            if state not in ('saved', 'sent'):
+                notify_record(direction, threshold, f'{label} {verb} ${threshold:,.4f} (now ${price:,.4f}).')
+                set_last_alert_state(user.id, symbol, direction, 'saved', source, threshold)
+                state = 'saved'
+                sent += 1
+            if state != 'sent' and send_telegram_message(
+                    user.username, f'⚠️ {label} (Webull) {verb} ${threshold:,.4f}. Current price: ${price:,.4f}'):
+                set_last_alert_state(user.id, symbol, direction, 'sent', source, threshold)
+        elif state in ('saved', 'sent') and rearmed:
+            set_last_alert_state(user.id, symbol, direction, None, source, threshold)
+    return sent
+
+
+def check_webull_watchlist_alerts(now=None, price_lookup=None):
+    """Alerts for Webull watchlist items with a lower or upper alert price."""
+    from credentials import User
+    from models import WebullWatchlistItem
+    from services.notification_service import save_notification_record
+    now = now or datetime.utcnow()
+    items = WebullWatchlistItem.query.filter(
+        WebullWatchlistItem.alert_enabled.is_(True),
+        (WebullWatchlistItem.down_alert.isnot(None)) | (WebullWatchlistItem.up_alert.isnot(None)),
+    ).all()
+    if not items:
+        return 0
+    if price_lookup is None:
+        from routes.portfolio import _fetch_stock_price_yf as price_lookup
+    users = {u.id: u for u in User.query.filter(User.id.in_({i.user_id for i in items})).all()}
+    sent = 0
+    for item in items:
+        user = users.get(item.user_id)
+        if not user:
+            continue
+        stale = not item.refreshed_at or now - item.refreshed_at > WATCHLIST_REFRESH_AGE
+        if stale and str(item.instrument_type or '').upper() in QUOTABLE_TYPES:
+            try:
+                price = float(price_lookup(item.symbol, item.user_id) or 0)
+            except Exception:
+                logger.debug('Watchlist price refresh failed for %s', item.symbol, exc_info=True)
+                price = 0.0
+            if price > 0:
+                item.last_price, item.refreshed_at = price, now
+                db.session.commit()
+        price = float(item.last_price or 0.0)
+        if price <= 0 or not item.refreshed_at or now - item.refreshed_at > PRICE_MAX_AGE:
+            continue  # never alert on a stale price
+
+        def record(direction, threshold, message, item=item, user=user):
+            save_notification_record(user.id, item.id, 'webull_watchlist', item.symbol, direction, '#',
+                                     threshold, threshold, item.last_price, message=message)
+
+        sent += _cross_and_notify(user, item.symbol, 'webull-watchlist', item.display_name or item.symbol,
+                                  price, item.down_alert, item.up_alert, record)
     return sent
 
 

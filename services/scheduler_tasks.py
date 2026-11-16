@@ -303,8 +303,8 @@ def binance_paper_match_loop(app):
 
 
 def webull_monitoring_loop(app):
-    """Webull price alerts every minute; token health every six hours."""
-    from services.webull_monitoring import check_webull_price_alerts, check_webull_token_health
+    """Webull price alerts every minute; token health and Event settlement results every six hours."""
+    from services.webull_monitoring import check_webull_price_alerts, check_webull_token_health, check_webull_watchlist_alerts
     logger.info("Starting Webull alert and token-health job")
     last_token_check = 0.0
     with app.app_context():
@@ -312,6 +312,7 @@ def webull_monitoring_loop(app):
             @safe_background_iteration
             def alerts():
                 check_webull_price_alerts()
+                check_webull_watchlist_alerts()
 
             alerts()
             if time.time() - last_token_check >= 6 * 3600:
@@ -322,6 +323,13 @@ def webull_monitoring_loop(app):
                     check_webull_token_health()
 
                 token_health()
+
+                @safe_background_iteration
+                def event_settlements():
+                    from services.tax_settlements import resolve_for_all_users
+                    resolve_for_all_users()
+
+                event_settlements()
             time.sleep(60)
 
 
@@ -1513,7 +1521,15 @@ def prune_old_ai_conversations(app):
                     logger.info(f"AI Conversation Retention: Pruned {deleted} conversations older than {cutoff}.")
                 else:
                     logger.info(f"AI Conversation Retention: No conversations older than {cutoff} found.")
+
+            @safe_background_iteration
+            def history_retention():
+                from services.history_retention import ensure_history_index, thin_portfolio_value_history
+                ensure_history_index()
+                thin_portfolio_value_history()
+
             iteration()
+            history_retention()
             # Sleep 24 hours between runs
             time.sleep(86400)
 

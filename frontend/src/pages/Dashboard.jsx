@@ -2399,7 +2399,7 @@ function Dashboard({ isLightMode }) {
   const toggleWatchlistAlert = async (item) => {
     const alert_enabled = !item.alert_enabled;
     try {
-      const response = await axios.post('/api/set-watch-alert', { symbol: item.symbol, alert_enabled }, { withCredentials: true });
+      const response = await axios.post('/api/set-watch-alert', { id: item.id, source: item.source, symbol: item.symbol, alert_enabled }, { withCredentials: true });
       if (response.data.success) patchRow('watchlist', item, { alert_enabled });
     } catch (err) {
       console.error('Toggle watchlist alert error:', err);
@@ -4211,6 +4211,8 @@ function Dashboard({ isLightMode }) {
         const roundedValue = newValue === '' ? null : parseFloat(parseFloat(newValue).toFixed(2));
 
         const data = {
+          id: item.id,
+          source: item.source,
           symbol: item.symbol,
           direction: direction,
           value: roundedValue

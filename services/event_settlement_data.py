@@ -57,3 +57,27 @@ def confirmed_kalshi_settlement(symbol, cutoff_at, now=None):
         evidence = validated_kalshi_market(symbol, cutoff_at, response.json().get('market'), now)
         return {**evidence, 'source_url': response.url} if evidence else None
     return None
+
+
+def kalshi_settlement_for_ticker(symbol, now=None):
+    """Finalized result for an exact contract ticker when no cutoff was recorded.
+
+    Used for contracts traded by hand, where only the ticker is known. The
+    market's own close time stands in for the cutoff, and every other check
+    in ``validated_kalshi_market`` still applies.
+    """
+    if not re.fullmatch(r'KX[A-Z0-9]+-\d{2}[A-Z]{3}[A-Z0-9.-]+', symbol or ''):
+        return None
+    now = now or datetime.now(timezone.utc)
+    base = 'https://external-api.kalshi.com/trade-api/v2'
+    for path in ('markets', 'historical/markets'):
+        response = requests.get(f'{base}/{path}/{quote(symbol, safe="")}', timeout=8)
+        if response.status_code == 404:
+            continue
+        response.raise_for_status()
+        market = response.json().get('market')
+        if not isinstance(market, dict) or not market.get('close_time'):
+            return None
+        evidence = validated_kalshi_market(symbol, market['close_time'], market, now)
+        return {**evidence, 'source_url': response.url} if evidence else None
+    return None

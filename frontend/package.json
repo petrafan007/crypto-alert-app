@@ -1,7 +1,7 @@
 {
   "name": "crypto-securities-dashboard-frontend",
   "private": true,
-  "version": "4.17.4",
+  "version": "4.18.0",
   "type": "module",
   "dependencies": {
     "@emotion/react": "^11.11.1",
@@ -28,12 +28,15 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.7.0",
+    "eslint": "9.17.0",
+    "eslint-plugin-react-hooks": "5.1.0",
     "vite": "^6.4.3"
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "npm run lint:hooks && vite build",
+    "preview": "vite preview",
+    "lint:hooks": "eslint src"
   },
   "overrides": {
     "esbuild": "^0.25.0"

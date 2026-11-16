@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.17.4
+**Version:** 4.18.0
 
 ## Recent Updates
+
+### v4.18.0
+* **Settings page crash fixed:** v4.17.0 added two pieces of state after the page's loading check, so Settings showed "View Loading Error" (React error #300) as soon as it loaded. The build now runs React's Rules of Hooks check and fails on this kind of mistake, and a browser smoke test renders Settings, both Tax Reports, Help and Orders.
+* **Encryption key out of the database:** the key that encrypts saved API keys now lives in `instance/credentials.key` (owner-only, not in Git) or the `CREDENTIALS_ENCRYPTION_KEY` environment variable. An existing database copy is moved to the file automatically, verified, and deleted from the database, so database backups no longer contain it. Keep a separate copy of the key file somewhere safe.
+* **Event settlements resolved automatically:** Event contracts held to expiry get their finalized result from the exchange every six hours, so the Webull tax report records the $1/$0 settlement instead of flagging it.
+* **Portfolio history thinned:** value history older than a week is kept hourly, and older than 90 days daily (the first point and the latest week stay complete), with a new index for the chart query. Runs daily.
+* **Webull watchlist alerts:** Webull watchlist items now take lower and upper alert prices that actually save and fire; the alert toggle for them now works, and a failed price refresh no longer marks an old price as current.
 
 ### v4.17.4
 * **No more silently swallowed errors:** all 75 broad `except Exception: pass` blocks now log what failed (debug for routine fallbacks such as trying the next price source or a failed cleanup rollback, warning for anything that affects data), catch only the errors they expect where possible, and roll back failed database writes. A test now fails if one is reintroduced.

@@ -5606,8 +5606,10 @@ def api_watchlist_live():
             try:
                 price = _fetch_stock_price_yf(item.symbol, current_user.id)
                 if price > 0:
+                    # Only a real price counts as a refresh; otherwise an old
+                    # price would look current to the page and to alerts.
                     item.last_price = price
-                item.refreshed_at = datetime.utcnow()
+                    item.refreshed_at = datetime.utcnow()
             except Exception as exc:
                 logger.warning('Failed to refresh Webull watchlist item %s: %s', item.symbol, exc)
     watchlist_data.extend(_webull_watchlist_item_payload(item) for item in webull_items)
@@ -5794,8 +5796,8 @@ def _webull_watchlist_item_payload(item):
         'is_external': True,
         'provider': 'webull',
         'alert_enabled': item.alert_enabled,
-        'down_val': None,
-        'up_val': None,
+        'down_val': item.down_alert,
+        'up_val': item.up_alert,
         'note': item.note or '',
         'favorite': False,
         'hidden': False,

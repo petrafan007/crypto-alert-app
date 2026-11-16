@@ -289,6 +289,8 @@ def init_db(app=None):
             ("trading_settings", "totp_last_used_step", "BIGINT"),
             ("webull_orders", "fee_estimated", "BOOLEAN DEFAULT FALSE"),
             ("webull_orders", "filled_at", "TIMESTAMP"),
+            ("webull_watchlist_items", "down_alert", "FLOAT"),
+            ("webull_watchlist_items", "up_alert", "FLOAT"),
         ]
         # ── Guard against idle-in-transaction sessions blocking ALTER TABLE ──
         # ALTER TABLE requires AccessExclusive lock, which is incompatible
