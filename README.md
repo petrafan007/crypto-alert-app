@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.18.0
+**Version:** 4.18.1
 
 ## Recent Updates
+
+### v4.18.1
+* **Decision Engine: SubQ Snap model upgraded from `subq-snap-1.1` to `subq-snap-1.2`.** SubQ deprecated Snap 1.1 with a shutdown date of November 11, 2026 and names Snap 1.2 as its replacement (slightly cheaper: $0.04 per 1M input tokens, output free). As before, the model name is pinned by the `SUBQ_MODEL` constant in `services/decision_settings.py` - `normalize_transport()` overwrites the stored per-user `decision_model` setting with that constant on every load - so the swap is a code change, not a settings change. The constant, the module docstrings, the Decision Settings UI labels and defaults, the credentials column default, the tests that pin or fixture the model name, and the primary account's stored setting were all updated together. No endpoints, thresholds, gate policy, or other providers changed.
 
 ### v4.18.0
 * **Settings page crash fixed:** v4.17.0 added two pieces of state after the page's loading check, so Settings showed "View Loading Error" (React error #300) as soon as it loaded. The build now runs React's Rules of Hooks check and fails on this kind of mistake, and a browser smoke test renders Settings, both Tax Reports, Help and Orders.

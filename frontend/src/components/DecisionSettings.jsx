@@ -6,7 +6,7 @@ const PROVIDERS = {
   subq: {
     label: 'SubQ',
     keyField: 'subq_api_key',
-    model: 'subq-snap-1.1',
+    model: 'subq-snap-1.2',
     endpoint: 'https://api.subq.ai/v1/systemone',
   },
   inception: {
@@ -25,7 +25,7 @@ const PROVIDERS = {
 
 export const DECISION_DEFAULTS = {
   subq_api_key: '', inception_decisions_key: '', gemini_key: '',
-  decision_enabled: false, decision_transport: 'subq', decision_model: 'subq-snap-1.1',
+  decision_enabled: false, decision_transport: 'subq', decision_model: 'subq-snap-1.2',
   decision_endpoint: 'https://api.subq.ai/v1/systemone', decision_timeout_seconds: 8,
   decision_confidence_threshold: 0.8, decision_conflict_threshold: 0.5,
   decision_sentiment_mode: 'first', decision_quant_enabled: false,
@@ -106,7 +106,7 @@ export default function DecisionSettings({ settings, onChange }) {
         onChange('decision_endpoint', nextProvider.endpoint);
         onChange('decision_model', nextProvider.model);
       }}>
-        <option value="subq">SubQ — subq-snap-1.1</option>
+        <option value="subq">SubQ — subq-snap-1.2</option>
         <option value="inception">Inception Mercury Decide — mercury-decide</option>
         <option value="gemini">Google Gemini Decisions — gemini-decision-1</option>
       </select>

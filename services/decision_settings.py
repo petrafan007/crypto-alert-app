@@ -2,7 +2,7 @@
 
 The Decision Engine is provider neutral. Two providers are supported:
 
-  subq       https://api.subq.ai/v1/systemone          model subq-snap-1.1
+  subq       https://api.subq.ai/v1/systemone          model subq-snap-1.2
   inception  https://api.inceptionlabs.ai/v1/decisions  model mercury-decide
   gemini     https://generativelanguage.googleapis.com/v1beta/decisions  model gemini-decision-1
 
@@ -15,7 +15,7 @@ import os
 from urllib.parse import urlsplit
 
 DEFAULT_ENDPOINT = SUBQ_ENDPOINT = 'https://api.subq.ai/v1/systemone'
-SUBQ_MODEL = 'subq-snap-1.1'
+SUBQ_MODEL = 'subq-snap-1.2'
 INCEPTION_DECISIONS_ENDPOINT = 'https://api.inceptionlabs.ai/v1/decisions'
 INCEPTION_DECISIONS_MODEL = 'mercury-decide'
 GEMINI_DECISIONS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/decisions'

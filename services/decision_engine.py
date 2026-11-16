@@ -2,7 +2,7 @@
 
 Supports two decision providers that share the same typed question contract:
 
-  subq       https://api.subq.ai/v1/systemone            model subq-snap-1.1
+  subq       https://api.subq.ai/v1/systemone            model subq-snap-1.2
   inception  https://api.inceptionlabs.ai/v1/decisions    model mercury-decide
   gemini     https://generativelanguage.googleapis.com/v1beta/decisions  model gemini-decision-1
 
