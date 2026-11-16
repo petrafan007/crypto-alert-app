@@ -311,6 +311,19 @@ def init_db(app=None):
             except Exception as ex:
                 print(f"Migration safety: could not clean idle transactions: {ex}")
 
+        # ALTER TABLE takes an exclusive lock even when the column exists, and
+        # would wait behind any long reader (such as a running backup). Only
+        # alter what is actually missing.
+        from sqlalchemy import inspect as _inspect
+        _existing = {}
+        try:
+            _inspector = _inspect(db.engine)
+            for _table in {t for t, _, _ in columns_to_ensure}:
+                if _inspector.has_table(_table):
+                    _existing[_table] = {c['name'] for c in _inspector.get_columns(_table)}
+        except Exception as ex:
+            print(f"Migration note: could not read existing columns: {ex}")
+        columns_to_ensure = [(t, c, d) for t, c, d in columns_to_ensure if c not in _existing.get(t, set())]
         for table, col, col_type in columns_to_ensure:
             try:
                 with db.engine.begin() as conn:
@@ -333,7 +346,11 @@ def init_db(app=None):
             with db.engine.begin() as conn:
                 conn.execute(db.text("SET LOCAL lock_timeout = '5s'"))
                 # Rewards synced from the exchange are not tied to a local staked-coin row.
-                conn.execute(db.text("ALTER TABLE staking_rewards ALTER COLUMN staked_coin_id DROP NOT NULL"))
+                nullable = conn.execute(db.text(
+                    "SELECT is_nullable FROM information_schema.columns "
+                    "WHERE table_name = 'staking_rewards' AND column_name = 'staked_coin_id'")).scalar()
+                if nullable == 'NO':
+                    conn.execute(db.text("ALTER TABLE staking_rewards ALTER COLUMN staked_coin_id DROP NOT NULL"))
                 conn.execute(db.text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_staking_rewards_user_tran "
                     "ON staking_rewards (user_id, tran_id) WHERE tran_id IS NOT NULL"))

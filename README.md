@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.17.2
+**Version:** 4.17.3
 
 ## Recent Updates
+
+### v4.17.3
+* **Startup no longer waits behind backups:** database start-up checks only alter columns that are actually missing. `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` takes an exclusive lock even when nothing changes, so a restart during a long backup could time out.
 
 ### v4.17.2
 * **Staking reward sync fix:** The new Binance.US staking-reward sync could loop without end (its date window compared against a moving "now") and kept the background worker busy calling Binance.US. The end time is now fixed per run and each run is capped at 60 requests; a test proves it stops and stores each reward once.
