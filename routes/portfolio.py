@@ -3370,6 +3370,7 @@ def api_create_trailing_order():
             instrument_type=instrument_type,
             trading_session=trading_session,
             limit_cap_pct=data.get('limit_cap_pct'),
+            activate_at=data.get('activate_at'),
         )
         return jsonify({'success': True, 'trailing_order': order_dict, 'replaced_order_id': replaced_order_id})
     except Exception as e:
@@ -3500,6 +3501,7 @@ def api_create_ladder_order():
             downside_preset=downside_preset,
             downside_rungs=downside_rungs,
             limit_cap_pct=data.get('limit_cap_pct'),
+            activate_at=data.get('activate_at'),
         )
         return jsonify({'success': True, 'ladder_order': ladder_dict, 'replaced_order_id': replaced_order_id})
     except Exception as e:

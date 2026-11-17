@@ -5,7 +5,7 @@ client ID; they are never automatically re-submitted. Session advisory locks rem
 held across commits, serializing workers and cancellation for each parent.
 """
 from contextlib import contextmanager, nullcontext
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
 import hashlib
 import math
@@ -210,6 +210,51 @@ def market_is_open(parent):
 
 def waiting_message(parent):
     return EQUITY_HOURS_WAIT.get(str(parent.trading_session or 'CORE').upper(), EQUITY_HOURS_WAIT['CORE'])
+
+
+def parse_activate_at(value):
+    """Normalize an optional post-dated activation time to naive UTC.
+
+    Accepts None/'' (no scheduling), a datetime, or an ISO-8601 string.
+    Aware values are converted to UTC; naive values are assumed to be UTC.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if text.endswith('Z'):
+            text = text[:-1] + '+00:00'
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            raise ValueError('Enter a valid start date and time.') from None
+    else:
+        raise ValueError('Enter a valid start date and time.')
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    if parsed > utc_now(aware=False) + timedelta(days=366):
+        raise ValueError('The start time must be within the next 366 days.')
+    return parsed
+
+
+def activation_pending(parent, now=None):
+    """True while a post-dated synthetic order is still dormant."""
+    activate_at = getattr(parent, 'activate_at', None)
+    if activate_at is None:
+        return False
+    return activate_at > (now or utc_now(aware=False))
+
+
+def activation_message(parent):
+    """Human-readable dormant message, with the start shown in Eastern Time."""
+    from zoneinfo import ZoneInfo
+    activate_at = getattr(parent, 'activate_at', None)
+    if activate_at is None:
+        return ''
+    eastern = activate_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo('America/New_York'))
+    return f"Scheduled: monitoring starts {eastern.strftime('%b %-d, %Y at %-I:%M %p %Z')}."
 
 
 def parent_reference_price(parent):

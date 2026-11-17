@@ -102,7 +102,7 @@ def init_db(app=None):
                   ('environment', 'VARCHAR(20)'), ('engine_version', 'INTEGER'),
                   ('last_price', 'FLOAT'), ('last_checked_at', 'TIMESTAMP'),
                   ('monitoring_error', 'TEXT'), ('cancel_requested', 'BOOLEAN DEFAULT FALSE'),
-                  ('limit_cap_pct', 'FLOAT'))],
+                  ('limit_cap_pct', 'FLOAT'), ('activate_at', 'TIMESTAMP'))],
             ("ladder_orders", "conditional_spec", "TEXT"),
             ("ladder_orders", "conditional_phase", "VARCHAR(12)"),
             ("synthetic_executions", "order_type", "VARCHAR(20)"),

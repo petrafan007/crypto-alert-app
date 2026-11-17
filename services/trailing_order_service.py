@@ -43,7 +43,7 @@ def calculate_trailing_stop_price(side, reference_price, trail_type, trail_value
 def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT', trail_value=2.0,
                           activation_price=None, execution_type='MARKET', test_mode=False, client=None,
                           broker='binance', account_id=None, instrument_type='CRYPTO', trading_session='CORE',
-                          limit_cap_pct=None, commit=True):
+                          limit_cap_pct=None, activate_at=None, commit=True):
     """
     Validate and persist a new synthetic TrailingOrder.
     Supports both Binance.US and Webull.
@@ -131,6 +131,7 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
         trading_session=clean_session,
         limit_cap_pct=cap_pct,
         status='ACTIVE',
+        activate_at=execution.parse_activate_at(activate_at),
         created_at=utc_now(aware=False),
         updated_at=utc_now(aware=False)
     )
@@ -297,6 +298,10 @@ def evaluate_active_trailing_orders():
                     db.session.commit()
                     continue
                 _sync_trailing(order, execution.reconcile_executions(order, 'TRAILING'))
+                if execution.activation_pending(order):
+                    order.monitoring_error = execution.activation_message(order)
+                    db.session.commit()
+                    continue
                 if order.status == 'ACTIVE' and not order.cancel_requested:
                     if execution.market_is_open(order):
                         try:

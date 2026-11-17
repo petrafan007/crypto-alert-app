@@ -155,7 +155,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
                         upside_trail_value=None, upside_trail_type='PERCENT', upside_activation_price=None,
                         downside_mode='NONE', downside_target_price=None, downside_trail_value=None,
                         downside_trail_type='PERCENT', downside_activation_price=None,
-                        downside_preset='Moderate', downside_rungs=None, limit_cap_pct=None, commit=True):
+                        downside_preset='Moderate', downside_rungs=None, limit_cap_pct=None, activate_at=None, commit=True):
     """
     Validate, calculate, and persist a parent LadderOrder with child LadderRungs.
     Supports Mode A (Single), Mode B (Ladder), Mode C (Trailing) for both Upside and Downside.
@@ -318,6 +318,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         test_mode=bool(test_mode),
         trading_session=clean_session,
         limit_cap_pct=cap_pct,
+        activate_at=execution.parse_activate_at(activate_at),
         created_at=utc_now(aware=False),
         updated_at=utc_now(aware=False)
     )
@@ -537,6 +538,10 @@ def evaluate_active_ladder_orders():
                     continue
                 rows = execution.reconcile_executions(ladder, 'LADDER')
                 _sync_parent(ladder, rows)
+                if execution.activation_pending(ladder):
+                    ladder.monitoring_error = execution.activation_message(ladder)
+                    db.session.commit()
+                    continue
                 if ladder.status in {'ACTIVE', 'PARTIALLY_FILLED'} and not ladder.cancel_requested:
                     if execution.market_is_open(ladder):
                         try:

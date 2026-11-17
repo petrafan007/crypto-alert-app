@@ -57,6 +57,7 @@ def create_conditional(user_id, data, commit=True):
                          conditional_phase='ENTRY' if kind in {'OTO', 'OTOCO'} else 'SINGLE',
                          upside_mode='NONE', downside_mode='NONE', trading_session=session,
                          limit_cap_pct=ex.limit_cap(data.get('limit_cap_pct'), session), test_mode=bool(data.get('test_mode')),
+                         activate_at=ex.parse_activate_at(data.get('activate_at')),
                          status='ACTIVE', engine_version=2, environment=ex.environment_for(user_id, broker))
     rules = ex.quantity_rules(parent)
     if ex.normalize_quantity(qty, rules) != qty:

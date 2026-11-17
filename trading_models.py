@@ -244,6 +244,7 @@ class TrailingOrder(db.Model):
     last_checked_at = Column(DateTime, nullable=True)
     monitoring_error = Column(Text, nullable=True)
     cancel_requested = Column(Boolean, default=False)
+    activate_at = Column(DateTime, nullable=True)
 
     def to_dict(self):
         from services.synthetic_execution_service import execution_summary
@@ -258,6 +259,7 @@ class TrailingOrder(db.Model):
             'quantity': self.quantity,
             'trail_type': self.trail_type,
             'trail_value': self.trail_value,
+            'activate_at': self.activate_at.isoformat() if self.activate_at else None,
             'activation_price': self.activation_price,
             'is_activated': self.is_activated,
             'highest_price': self.highest_price,
@@ -328,6 +330,7 @@ class LadderOrder(db.Model):
     last_checked_at = Column(DateTime, nullable=True)
     monitoring_error = Column(Text, nullable=True)
     cancel_requested = Column(Boolean, default=False)
+    activate_at = Column(DateTime, nullable=True)
 
     conditional_spec = Column(Text, nullable=True)  # validated JSON legs for OCO / OTO / OTOCO
     conditional_phase = Column(String(12), nullable=True)
@@ -374,6 +377,7 @@ class LadderOrder(db.Model):
             'test_mode': self.test_mode,
             'trading_session': self.trading_session or 'CORE',
             'limit_cap_pct': self.limit_cap_pct,
+            'activate_at': self.activate_at.isoformat() if self.activate_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'rungs': [r.to_dict() for r in self.rungs] if hasattr(self, 'rungs') and self.rungs else [],

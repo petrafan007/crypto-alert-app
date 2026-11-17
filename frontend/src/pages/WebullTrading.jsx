@@ -1381,6 +1381,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     comboType: 'OTOCO',
     executionMode: 'SYNTHETIC',
     tradingSession: 'ALL',
+    activateAt: '',
     symbol: 'AAPL',
     legs: [
       { id: '1', role: 'MASTER', side: 'BUY', order_type: 'LIMIT', price: '', stopPrice: '', quantity: '1', timeInForce: 'DAY', session: 'CORE' },
@@ -4368,7 +4369,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     return { symbol: sym, side: legs[0].side, quantity: qty, strategyType: comboForm.comboType,
       legs: legs.map(leg => ({ side: leg.side, order_type: leg.order_type, quantity: qty,
         price: leg.price ? Number(leg.price) : null, stop_price: leg.stopPrice ? Number(leg.stopPrice) : null })),
-      tradingSession: comboForm.tradingSession || 'ALL', capPct: '1.0', error: '' };
+      tradingSession: comboForm.tradingSession || 'ALL', activateAt: comboForm.activateAt ? new Date(comboForm.activateAt).toISOString() : null, capPct: '1.0', error: '' };
   };
 
   const submitSyntheticCombo = async (twofaToken = null) => {
@@ -4402,7 +4403,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         broker: 'webull', account_id: selectedAccountId, symbol: offer.symbol,
         instrument_type: selectedSecurityType || 'EQUITY', side: offer.side,
         total_quantity: offer.quantity, strategy_type: offer.strategyType, legs: offer.legs,
-        trading_session: offer.tradingSession, limit_cap_pct: cap, test_mode: isTestMode,
+        trading_session: offer.tradingSession, limit_cap_pct: cap, test_mode: isTestMode, activate_at: offer.activateAt || undefined,
         ...(twofaToken ? { twofa_token: twofaToken } : {}),
       };
       const response = await axios.post('/api/trading/synthetic-conditional-orders', payload, { withCredentials: true });
@@ -4410,7 +4411,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         setSyntheticComboOffer(null);
         setOrderFeedback({
           type: 'success',
-          message: `Synthetic ${offer.strategyType} #${response.data.ladder_order.id} placed for ${offer.quantity} ${offer.symbol}. Session: ${offer.tradingSession === 'ALL' ? 'Regular + Extended Hours' : 'Regular Hours'}. Failures and recovery choices remain available in Order History.`,
+          message: `Synthetic ${offer.strategyType} #${response.data.ladder_order.id} placed for ${offer.quantity} ${offer.symbol}. Session: ${offer.tradingSession === 'ALL' ? 'Regular + Extended Hours' : 'Regular Hours'}.${offer.activateAt ? ` Monitoring starts ${new Date(offer.activateAt).toLocaleString()}.` : ''} Failures and recovery choices remain available in Order History.`,
         });
         setActiveTab('synthetic_orders');
       } else {
@@ -7522,7 +7523,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
                   {!isEmbeddedReplaceMode && <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
                     <label>Execution<select className="order-styled-input" value={comboForm.executionMode} onChange={e => setComboForm(prev => ({ ...prev, executionMode: e.target.value }))}><option value="SYNTHETIC">Synthetic · managed by this app</option><option value="NATIVE">Webull native · regular hours</option></select></label>
-                    {comboForm.executionMode === 'SYNTHETIC' && <label>Trading session<select className="order-styled-input" value={comboForm.tradingSession} onChange={e => setComboForm(prev => ({ ...prev, tradingSession: e.target.value }))}><option value="ALL">Regular + Extended Hours</option><option value="CORE">Regular Hours</option></select></label>}
+                    {comboForm.executionMode === 'SYNTHETIC' && <label>Trading session<select className="order-styled-input" value={comboForm.tradingSession} onChange={e => setComboForm(prev => ({ ...prev, tradingSession: e.target.value }))}><option value="ALL">Regular + Extended Hours</option><option value="CORE">Regular Hours</option></select></label>} {comboForm.executionMode === 'SYNTHETIC' && <label>Start monitoring (optional)<input type="datetime-local" className="order-styled-input" value={comboForm.activateAt} onChange={e => setComboForm(prev => ({ ...prev, activateAt: e.target.value }))} /></label>}
                   </div>}
                   {/* Stock Symbol Input */}
                   <div style={{ marginBottom: '16px', maxWidth: '300px' }}>

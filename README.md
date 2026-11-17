@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.18.1
+**Version:** 4.18.2
 
 ## Recent Updates
+
+### v4.18.2
+* **Synthetic orders can be post-dated:** the Webull Trading combo builder gains an optional "Start monitoring" date/time. A synthetic strategy created with a future start stays dormant until that time - the worker shows "Scheduled: monitoring starts ..." and does not fetch prices or evaluate triggers - then monitors and executes exactly as before. The start time is stored as `activate_at` on trailing and ladder synthetic orders (naive UTC), is accepted by the trailing, ladder and conditional creation paths, and is exposed in their API responses. Built for IPO situations: a conditional limit order can be entered days ahead (with the usual live-trading 2FA at creation) and only starts watching the price once the stock is trading.
 
 ### v4.18.1
 * **Decision Engine: SubQ Snap model upgraded from `subq-snap-1.1` to `subq-snap-1.2`.** SubQ deprecated Snap 1.1 with a shutdown date of November 11, 2026 and names Snap 1.2 as its replacement (slightly cheaper: $0.04 per 1M input tokens, output free). As before, the model name is pinned by the `SUBQ_MODEL` constant in `services/decision_settings.py` - `normalize_transport()` overwrites the stored per-user `decision_model` setting with that constant on every load - so the swap is a code change, not a settings change. The constant, the module docstrings, the Decision Settings UI labels and defaults, the credentials column default, the tests that pin or fixture the model name, and the primary account's stored setting were all updated together. No endpoints, thresholds, gate policy, or other providers changed.
