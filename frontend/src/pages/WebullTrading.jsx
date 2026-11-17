@@ -7470,7 +7470,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                       </p>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      {['OTOCO', 'OTO', 'OCO'].map((type) => (
+                      {['OTOCO', 'OTO', 'OCO', 'LIMIT'].map((type) => (
                         <button
                           key={type}
                           type="button"
@@ -7484,7 +7484,15 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                             borderColor: comboForm.comboType === type ? '#3b82f6' : '#334155',
                           }}
                           onClick={() => {
-                            if (type === 'OTO') {
+                            if (type === 'LIMIT') {
+                              setComboForm((prev) => ({
+                                ...prev,
+                                comboType: 'LIMIT',
+                                legs: [
+                                  { id: '1', role: 'MASTER', side: 'BUY', order_type: 'LIMIT', price: '', stopPrice: '', quantity: '1', timeInForce: 'DAY', session: 'CORE' },
+                                ],
+                              }));
+                            } else if (type === 'OTO') {
                               setComboForm((prev) => ({
                                 ...prev,
                                 comboType: 'OTO',
