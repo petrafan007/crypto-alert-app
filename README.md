@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.18.2
+**Version:** 4.18.3
 
 ## Recent Updates
+
+### v4.18.3
+* **Watchlist indicative prices:** a watchlist row can carry a manually maintained indicative price (plus an updated-at timestamp and an optional source note), set or cleared with `POST /api/watchlist/indicative`. The dashboard's Current Price column shows it with an "Indicative" badge only while the symbol has no live quote; a real quote always wins, so the display switches to the live ticker price on its own once trading starts. Built for IPOs in Nasdaq price discovery, where no quote exists until the opening cross: Anthropic (ANT) sits on the primary account's watchlist ahead of its first trading day so the opening-cross indication can be followed from the dashboard.
 
 ### v4.18.2
 * **Synthetic orders can be post-dated:** the Webull Trading combo builder gains an optional "Start monitoring" date/time. A synthetic strategy created with a future start stays dormant until that time - the worker shows "Scheduled: monitoring starts ..." and does not fetch prices or evaluate triggers - then monitors and executes exactly as before. The builder also gains a single-leg Limit strategy type (the conditional engine already supported it) so a bare synthetic limit order can be entered. The start time is stored as `activate_at` on trailing and ladder synthetic orders (naive UTC), is accepted by the trailing, ladder and conditional creation paths, and is exposed in their API responses. Built for IPO situations: a conditional limit order can be entered days ahead (with the usual live-trading 2FA at creation) and only starts watching the price once the stock is trading.

@@ -5830,12 +5830,29 @@ function Dashboard({ isLightMode }) {
                               );
                             case 'type':
                               return <td key="type" className="asset-type-cell"><span className="asset-type-pill">{item.webull_account_type || (isTraditionalAsset(item) ? 'Securities' : 'Crypto')}</span></td>;
-                            case 'current_price':
+                            case 'current_price': {
+                              const livePrice = Number(item.current_price);
+                              const indicativePrice = Number(item.indicative_price);
+                              if (!(livePrice > 0) && indicativePrice > 0) {
+                                const indicativeTitle = 'Indicative price (not yet trading)'
+                                  + (item.indicative_source ? ' - ' + item.indicative_source : '')
+                                  + (item.indicative_updated_at ? ' - updated ' + formatLocalDateTime(item.indicative_updated_at) : '');
+                                return (
+                                  <td key="current_price" style={{ whiteSpace: 'nowrap', textAlign: 'center' }} title={indicativeTitle}>
+                                    <div>{formatDynamicPrice(indicativePrice)}</div>
+                                    <div style={{ fontSize: '0.68rem', marginTop: '2px', color: 'var(--text-secondary, #64748b)' }}>
+                                      <span style={{ border: '1px solid currentColor', borderRadius: '999px', padding: '0 6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Indicative</span>
+                                      {item.indicative_updated_at ? <span> {formatLocalDateTime(item.indicative_updated_at)}</span> : null}
+                                    </div>
+                                  </td>
+                                );
+                              }
                               return (
                                 <td key="current_price" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
                                   {formatDynamicPrice(item.current_price)}
                                 </td>
                               );
+                            }
                             case 'down_alert':
                               return (
                                 <td key="down_alert" style={{ textAlign: 'center' }}>

@@ -5513,6 +5513,9 @@ def api_watchlist():
             "auto_buy_amount": getattr(w, 'auto_buy_amount', None),
             "auto_buy_triggered_at": w.auto_buy_triggered_at.isoformat() if getattr(w, 'auto_buy_triggered_at', None) else None,
             "auto_buy_confirmation_started_at": w.auto_buy_confirmation_started_at.isoformat() if getattr(w, 'auto_buy_confirmation_started_at', None) else None,
+            "indicative_price": getattr(w, 'indicative_price', None),
+            "indicative_updated_at": w.indicative_updated_at.isoformat() if getattr(w, 'indicative_updated_at', None) else None,
+            "indicative_source": getattr(w, 'indicative_source', None),
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
         })
@@ -5595,6 +5598,9 @@ def api_watchlist_live():
             "auto_buy_amount": getattr(w, 'auto_buy_amount', None),
             "auto_buy_triggered_at": w.auto_buy_triggered_at.isoformat() if getattr(w, 'auto_buy_triggered_at', None) else None,
             "auto_buy_confirmation_started_at": w.auto_buy_confirmation_started_at.isoformat() if getattr(w, 'auto_buy_confirmation_started_at', None) else None,
+            "indicative_price": getattr(w, 'indicative_price', None),
+            "indicative_updated_at": w.indicative_updated_at.isoformat() if getattr(w, 'indicative_updated_at', None) else None,
+            "indicative_source": getattr(w, 'indicative_source', None),
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
         })
@@ -5885,6 +5891,9 @@ def api_watchlist_add():
                 "sentiment_failover_history": getattr(exists, 'sentiment_failover_history', None),
                 "sentiment_tracking_enabled": getattr(exists, 'sentiment_tracking_enabled', True) is not False,
                 "volatility_pct": exists.volatility_pct,
+                "indicative_price": getattr(exists, 'indicative_price', None),
+                "indicative_updated_at": exists.indicative_updated_at.isoformat() if getattr(exists, 'indicative_updated_at', None) else None,
+                "indicative_source": getattr(exists, 'indicative_source', None),
                 "cached_news": "",
                 "cached_news_date": None
             }
@@ -5956,10 +5965,62 @@ def api_watchlist_add():
             "sentiment_search_status": None,
             "sentiment_tracking_enabled": True,
             "volatility_pct": wl.volatility_pct,
+            "indicative_price": getattr(wl, 'indicative_price', None),
+            "indicative_updated_at": wl.indicative_updated_at.isoformat() if getattr(wl, 'indicative_updated_at', None) else None,
+            "indicative_source": getattr(wl, 'indicative_source', None),
             "cached_news": "",
             "cached_news_date": None
         }
     })
+
+@portfolio_bp.route("/api/watchlist/indicative", methods=["POST"])
+@login_required
+def api_watchlist_indicative():
+    """Set or clear a watchlist item's manual indicative price.
+
+    The indicative price is display-only: the dashboard shows it, labelled
+    "Indicative", only while the symbol has no live quote (e.g. an IPO in
+    Nasdaq price discovery before its opening cross). A live quote always
+    wins, so nothing needs to change here once trading starts.
+
+    Body: {"symbol": "ANT", "indicative_price": 74.25, "source": "Nasdaq NOII"}
+    Send indicative_price as null (or an empty string) to clear it.
+    """
+    data = request.get_json() or {}
+    symbol = (data.get("symbol") or "").upper().strip()
+    if not symbol:
+        return jsonify({"success": False, "error": "Missing symbol"}), 400
+
+    w = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+    if not w:
+        return jsonify({"success": False, "error": "Watchlist coin not found"}), 404
+
+    raw_price = data.get("indicative_price", None)
+    if raw_price in (None, ""):
+        w.indicative_price = None
+        w.indicative_updated_at = None
+        w.indicative_source = None
+    else:
+        try:
+            value = float(raw_price)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "The indicative price must be a number."}), 400
+        if not math.isfinite(value) or value <= 0:
+            return jsonify({"success": False, "error": "The indicative price must be greater than 0."}), 400
+        w.indicative_price = round(value, 4)
+        w.indicative_updated_at = datetime.utcnow()
+        source = str(data.get("source") or "").strip()
+        w.indicative_source = source[:100] or None
+
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "symbol": w.symbol,
+        "indicative_price": w.indicative_price,
+        "indicative_updated_at": w.indicative_updated_at.isoformat() if w.indicative_updated_at else None,
+        "indicative_source": w.indicative_source,
+    })
+
 
 @portfolio_bp.route("/api/watchlist/remove", methods=["POST"])
 @login_required

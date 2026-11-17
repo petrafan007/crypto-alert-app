@@ -505,6 +505,13 @@ class WatchlistCoin(db.Model):
     sentiment_tracking_enabled = db.Column(db.Boolean, default=True)
     # 'crypto' for Binance/crypto assets, 'stock' for stocks/ETFs priced via Yahoo Finance
     asset_type = db.Column(db.String(20), default='crypto')
+    # Manually maintained pre-trading indicative price (e.g. an IPO's Nasdaq
+    # NOII indication before the opening cross). Display-only: the dashboard
+    # shows it, labelled "Indicative", only while no live quote exists; a
+    # real quote always wins. Set/cleared via POST /api/watchlist/indicative.
+    indicative_price = db.Column(db.Float, nullable=True)
+    indicative_updated_at = db.Column(db.DateTime, nullable=True)
+    indicative_source = db.Column(db.String(100), nullable=True)
     
     # Composite index for efficient lookups
     __table_args__ = (
