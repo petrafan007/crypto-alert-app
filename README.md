@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.0
+**Version:** 4.19.1
 
 ## Recent Updates
+
+### v4.19.1
+* **Date and time pickers follow the theme:** the app now sets CSS `color-scheme` with its light/dark theme (`theme-variables.css`). The browser's built-in controls therefore match the app: in dark mode the Webull combo builder's "Start monitoring (optional)" calendar icon is no longer black on a black field, and its pop-up calendar and time columns are dark instead of white. The Research Workbench date fields and other built-in pickers and scrollbars follow the theme the same way.
 
 ### v4.19.0
 * **Buy brackets entered as an Order Value are sized by that budget:** on the Binance.US Trading page, a synthetic ladder or smart-bracket BUY whose Order Value was typed (rather than a quantity) is now a budget. Each step buys its share of the budget at its own trigger price, so either side spends at most the budget. Before, the value was converted to one shared quantity at the current price, so a breakout side bought that quantity at higher prices: a 1,000 USDT bracket held 1,078.01 USDT. Both sides still draw on one shared pool, now the budget instead of a quantity. After any fill, the other side can spend only the unused budget, its final step is capped to it, and the strategy completes once the whole budget is used. Single and trailing sides buy the unused budget at the price they execute at (the capped limit in extended hours, rounded down to whole shares there). The cash hold, the capacity check for new synthetic orders, the order review, the dashboard tooltip and the Synthetic Orders table all report the budget and how much is unused. Failed-order recovery retries with only the unused budget. Stored as the new nullable `ladder_orders.quote_budget` column, which is added automatically at startup. Quantity-entered orders, sells and existing strategies are unchanged.

@@ -4,6 +4,8 @@
 :root,
 [data-theme="light"],
 body.light-mode {
+  /* Native controls (date/time pickers, their calendar icons, scrollbars) follow the app theme. */
+  color-scheme: light;
   --bg-primary: #f7fafc;
   --bg-secondary: #ffffff;
   --bg-tertiary: #edf2f7;
@@ -59,6 +61,7 @@ body.light-mode {
 /* Dark Theme Variables */
 [data-theme="dark"],
 body.dark-mode {
+  color-scheme: dark;
   --bg-primary: #181f23;
   --bg-secondary: #232b31;
   --bg-tertiary: #2d3748;
