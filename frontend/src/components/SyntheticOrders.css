@@ -77,3 +77,11 @@ button.synthetic-status { cursor: pointer; text-align: left; text-decoration: un
   text-align: left !important;
   padding: 12px !important;
 }
+
+/* One section per bracket side (Breakout / Buy the Dip, Take profit / Downside protection). */
+.synthetic-step-sections { display: grid; gap: 12px; margin: 12px 0; }
+.synthetic-step-section { min-width: 0; padding: 10px 12px; border: 1px solid var(--syn-border); border-left: 4px solid var(--syn-positive); border-radius: 6px; }
+.synthetic-step-section-downside { border-left-color: var(--syn-negative); }
+.synthetic-step-section h4 { margin: 0; color: var(--text-primary); font-size: 14px; }
+.synthetic-step-section h4 small { display: inline; margin-left: 8px; color: var(--syn-muted); font-weight: 400; }
+.synthetic-step-section .synthetic-step-grid { margin: 10px 0 0; }

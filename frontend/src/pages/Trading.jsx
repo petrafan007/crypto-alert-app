@@ -306,7 +306,9 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
 
   const feeQuote = feeSnapshot?.symbol === orderForm.symbol && feeSnapshot?.paper === settings.test_mode_enabled ? feeSnapshot : null;
   const isSynthetic = ['LADDER', 'SYNTHETIC'].includes(orderForm.type);
-  const syntheticReview = buildSyntheticReview(ladderConfig, { side: orderForm.side, quantity: orderForm.quantity, currentPrice: currentPrices.base, baseAsset, quoteAsset, fees: feeQuote });
+  // A buy entered as an Order Value is a budget: each side spends at most it at its own trigger prices.
+  const syntheticBudget = isSynthetic && orderForm.side === 'BUY' && lastEditedRef.current === 'quote' && parseFloat(quoteQuantity) > 0 ? parseFloat(quoteQuantity) : null;
+  const syntheticReview = buildSyntheticReview(ladderConfig, { side: orderForm.side, quantity: orderForm.quantity, currentPrice: currentPrices.base, baseAsset, quoteAsset, fees: feeQuote, quoteBudget: syntheticBudget });
   const currentFeeRate = feeQuote?.rates?.[orderForm.side]?.[orderForm.type === 'LIMIT_MAKER' ? 'maker' : 'taker'];
   const estimatedFee = { rate: currentFeeRate ?? null, usd: currentFeeRate == null ? null : Number(orderForm.quantity || 0) * determinePriceForCalculations() * currentFeeRate };
 
@@ -760,6 +762,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
             ladderConfig={ladderConfig}
             onChange={setLadderConfig}
             fees={feeQuote}
+            quoteBudget={syntheticBudget}
           />
         );
         break;
@@ -791,9 +794,11 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
     const effectivePrice = orderForm.type === 'MARKET'
       ? marketPrice
       : determinePriceForCalculations();
-    const estimatedValue = qty > 0 && effectivePrice > 0
-      ? (qty * effectivePrice).toFixed(2)
-      : '0.00';
+    const estimatedValue = isSynthetic && syntheticReview.quoteBudget
+      ? syntheticReview.quoteBudget.toFixed(2)
+      : qty > 0 && effectivePrice > 0
+        ? (qty * effectivePrice).toFixed(2)
+        : '0.00';
 
     return {
       side: orderForm.side,
@@ -2057,6 +2062,8 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
         orderData.total_quantity = confirmed?.syntheticReview?.total ?? syntheticReview.total;
         orderData.quantity = orderData.total_quantity;
         Object.assign(orderData, confirmed?.syntheticPayload || buildSyntheticPayload(ladderConfig));
+        const budget = confirmed ? confirmed.syntheticReview?.quoteBudget : syntheticReview.quoteBudget;
+        if (budget) orderData.quote_budget = budget;
         orderData.test_mode = settings.test_mode_enabled;
         orderData.broker = 'binance';
       }

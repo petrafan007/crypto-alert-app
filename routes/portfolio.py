@@ -3502,6 +3502,7 @@ def api_create_ladder_order():
             downside_rungs=downside_rungs,
             limit_cap_pct=data.get('limit_cap_pct'),
             activate_at=data.get('activate_at'),
+            quote_budget=data.get('quote_budget'),
         )
         return jsonify({'success': True, 'ladder_order': ladder_dict, 'replaced_order_id': replaced_order_id})
     except Exception as e:

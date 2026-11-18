@@ -143,14 +143,15 @@ const LadderOrderConfig = ({
   ladderConfig = defaultLadderState,
   onChange,
   fees = null,
-  quantityStep
+  quantityStep,
+  quoteBudget = null
 }) => {
   const isSell = side === 'SELL';
   const previousSide = useRef(side);
   const price = parseFloat(currentPrice) || 0;
   const totalQty = parseFloat(totalQuantity) || 0;
   const priceDecimals = ['USD', 'USDT'].includes(quoteAsset) ? 2 : 12;
-  const review = buildSyntheticReview(ladderConfig, { side, quantity: totalQty, currentPrice: price, baseAsset, quoteAsset, fees, quantityStep });
+  const review = buildSyntheticReview(ladderConfig, { side, quantity: totalQty, currentPrice: price, baseAsset, quoteAsset, fees, quantityStep, quoteBudget });
 
   // Active configurations with safe fallbacks
   const upsideMode = ladderConfig.upsideMode || 'LADDER';
@@ -356,7 +357,7 @@ const LadderOrderConfig = ({
 
   const tiers = prefix => (review.branches.find(b => b.prefix === prefix)?.rows || []).map((row, idx) => ({
     rungNumber: idx + 1, targetPrice: row.price, quantity: row.quantity,
-    percentageOfTotal: review.total > 0 ? 100 * row.quantity / review.total : 0,
+    percentageOfTotal: review.quoteBudget ? 100 * row.gross / review.quoteBudget : review.total > 0 ? 100 * row.quantity / review.total : 0,
     offsetPct: price > 0 ? (row.price / price - 1) * 100 : 0,
     estimatedUsd: row.gross, cumulativeUsd: row.cumulativeGross,
     cumulativeQty: (review.branches.find(b => b.prefix === prefix)?.rows || []).slice(0, idx + 1).reduce((sum, r) => sum + r.quantity, 0),
@@ -367,7 +368,7 @@ const LadderOrderConfig = ({
 
   return (
     <div className="ladder-order-config-container" style={{ width: '100%', marginTop: '6px' }}>
-      <p style={{ color: 'var(--syn-muted)', fontSize: '12px' }}>Both sides share one total quantity. Triggered steps execute market orders. Protection applies to the unfilled remainder; conditions persist until filled or cancelled.</p>
+      <p style={{ color: 'var(--syn-muted)', fontSize: '12px' }}>{review.quoteBudget ? `Both sides share one ${money(review.quoteBudget, quoteAsset)} budget; each side spends at most it at its trigger prices.` : 'Both sides share one total quantity.'} Triggered steps execute market orders. Protection applies to the unfilled remainder; conditions persist until filled or cancelled.</p>
       <div className="ladder-strategy-split-container">
         {/* ============================================================== */}
         {/* 🟢 COLUMN 1: UPSIDE STRATEGY (TAKE PROFIT)                     */}

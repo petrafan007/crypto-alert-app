@@ -26,7 +26,8 @@ def recover(user_id, kind, identifier, data):
             raise ValueError('Awaiting final broker confirmation. No replacement has been submitted.')
         details = source.to_dict()
         remaining = details['remaining_quantity']
-        if remaining <= 1e-10:
+        budget = ex.budget_remaining(source, rows) if kind == 'LADDER' and ex.is_budget(source) else None
+        if (budget if budget is not None else remaining) <= 1e-10:
             raise ValueError('No unfilled quantity remains. Refresh broker fills.')
         action = data.get('action')
         if action not in {'REPLACE', 'REGULAR', 'KEEP_CANCELLED'}:
@@ -37,9 +38,12 @@ def recover(user_id, kind, identifier, data):
             session = 'CORE' if action == 'REGULAR' else str(data.get('trading_session', source.trading_session)).upper()
             identity = ex.validate_identity(source.symbol, source.side, source.broker, source.instrument_type, session, source.account_id, source.test_mode)
             session = identity[4]
-            ex.require_whole_shares(remaining, session, source.instrument_type)
+            if budget is None:
+                ex.require_whole_shares(remaining, session, source.instrument_type)
             ex.check_synthetic_order_capacity(user_id, source.symbol, source.side, remaining, source.broker,
                                               source.test_mode, account_id=source.account_id)
+            if budget is not None and action == 'REPLACE' and data.get('strategy_type') not in (None, 'SAME'):
+                raise ValueError('An order-value strategy can be retried as the same strategy only. Cancel it and create a new one to change its type.')
             if action == 'REPLACE' and data.get('strategy_type') in {'TRAILING', 'LADDER'}:
                 shared = dict(user_id=user_id, symbol=source.symbol, side=source.side, broker=source.broker,
                     account_id=source.account_id, instrument_type=source.instrument_type, trading_session=session,
@@ -77,7 +81,9 @@ def recover(user_id, kind, identifier, data):
                 values['total_quantity' if kind == 'LADDER' else 'quantity'] = remaining
                 if kind == 'LADDER':
                     values['rungs_filled'] = 0
-                    if source.total_budget_usd:
+                    if budget is not None:
+                        values['quote_budget'] = values['total_budget_usd'] = budget
+                    elif source.total_budget_usd:
                         values['total_budget_usd'] = source.total_budget_usd * remaining / source.total_quantity
                     if source.conditional_spec:
                         spec = json.loads(source.conditional_spec)
@@ -104,7 +110,13 @@ def recover(user_id, kind, identifier, data):
                     allocated = {}
                     for rung in source.rungs:
                         group = [r for r in source.rungs if r.rung_type == rung.rung_type]
-                        raw = remaining - allocated.get(rung.rung_type, 0) if rung == group[-1] else remaining * rung.percentage_of_total / 100
+                        if budget is not None:
+                            # Each step keeps its share of the unused budget at its own trigger price.
+                            raw = budget * rung.percentage_of_total / 100 / rung.target_price
+                            if session == 'ALL' and source.instrument_type != 'CRYPTO':
+                                raw = float(int(raw))
+                        else:
+                            raw = remaining - allocated.get(rung.rung_type, 0) if rung == group[-1] else remaining * rung.percentage_of_total / 100
                         qty = ex.normalize_quantity(raw, rules)
                         allocated[rung.rung_type] = allocated.get(rung.rung_type, 0) + qty
                         ex.require_whole_shares(qty, session, source.instrument_type)

@@ -42,12 +42,15 @@ export function executionEstimate(quantity, price, side, fees) {
     bnbFee: discount, bnbNet: discount === null ? null : gross - discount };
 }
 
-export function buildSyntheticReview(config, { side = 'SELL', quantity = 0, currentPrice = 0, baseAsset = 'ASSET', quoteAsset = 'USD', fees = null, quantityStep } = {}) {
+export function buildSyntheticReview(config, { side = 'SELL', quantity = 0, currentPrice = 0, baseAsset = 'ASSET', quoteAsset = 'USD', fees = null, quantityStep, quoteBudget = null } = {}) {
   const payload = buildSyntheticPayload(config);
   const step = quantityStep ?? fees?.quantityStep;
-  const total = normalizeSyntheticQuantity(quantity, step);
   const market = Number(currentPrice) || 0;
   const sell = side === 'SELL';
+  // A buy sized by order value: every step buys its share of the budget at its own trigger.
+  const budget = !sell && Number(quoteBudget) > 0 ? Number(quoteBudget) : null;
+  const budgetQty = (amount, price) => price > 0 ? normalizeSyntheticQuantity(amount / price, step) : 0;
+  let total = normalizeSyntheticQuantity(quantity, step);
   const branches = ['upside', 'downside'].map(prefix => {
     const mode = payload[`${prefix}_mode`];
     const label = prefix === 'upside' ? 'Upside strategy' : 'Downside strategy';
@@ -66,30 +69,39 @@ export function buildSyntheticReview(config, { side = 'SELL', quantity = 0, curr
         + `${pending ? 'If the first activating observation equals the hurdle' : 'Using the current reference price'}, the starting ${sell ? 'peak' : 'trough'} is ${money(anchor, quoteAsset)} and the trigger is ${money(stop, quoteAsset)}. `
         + `The trigger follows each new ${sell ? 'high' : 'low'} at ${trailLabel(value, kind, quoteAsset)} ${sell ? 'below' : 'above'} it. A price ${sell ? 'at or below' : 'at or above'} that trigger submits a market ${side.toLowerCase()} for the remaining quantity. `
         + `A later ${sell ? 'higher peak' : 'lower trough'} changes the trigger and proceeds. ${pending ? 'The first observed activating price can pass the hurdle, so this is a hurdle-price scenario.' : 'This is the current-price scenario, not a known future peak or fill.'}`;
-      if (anchor > 0 && stop > 0) rows = [{ ...executionEstimate(total, stop, side, fees), name: 'Trailing trigger scenario', condition: `${sell ? 'Price ≤ peak' : 'Price ≥ trough'} ${sell ? '−' : '+'} ${trailLabel(value, kind, quoteAsset)}`, remaining: true }];
+      if (anchor > 0 && stop > 0) rows = [{ ...executionEstimate(budget ? budgetQty(budget, stop) : total, stop, side, fees), name: 'Trailing trigger scenario', condition: `${sell ? 'Price ≤ peak' : 'Price ≥ trough'} ${sell ? '−' : '+'} ${trailLabel(value, kind, quoteAsset)}`, remaining: true }];
     } else if (mode === 'SINGLE') {
       const target = payload[`${prefix}_target_price`];
       const cancelOnly = prefix === 'downside' && payload.stop_loss_action === 'CANCEL_REMAINING';
       explanation = `When price ${direction} ${money(target, quoteAsset)}, ${cancelOnly ? 'cancel the unfilled strategy without placing a trade. Proceeds and trading fees for this cancellation are 0.00.' : `submit a market ${side.toLowerCase()} for the remaining quantity.`}`;
-      if (!cancelOnly && target > 0) rows = [{ ...executionEstimate(total, target, side, fees), name: 'Single trigger', condition: `Price ${direction} ${money(target, quoteAsset)}`, remaining: true }];
+      if (!cancelOnly && target > 0) rows = [{ ...executionEstimate(budget ? budgetQty(budget, target) : total, target, side, fees), name: 'Single trigger', condition: `Price ${direction} ${money(target, quoteAsset)}`, remaining: true }];
     } else {
       let allocated = 0, cumulativeGross = 0, cumulativeFee = 0, cumulativeNet = 0;
       const rungs = prefix === 'upside' ? payload.custom_rungs : payload.downside_rungs;
+      let shares = 0;
       rows = rungs.map((rung, index) => {
-        const rawQty = index === rungs.length - 1 ? total - allocated : total * rung.percentage_of_total / 100;
-        const qty = Math.min(Math.max(0, total - allocated), normalizeSyntheticQuantity(Number(rawQty.toFixed(8)), step));
-        allocated = Number((allocated + qty).toFixed(12));
         const target = rung.target_price || market * (1 + rung.price_offset_pct / 100);
+        let qty;
+        if (budget) {
+          const pct = index === rungs.length - 1 ? 100 - shares : rung.percentage_of_total;
+          shares += pct;
+          qty = budgetQty(budget * pct / 100, target);
+        } else {
+          const rawQty = index === rungs.length - 1 ? total - allocated : total * rung.percentage_of_total / 100;
+          qty = Math.min(Math.max(0, total - allocated), normalizeSyntheticQuantity(Number(rawQty.toFixed(8)), step));
+        }
+        allocated = Number((allocated + qty).toFixed(12));
         const estimate = executionEstimate(qty, target, side, fees);
         cumulativeGross += estimate.gross; cumulativeFee += estimate.fee ?? 0; cumulativeNet += estimate.net ?? 0;
         return { ...estimate, name: `Rung ${index + 1}`, condition: `Price ${direction} ${money(target, quoteAsset)}`,
           cumulativeGross, cumulativeFee: estimate.fee === null ? null : cumulativeFee, cumulativeNet: estimate.net === null ? null : cumulativeNet };
       });
-      explanation = `Each rung submits a market ${side.toLowerCase()} when price ${direction} its trigger. Rung quantities are capped by the strategy's unfilled remainder. If a quote crosses several rungs, each qualifying step is processed after the previous execution is confirmed.`;
+      explanation = `Each rung submits a market ${side.toLowerCase()} when price ${direction} its trigger. ${budget ? `Each rung buys its share of the ${money(budget, quoteAsset)} budget at its own trigger price, capped by the unused budget.` : "Rung quantities are capped by the strategy's unfilled remainder."} If a quote crosses several rungs, each qualifying step is processed after the previous execution is confirmed.`;
     }
     return { prefix, mode, label, explanation, rows };
   });
-  return { side, baseAsset, quoteAsset, total, requested: Number(quantity), market, branches, fees, quantityStep: step };
+  if (budget) total = Math.max(0, ...branches.map(branch => branch.rows.reduce((sum, row) => sum + row.quantity, 0)));
+  return { side, baseAsset, quoteAsset, total, requested: budget ? total : Number(quantity), market, branches, fees, quantityStep: step, quoteBudget: budget };
 }
 export function buildSyntheticPayload(config) {
   const numeric = value => value === '' || value === null || value === undefined ? null : Number(value);
@@ -177,8 +189,10 @@ export function syntheticOrderTooltip(pending, asset = '') {
   const protectedOrder = order.downside_mode && order.downside_mode !== 'NONE';
   const title = standalone ? 'Trailing stop' : protectedOrder ? 'Smart bracket' : 'Ladder';
   const total = order.total_quantity ?? order.quantity;
+  const budget = Number(order.quote_budget) > 0 ? Number(order.quote_budget) : null;
   const lines = [`${title} ${order.side} · ${broker === 'webull' ? 'Webull' : 'Binance.US'} · ${order.status || 'ACTIVE'}`,
-    `Filled ${number(order.filled_quantity)} / ${number(total)} ${base} · Remaining ${number(order.remaining_quantity)}`];
+    budget ? `Budget ${money(budget, currency)} · Unused ${money(order.budget_remaining ?? budget, currency)} · Bought ${number(order.filled_quantity)} ${base}`
+      : `Filled ${number(order.filled_quantity)} / ${number(total)} ${base} · Remaining ${number(order.remaining_quantity)}`];
   const trail = prefix => {
     const value = order[prefix + 'trail_value'], type = order[prefix + 'trail_type'];
     const activation = order[prefix + 'activation_price'];
@@ -199,6 +213,6 @@ export function syntheticOrderTooltip(pending, asset = '') {
       lines.push(`${label}: ${rungs.filter(r => r.status === 'FILLED').length}/${rungs.length} steps filled${next ? ` · next ${direction} ${money(next.target_price, currency)} (${number(next.quantity)} ${base})` : ' · no pending steps'}`);
     }
   }
-  lines.push(standalone ? 'Market execution at trigger; fill price can vary.' : 'Both sides share the remainder; market fill prices can vary.');
+  lines.push(standalone ? 'Market execution at trigger; fill price can vary.' : budget ? 'Both sides share one budget; each side spends at most it at its trigger prices; market fill prices can vary.' : 'Both sides share the remainder; market fill prices can vary.');
   return lines.join('\n');
 }

@@ -20,8 +20,10 @@ export default function SyntheticOrderReview({ review, branchOnly }) {
   return <div className="synthetic-review">
     {!branchOnly && <>
       <p><strong>Exact trigger rules and estimated execution values</strong></p>
-      <p>Both directions share {number(review.total)} {review.baseAsset}. After any fill, the other direction can execute only the remainder. When both sides qualify on one observation, protection is processed first. A complete fill cancels unused steps.</p>
-      {review.requested !== review.total && <p>Requested {number(review.requested)} {review.baseAsset}; the broker quantity increment leaves {number(review.requested - review.total)} {review.baseAsset} outside this strategy.</p>}
+      {review.quoteBudget
+        ? <p>Both directions share one {money(review.quoteBudget, review.quoteAsset)} budget: each step buys its share of the budget at its own trigger price, so either direction spends at most {money(review.quoteBudget, review.quoteAsset)} at those prices. After any fill, the other direction can spend only the unused budget. When both sides qualify on one observation, the downside is processed first. Using the whole budget cancels unused steps.</p>
+        : <p>Both directions share {number(review.total)} {review.baseAsset}. After any fill, the other direction can execute only the remainder. When both sides qualify on one observation, protection is processed first. A complete fill cancels unused steps.</p>}
+      {!review.quoteBudget && review.requested !== review.total && <p>Requested {number(review.requested)} {review.baseAsset}; the broker quantity increment leaves {number(review.requested - review.total)} {review.baseAsset} outside this strategy.</p>}
       {!review.quantityStep && <p>Broker quantity increments are unavailable; displayed quantities are provisional until server validation.</p>}
     </>}
     {branches.map(branch => <section className="synthetic-review-branch" key={branch.prefix}>

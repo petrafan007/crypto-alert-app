@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSyntheticPayload, strategyKind, matchesStatus, number, trailLabel, orderKey, strategySummary, syntheticOrderTooltip } from './syntheticOrders.mjs';
+import { buildSyntheticPayload, buildSyntheticReview, strategyKind, matchesStatus, number, trailLabel, orderKey, strategySummary, syntheticOrderTooltip } from './syntheticOrders.mjs';
 const config = { hasDownsideProtection: true, upsideMode: 'LADDER', upsidePreset: 'CUSTOM', upsideRungs: [{ target_price: '123.12345678', price_offset_pct: 23, percentage_of_total: 100 }], downsideMode: 'TRAILING', downsideTrailValue: '5', downsideTrailType: 'AMOUNT', downsideActivationPrice: '120' };
 test('preserves protection, custom target precision, allocation and dollar trail units', () => {
   const payload = buildSyntheticPayload(config);
@@ -73,4 +73,28 @@ test('conditional strategies are described by their legs and phase, not as a lad
   assert.match(oco, /Trigger: BUY limit ≤ 100\.00 USD/);
   assert.match(oco, /Trigger: BUY stop limit ≥ 110\.00 USD \(limit 111\.00 USD\)/);
   assert.match(oco, /regular market hours/);
+});
+
+test('a buy order value is a budget: every step buys its share at its own trigger price', () => {
+  const bracket = { hasDownsideProtection: true, upsideMode: 'LADDER', upsidePreset: 'CUSTOM', downsideMode: 'LADDER', downsidePreset: 'CUSTOM',
+    upsideRungs: [{ target_price: 68500, percentage_of_total: 33.33 }, { target_price: 70000, percentage_of_total: 33.33 }, { target_price: 71500, percentage_of_total: 33.34 }],
+    downsideRungs: [{ target_price: 62000, percentage_of_total: 30 }, { target_price: 60000, percentage_of_total: 30 }, { target_price: 57500, percentage_of_total: 40 }] };
+  const review = buildSyntheticReview(bracket, { side: 'BUY', quantity: 0.0154, currentPrice: 64928.33, quoteAsset: 'USDT', quantityStep: 0.00001, quoteBudget: 1000 });
+  assert.equal(review.quoteBudget, 1000);
+  for (const branch of review.branches) {
+    const spend = branch.rows.reduce((sum, row) => sum + row.gross, 0);
+    assert.ok(spend <= 1000 && spend > 999, `${branch.prefix} spends ${spend}`);
+  }
+  const quantity = review.branches.find(b => b.prefix === 'upside').rows.reduce((sum, row) => sum + row.quantity, 0);
+  assert.ok(quantity < 0.0154, 'the breakout buys less than the current-price quantity');
+  const plain = buildSyntheticReview(bracket, { side: 'BUY', quantity: 0.0154, currentPrice: 64928.33, quoteAsset: 'USDT', quantityStep: 0.00001 });
+  assert.equal(plain.quoteBudget, null);
+  assert.ok(plain.branches[0].rows.reduce((sum, row) => sum + row.gross, 0) > 1070, 'a quantity strategy keeps buying the shared quantity');
+  assert.equal(buildSyntheticReview(bracket, { side: 'SELL', quantity: 1, currentPrice: 64928.33, quoteBudget: 1000 }).quoteBudget, null);
+});
+test('a budget strategy tooltip reports the budget, not the base quantity', () => {
+  const text = syntheticOrderTooltip({ synthetic_details: { side: 'BUY', symbol: 'BTCUSDT', broker: 'binance', upside_mode: 'LADDER', downside_mode: 'LADDER',
+    quote_budget: 1000, budget_remaining: 666.7, filled_quantity: 0.00486, total_quantity: 0.01679, rungs: [] } }, 'BTC');
+  assert.match(text, /Budget 1,000\.00 USDT · Unused 666\.70 USDT/);
+  assert.match(text, /share one budget/);
 });

@@ -272,6 +272,46 @@ def extended_limit_price(side, price, cap_pct):
     return float(raw.quantize(step, rounding=rounding))
 
 
+def is_budget(parent):
+    """A buy ladder/bracket sized by a quote budget instead of a shared base quantity."""
+    return bool(getattr(parent, 'quote_budget', None)) and parent.side == 'BUY' and not getattr(parent, 'conditional_spec', None)
+
+
+def budget_used_pct(parent, rows):
+    """Percent of a budget strategy's quote budget its executions have used.
+
+    Executions are replayed oldest first. A ladder step claims its share of
+    the budget, capped by what is left; a single or trailing branch claims all
+    that is left. Each execution uses its claim in proportion to how much of
+    its requested quantity filled, so fill prices never enter the accounting
+    and a fully filled final claim uses the budget exactly.
+    """
+    rungs = {r.id: r for r in (getattr(parent, 'rungs', None) or [])}
+    used = 0.0
+    for row in sorted(rows, key=lambda r: r.id or 0):
+        requested = float(row.quantity or 0)
+        if requested <= 0:
+            continue
+        left = max(0.0, 100.0 - used)
+        rung = rungs.get(row.rung_id)
+        claim = min(float(rung.percentage_of_total or 0), left) if rung is not None else left
+        used += claim * min(1.0, float(row.filled_quantity or 0) / requested)
+    return min(100.0, used)
+
+
+def budget_remaining(parent, rows):
+    """Quote currency of a budget strategy not yet used by fills."""
+    return float(parent.quote_budget) * max(0.0, 100.0 - budget_used_pct(parent, rows)) / 100.0
+
+
+def budget_quantity(parent, quote_amount, price, trigger_price=None):
+    """Base quantity that ``quote_amount`` buys at the price this execution can pay at most."""
+    extended = session_phase(parent) == 'EXTENDED' and not parent.test_mode
+    basis = extended_limit_price(parent.side, trigger_price if trigger_price is not None else price, parent.limit_cap_pct) if extended else price
+    qty = float(quote_amount) / float(basis)
+    return math.floor(qty + 1e-9) if extended and parent.instrument_type != 'CRYPTO' else qty
+
+
 def quantity_rules(parent):
     if parent.broker == 'webull':
         return {'step': Decimal('0.00001') if parent.instrument_type != 'CRYPTO' else Decimal('0.00000001')}
@@ -405,7 +445,9 @@ def get_synthetic_locked_funds(user_id, symbol, side, broker='binance', test_mod
             total_locked += rem_qty
         elif clean_side == 'BUY' and lo_quote == quote_asset:
             tot_qty = float(lo.total_quantity or 1.0)
-            if lo.total_budget_usd:
+            if is_budget(lo):
+                total_locked += budget_remaining(lo, executions(lo, 'LADDER'))
+            elif lo.total_budget_usd:
                 total_locked += float(lo.total_budget_usd) * (rem_qty / tot_qty)
             else:
                 if lo.conditional_spec:
@@ -528,7 +570,11 @@ def execution_summary(parent, kind):
         label = 'Awaiting broker confirmation' if any(x.status in {'UNKNOWN', 'SUBMITTING'} for x in rows) else ('Cancellation pending' if parent.cancel_requested else 'Partially filled — working' if filled else 'Submitted')
     if unresolved and any('cancellation requested' in (x.error_message or '').lower() for x in rows):
         label = 'Cancellation pending — awaiting broker confirmation'
-    return {'status_label': label, 'recovery_available': failed and not unresolved and verified and not recovery,
+    budget = {}
+    if kind == 'LADDER' and is_budget(parent):
+        used = budget_used_pct(parent, rows)
+        budget = {'budget_used_pct': used, 'budget_remaining': float(parent.quote_budget) * max(0.0, 100.0 - used) / 100.0}
+    return {**budget, 'status_label': label, 'recovery_available': failed and not unresolved and verified and not recovery,
             'recovery_action': recovery.action if recovery else None,
             'replacement_id': recovery.replacement_id if recovery else None,
             'filled_quantity': filled if verified else None, 'remaining_quantity': max(0, total - filled) if verified else None, 'pending_quantity': reserved if verified else None,

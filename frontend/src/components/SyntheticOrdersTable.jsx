@@ -6,6 +6,31 @@ import { orderKey, strategyKind, number, money, timestamp, trailLabel, matchesSt
 import './SyntheticOrders.css';
 
 const labels = { BRACKET: 'Smart bracket', LADDER: 'Ladder', TRAILING: 'Trailing stop', SINGLE: 'Single target' };
+const sideLabel = (order, prefix) => prefix === 'upside' ? (order.side === 'BUY' ? 'Breakout' : 'Take profit') : (order.side === 'BUY' ? 'Buy the Dip' : 'Downside protection');
+const budgetOf = order => Number(order.quote_budget) > 0 ? Number(order.quote_budget) : null;
+
+// One section per side of a ladder or bracket, each with its own numbered steps.
+function StepSections({ order, currency }) {
+  const budget = budgetOf(order);
+  return <div className="synthetic-step-sections">{['upside', 'downside'].map(prefix => {
+    const mode = order[`${prefix}_mode`] || (prefix === 'upside' ? 'LADDER' : 'NONE');
+    if (mode === 'NONE') return null;
+    const rungs = (order.rungs || []).filter(r => (r.rung_type || 'TAKE_PROFIT') === (prefix === 'upside' ? 'TAKE_PROFIT' : 'STOP_LOSS'));
+    const summary = mode === 'TRAILING' ? `Trailing ${trailLabel(order[`${prefix}_trail_value`], order[`${prefix}_trail_type`], currency)} · stop ${money(order[`${prefix}_current_stop_price`], currency)}`
+      : mode === 'SINGLE' ? `Single trigger ${prefix === 'upside' ? '≥' : '≤'} ${money(order[`${prefix}_target_price`] ?? order.stop_loss_trigger_price, currency)}` : `${rungs.length} steps`;
+    return <section key={prefix} className={`synthetic-step-section synthetic-step-section-${prefix}`}>
+      <h4>{sideLabel(order, prefix)} <small>{summary}</small></h4>
+      {mode === 'LADDER' && <div className="synthetic-step-grid">{rungs.map((rung, index) => <div key={rung.id || rung.rung_number} className="synthetic-step">
+        <strong>Step {index + 1} · {rung.status.replaceAll('_', ' ')}</strong>
+        <small>Trigger: {money(rung.target_price, currency)} ({Number(rung.price_offset_pct).toFixed(2)}%)</small>
+        {budget
+          ? <><small>Budget share: {money(budget * rung.percentage_of_total / 100, currency)} ({Number(rung.percentage_of_total).toFixed(2)}%)</small><small>Buys: {number(rung.quantity)} {order.symbol?.replace(/(USDT|USDC|USD)$/, '')}</small></>
+          : <><small>Allocation: {number(rung.quantity)} ({Number(rung.percentage_of_total).toFixed(2)}%)</small><small>Estimated value: {money(rung.estimated_usd, currency)}</small></>}
+        {rung.error_message && <small className="synthetic-warning">{rung.error_message}</small>}
+      </div>)}</div>}
+    </section>;
+  })}</div>;
+}
 const canCancel = status => ['ACTIVE', 'PARTIALLY_FILLED', 'SUBMITTED', 'TRIGGERED', 'FAILED', 'NEEDS_REVIEW'].includes(status);
 function Strategy({ order }) {
   const currency = quoteCurrency(order);
@@ -129,9 +154,11 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
         return <React.Fragment key={key}><tr>
           <td><strong>#{order.id} · {order.conditional_spec ? order.strategy_type : labels[strategyKind(order)]}</strong><small>{order.broker === 'webull' ? 'Webull' : 'Binance.US'} · {order.test_mode ? 'Paper' : 'Live'}{order.environment && order.environment !== 'production' ? ` · ${order.environment}` : ''}</small>
             <small>Account: {order.account_id || 'Binance.US spot'}</small><small>Created: {timestamp(order.created_at)}</small></td>
-          <td><strong>{order.symbol}</strong><small>{order.instrument_type} · <span className={`synthetic-side-${order.side.toLowerCase()}`}>{order.side}</span></small><small>Total: {number(order.total_quantity)}</small><small>{order.instrument_type === 'CRYPTO' ? '24/7 monitoring' : order.trading_session === 'ALL' ? 'Regular + Extended Hours (4 AM–8 PM ET, trading days)' : 'Regular Hours (9:30 AM–4 PM ET, trading days)'}</small></td>
+          <td><strong>{order.symbol}</strong><small>{order.instrument_type} · <span className={`synthetic-side-${order.side.toLowerCase()}`}>{order.side}</span></small><small>{budgetOf(order) ? `Budget: ${money(budgetOf(order), currency)}` : `Total: ${number(order.total_quantity)}`}</small><small>{order.instrument_type === 'CRYPTO' ? '24/7 monitoring' : order.trading_session === 'ALL' ? 'Regular + Extended Hours (4 AM–8 PM ET, trading days)' : 'Regular Hours (9:30 AM–4 PM ET, trading days)'}</small></td>
           <td>{order.conditional_spec ? <><strong>Synthetic {order.strategy_type} · {order.conditional_phase}</strong>{order.conditional_spec.legs.map((leg, i) => <small key={i}>{leg.side} {leg.order_type} · limit {leg.price || '—'} · stop {leg.stop_price || '—'}</small>)}{order.conditional_spec.entry_remainder_cancelled > 0 && <small className="synthetic-warning">Entry partially filled: {number(order.conditional_spec.entry_filled_quantity)}; {number(order.conditional_spec.entry_remainder_cancelled)} cancelled. Exits sized to confirmed entry fills.</small>}</> : <Strategy order={order} />}</td>
-          <td>{verified ? <><strong>{number(order.filled_quantity || 0)} / {number(order.total_quantity)} filled</strong><progress max="100" value={progress} aria-label={`Order ${order.id} quantity filled`} />
+          <td>{verified ? budgetOf(order) ? <><strong>{money(budgetOf(order) - (order.budget_remaining ?? budgetOf(order)), currency)} / {money(budgetOf(order), currency)} used</strong><progress max="100" value={Math.min(100, order.budget_used_pct || 0)} aria-label={`Order ${order.id} budget used`} />
+            <small>Unused: {money(order.budget_remaining ?? budgetOf(order), currency)}</small><small>Bought: {number(order.filled_quantity || 0)}</small><small>Awaiting broker: {number(order.pending_quantity || 0)}</small>
+            {order.rungs?.length > 0 && <small>{order.rungs_filled || 0} of {order.rungs.length} steps filled</small>}</> : <><strong>{number(order.filled_quantity || 0)} / {number(order.total_quantity)} filled</strong><progress max="100" value={progress} aria-label={`Order ${order.id} quantity filled`} />
             <small>Remaining: {number(order.remaining_quantity ?? order.total_quantity)}</small><small>Awaiting broker: {number(order.pending_quantity || 0)}</small>
             {order.rungs?.length > 0 && <small>{order.rungs_filled || 0} of {order.rungs.length} steps filled</small>}</> : <small className="synthetic-warning">Legacy execution totals are unverified. Review broker history before replacing this strategy.</small>}</td>
           <td><button type="button" className={`synthetic-status state-${order.status.toLowerCase()}`} onClick={() => openSyntheticRecovery(order)}>{order.status_label || order.status.replaceAll('_', ' ')}</button><small>Last price: {money(order.last_price, currency)}</small><small>Checked: {timestamp(order.last_checked_at)}</small>
@@ -139,14 +166,8 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
           <td><div className="synthetic-actions">{order.recovery_available && <button type="button" onClick={() => openSyntheticRecovery(order)}>Review issue</button>}<button type="button" aria-expanded={open} onClick={() => setExpanded(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; })}>{open ? 'Hide details' : 'Details'}</button>
             {canCancel(order.status) && <button type="button" className="synthetic-cancel" disabled={busy === key} onClick={() => { setCancelTarget(order); setCancelError(''); }}>{busy === key ? 'Cancelling…' : 'Cancel'}</button>}</div></td>
         </tr>{open && <tr><td colSpan="6" className="synthetic-detail">
-          <p>Updated: {timestamp(order.updated_at)} · Both sides share the total quantity. Failed strategies and strategies needing review are paused.</p>
-          {!!order.rungs?.length && <div className="synthetic-step-grid">{order.rungs.map(rung => <div key={rung.id || rung.rung_number} className="synthetic-step">
-            <strong>{rung.rung_type === 'STOP_LOSS' ? 'Protection' : 'Target'} #{rung.rung_number} · {rung.status.replaceAll('_', ' ')}</strong>
-            <small>Trigger: {money(rung.target_price, currency)} ({Number(rung.price_offset_pct).toFixed(2)}%)</small>
-            <small>Allocation: {number(rung.quantity)} ({Number(rung.percentage_of_total).toFixed(2)}%)</small>
-            <small>Estimated value: {money(rung.estimated_usd, currency)}</small>
-            {rung.error_message && <small className="synthetic-warning">{rung.error_message}</small>}
-          </div>)}</div>}
+          <p>Updated: {timestamp(order.updated_at)} · {budgetOf(order) ? `Both sides share one ${money(budgetOf(order), currency)} budget; each side spends at most it at its trigger prices.` : 'Both sides share the total quantity.'} Failed strategies and strategies needing review are paused.</p>
+          {!order.conditional_spec && <StepSections order={order} currency={currency} />}
           <strong>{order.test_mode ? 'Paper executions' : 'Broker executions'}</strong>{!order.executions?.length ? <p>No executions recorded{!verified ? ' by the new engine. Review older fills in broker order history.' : '.'}</p> :
             <div className="synthetic-step-grid">{order.executions.map(fill => <div className="synthetic-step" key={fill.id}>
               <strong>{fill.leg.replaceAll('_', ' ')} · {fill.status.replaceAll('_', ' ')}</strong><small>Requested: {number(fill.quantity)} · Filled: {number(fill.filled_quantity)} · Average fill: {money(fill.filled_price, currency)}</small>

@@ -296,6 +296,7 @@ class LadderOrder(db.Model):
     side = Column(String(10), nullable=False)                        # 'BUY' or 'SELL'
     total_quantity = Column(Float, nullable=False)
     total_budget_usd = Column(Float, nullable=True)
+    quote_budget = Column(Float, nullable=True)                      # BUY only: each side spends at most this much quote currency
     mode = Column(String(20), default='PERCENT')                     # 'PERCENT' or 'PRICE'
     preset_name = Column(String(50), nullable=True)                  # 'Conservative', 'Aggressive', 'Custom'
     has_stop_loss = Column(Boolean, default=False)
@@ -349,6 +350,7 @@ class LadderOrder(db.Model):
             'side': self.side,
             'total_quantity': self.total_quantity,
             'total_budget_usd': self.total_budget_usd,
+            'quote_budget': self.quote_budget,
             'mode': self.mode,
             'preset_name': self.preset_name,
             'strategy_type': self.strategy_type or 'SYNTHETIC',

@@ -150,6 +150,8 @@ def serialize_ladder(order):
         'is_ladder': True,
         'preset_name': order.preset_name,
         'strategy_type': order.strategy_type or 'SYNTHETIC',
+        'quote_budget': order.quote_budget,
+        'budget_remaining': details.get('budget_remaining'),
     }
 
     if order.conditional_spec:
@@ -180,7 +182,12 @@ def serialize_ladder(order):
     pending_rungs = [rung for rung in order.rungs if rung.status == 'PENDING']
     next_rung = pending_rungs[0] if pending_rungs else None
     target = next_rung.target_price if next_rung else (order.upside_target_price or order.downside_target_price or 0.0)
-    budget = _number(order.total_budget_usd) * (remaining / total) if order.total_budget_usd else remaining * _number(target)
+    if details.get('budget_remaining') is not None:
+        budget = _number(details['budget_remaining'])
+    elif order.total_budget_usd:
+        budget = _number(order.total_budget_usd) * (remaining / total)
+    else:
+        budget = remaining * _number(target)
     entry.update({
         'price': target,
         'trigger_price': target,

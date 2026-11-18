@@ -155,11 +155,22 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
                         upside_trail_value=None, upside_trail_type='PERCENT', upside_activation_price=None,
                         downside_mode='NONE', downside_target_price=None, downside_trail_value=None,
                         downside_trail_type='PERCENT', downside_activation_price=None,
-                        downside_preset='Moderate', downside_rungs=None, limit_cap_pct=None, activate_at=None, commit=True):
+                        downside_preset='Moderate', downside_rungs=None, limit_cap_pct=None, activate_at=None, commit=True,
+                        quote_budget=None):
     """
     Validate, calculate, and persist a parent LadderOrder with child LadderRungs.
     Supports Mode A (Single), Mode B (Ladder), Mode C (Trailing) for both Upside and Downside.
+
+    ``quote_budget`` (BUY only) sizes the strategy by money instead of a shared
+    base quantity: each step buys its share of the budget at its own trigger
+    price, so either side spends at most the budget. Both sides draw on the
+    same budget, as quantity strategies share one quantity.
     """
+    budget = None
+    if quote_budget not in (None, ''):
+        budget = execution.positive(quote_budget, 'Order value')
+        if str(side or '').strip().upper() != 'BUY':
+            raise ValueError('An order value budget applies only to buy strategies.')
     clean_symbol, clean_side, clean_broker, clean_instrument, clean_session, clean_account_id = execution.validate_identity(
         symbol, side, broker, instrument_type, trading_session, account_id, test_mode)
     symbol, side, broker, instrument_type, trading_session, account_id = (clean_symbol, clean_side, clean_broker, clean_instrument, clean_session, clean_account_id)
@@ -182,19 +193,22 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     if clean_side not in ('BUY', 'SELL'):
         raise ValueError("Order side must be BUY or SELL.")
 
-    try:
-        qty = execution.positive(total_quantity, 'Total quantity')
-        if qty <= 0:
-            raise ValueError()
-    except (TypeError, ValueError):
-        raise ValueError("Total quantity must be a positive number.")
-
     cap_pct = execution.limit_cap(limit_cap_pct, clean_session)
-    execution.require_whole_shares(qty, clean_session, clean_instrument)
     current_price = _get_reference_price(clean_symbol, client=client, broker=clean_broker, instrument_type=clean_instrument,
                                          user_id=user_id, trading_session=clean_session)
     if not current_price or current_price <= 0:
         raise ValueError(f"Unable to determine current market price for {clean_symbol}.")
+    if budget:
+        # Provisional: rung prices and shares come from it; budget sizing below replaces the quantities.
+        qty = budget / current_price
+    else:
+        try:
+            qty = execution.positive(total_quantity, 'Total quantity')
+            if qty <= 0:
+                raise ValueError()
+        except (TypeError, ValueError):
+            raise ValueError("Total quantity must be a positive number.")
+        execution.require_whole_shares(qty, clean_session, clean_instrument)
 
     if has_stop_loss and clean_downside_mode == 'NONE':
         clean_downside_mode = 'SINGLE'
@@ -265,9 +279,25 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         if mode == 'TRAILING' and clean_side == 'SELL' and kind == 'AMOUNT' and value >= max(current_price, activation or 0):
             raise ValueError('The sell trail amount must be below the price at activation.')
 
-    total_budget = sum(r['estimated_usd'] for r in all_rungs_data if r['rung_type'] == 'TAKE_PROFIT')
-    if total_budget <= 0:
-        total_budget = round(qty * current_price, 2)
+    if budget:
+        # Each side's shares become shares of the budget, priced at each step's own trigger.
+        for kind in ('TAKE_PROFIT', 'STOP_LOSS'):
+            group = [r for r in all_rungs_data if r['rung_type'] == kind]
+            for idx, r in enumerate(group):
+                if idx == len(group) - 1:
+                    r['percentage_of_total'] = 100.0 - sum(x['percentage_of_total'] for x in group[:-1])
+                r['estimated_usd'] = budget * r['percentage_of_total'] / 100.0
+                r['quantity'] = r['estimated_usd'] / r['target_price']
+        # Single and trailing sides buy at trigger time; their size here is display only.
+        branch_quantities = [budget / (upside_target_price if prefix == 'upside' else sl_price) if mode == 'SINGLE' else budget / current_price
+                             for prefix, mode in (('upside', clean_upside_mode), ('downside', clean_downside_mode))
+                             if mode in {'SINGLE', 'TRAILING'}]
+        qty = max(branch_quantities + [r['quantity'] for r in all_rungs_data])
+        total_budget = budget
+    else:
+        total_budget = sum(r['estimated_usd'] for r in all_rungs_data if r['rung_type'] == 'TAKE_PROFIT')
+        if total_budget <= 0:
+            total_budget = round(qty * current_price, 2)
 
     # Initial watermarks
     up_stop = None
@@ -293,6 +323,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         side=clean_side,
         total_quantity=qty,
         total_budget_usd=total_budget,
+        quote_budget=budget,
         preset_name=preset_name or 'Custom',
         strategy_type=strategy_type or 'SYNTHETIC',
         upside_mode=clean_upside_mode,
@@ -326,12 +357,24 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     ladder.engine_version = 2
     ladder.environment = execution.environment_for(user_id, clean_broker)
     rules = execution.quantity_rules(ladder)
+    if budget:
+        for r in all_rungs_data:
+            r['quantity'] = execution.normalize_quantity(r['quantity'], rules)
+            if clean_session == 'ALL' and clean_instrument != 'CRYPTO':
+                r['quantity'] = float(math.floor(r['quantity']))
+            execution.positive(r['quantity'], f"Step {r['rung_number']} quantity (raise the order value)")
+            execution.check_quantity(ladder, r['quantity'], r['target_price'], rules)
+            r['estimated_usd'] = r['quantity'] * r['target_price']
+        ladder_sums = [sum(r['quantity'] for r in all_rungs_data if r['rung_type'] == kind)
+                       for mode, kind in ((clean_upside_mode, 'TAKE_PROFIT'), (clean_downside_mode, 'STOP_LOSS')) if mode == 'LADDER']
+        # Display only: the most base asset either side could buy.
+        qty = ladder.total_quantity = execution.normalize_quantity(max(branch_quantities + ladder_sums), rules)
     normalized = execution.normalize_quantity(qty, rules)
     if abs(normalized - qty) > max(1e-14, qty * 1e-12):
         raise ValueError(f'Total quantity must be a multiple of {rules["step"]}.')
     execution.check_quantity(ladder, qty, current_price, rules)
     execution.check_order_limit(ladder, qty, current_price, rules)
-    for kind in ('TAKE_PROFIT', 'STOP_LOSS'):
+    for kind in ('TAKE_PROFIT', 'STOP_LOSS') if not budget else ():
         group = [r for r in all_rungs_data if r['rung_type'] == kind]
         allocated = 0
         for idx, r in enumerate(group):
@@ -403,7 +446,8 @@ def _sync_parent(ladder, rows):
     pending = any(r.status in execution.OPEN_EXECUTIONS for r in rows)
     if pending:
         ladder.status = 'CANCEL_PENDING' if ladder.cancel_requested else 'SUBMITTED'
-    elif filled >= ladder.total_quantity - 1e-10:
+    elif (execution.budget_used_pct(ladder, rows) >= 100 - 1e-6 if execution.is_budget(ladder)
+          else filled >= ladder.total_quantity - 1e-10):
         ladder.status = 'STOPPED_OUT' if (ladder.side == 'SELL' and rows and rows[-1].leg == 'STOP_LOSS') else 'COMPLETED'
     elif ladder.cancel_requested:
         ladder.status = 'CANCELLED'
@@ -448,6 +492,7 @@ def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
         if execute_trigger:
             evaluate(ladder, price)
         return True, 0
+    budget = execution.is_budget(ladder)
     remaining = max(0, ladder.total_quantity - filled)
     downside = ladder.downside_mode or ('SINGLE' if ladder.has_stop_loss else 'NONE')
     # Preserve legacy safety stops whose migration supplied a default NONE mode.
@@ -479,7 +524,17 @@ def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
                 ladder.cancel_requested = True
                 _sync_parent(ladder, rows)
                 return True, 1
-            qty = min(remaining, rung.quantity) if rung is not None and mode == 'LADDER' else remaining
+            trigger = getattr(ladder, f'{prefix}_current_stop_price') if mode == 'TRAILING' else rung.target_price if rung is not None else getattr(ladder, f'{prefix}_target_price') or ladder.stop_loss_trigger_price
+            if budget:
+                left = 100.0 - execution.budget_used_pct(ladder, rows)
+                if rung is not None and mode == 'LADDER':
+                    qty = rung.quantity * min(1.0, left / rung.percentage_of_total) if rung.percentage_of_total else 0.0
+                    if execution.session_phase(ladder) == 'EXTENDED' and not ladder.test_mode and ladder.instrument_type != 'CRYPTO':
+                        qty = float(math.floor(qty + 1e-9))
+                else:
+                    qty = execution.budget_quantity(ladder, execution.budget_remaining(ladder, rows), price, trigger)
+            else:
+                qty = min(remaining, rung.quantity) if rung is not None and mode == 'LADDER' else remaining
             if qty <= 1e-10:
                 break
             updated, count = True, count + 1
@@ -488,8 +543,7 @@ def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
                     rung.status = 'TRIGGERED'
                 continue
             try:
-                row = execution.submit_execution(ladder, 'LADDER', qty, price, leg, rung=rung,
-                    trigger_price=getattr(ladder, f'{prefix}_current_stop_price') if mode == 'TRAILING' else rung.target_price if rung is not None else getattr(ladder, f'{prefix}_target_price') or ladder.stop_loss_trigger_price)
+                row = execution.submit_execution(ladder, 'LADDER', qty, price, leg, rung=rung, trigger_price=trigger)
                 rows.append(row)
             except Exception as exc:
                 ladder.status = 'FAILED'

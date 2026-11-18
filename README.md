@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.18.4
+**Version:** 4.19.0
 
 ## Recent Updates
+
+### v4.19.0
+* **Buy brackets entered as an Order Value are sized by that budget:** on the Binance.US Trading page, a synthetic ladder or smart-bracket BUY whose Order Value was typed (rather than a quantity) is now a budget. Each step buys its share of the budget at its own trigger price, so either side spends at most the budget. Before, the value was converted to one shared quantity at the current price, so a breakout side bought that quantity at higher prices: a 1,000 USDT bracket held 1,078.01 USDT. Both sides still draw on one shared pool, now the budget instead of a quantity. After any fill, the other side can spend only the unused budget, its final step is capped to it, and the strategy completes once the whole budget is used. Single and trailing sides buy the unused budget at the price they execute at (the capped limit in extended hours, rounded down to whole shares there). The cash hold, the capacity check for new synthetic orders, the order review, the dashboard tooltip and the Synthetic Orders table all report the budget and how much is unused. Failed-order recovery retries with only the unused budget. Stored as the new nullable `ladder_orders.quote_budget` column, which is added automatically at startup. Quantity-entered orders, sells and existing strategies are unchanged.
+* **Synthetic Orders details split by side:** an expanded ladder or bracket now shows one section per side, each with its own numbered steps: Breakout and Buy the Dip for buys, Take profit and Downside protection for sells. These replace the single mixed grid of "Target #n" and "Protection #n" cards.
 
 ### v4.18.4
 * **Synthetic Limit orders no longer over-reserve cash:** a synthetic Limit or Stop Limit buy leg was holding its cost plus the 1% extended-hours price cap (for example, 6 shares at a 83.33 limit held 505.00 USD instead of 499.98). Those legs are always sent at their exact entered limit, so they can never cost more than it; only a plain Stop leg, which is sent in extended hours as a Limit capped past its trigger, needs the cap. The fix is in the shared `leg_reserve_price()` helper (`services/pending_order_serializer.py`), which both the dashboard's cash-hold figure and the engine's synthetic capacity check now use, so a Limit buy no longer blocks the extra ~1% of buying power for other orders. Tests cover Limit, Stop Limit, plain Stop and OCO reservations.
