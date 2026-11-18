@@ -61,6 +61,18 @@ def conditional_legs(parent):
     return legs, []
 
 
+def leg_reserve_price(leg, cap_pct):
+    """The most one share of a conditional leg can cost when it executes.
+
+    Limit and stop-limit legs are submitted at their exact entered limit, so
+    they never pay more than it. Only a plain stop is sent with the
+    extended-hours cap past its trigger, so only a stop reserves that cap.
+    """
+    if leg.get('order_type') == 'STOP_LOSS':
+        return _number(leg.get('stop_price')) * (1 + _number(cap_pct) / 100)
+    return _number(leg.get('price') or leg.get('stop_price'))
+
+
 def _leg_trigger(leg):
     return _number(leg.get('price') if leg.get('order_type') == 'LIMIT' else leg.get('stop_price'))
 
@@ -148,10 +160,9 @@ def serialize_ladder(order):
         stop_leg = next((leg for leg in active if leg.get('order_type') != 'LIMIT'), None)
         shown = limit_leg or stop_leg or {}
         trigger = _leg_trigger(shown)
-        # Cash is held for the most expensive branch that could execute,
-        # including the extended-hours cap, exactly as the engine checks capacity.
-        reserve_price = max((_number(leg.get('price') or leg.get('stop_price')) for leg in active), default=0.0)
-        reserve_price *= 1 + _number(order.limit_cap_pct) / 100
+        # Cash is held for the most expensive branch that could execute
+        # (a plain stop includes the extended-hours cap), exactly as the engine checks capacity.
+        reserve_price = max((leg_reserve_price(leg, order.limit_cap_pct) for leg in active), default=0.0)
         entry.update({
             'price': trigger,
             'trigger_price': trigger,

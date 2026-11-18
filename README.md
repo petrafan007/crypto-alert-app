@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.18.3
+**Version:** 4.18.4
 
 ## Recent Updates
+
+### v4.18.4
+* **Synthetic Limit orders no longer over-reserve cash:** a synthetic Limit or Stop Limit buy leg was holding its cost plus the 1% extended-hours price cap (for example, 6 shares at a 83.33 limit held 505.00 USD instead of 499.98). Those legs are always sent at their exact entered limit, so they can never cost more than it; only a plain Stop leg, which is sent in extended hours as a Limit capped past its trigger, needs the cap. The fix is in the shared `leg_reserve_price()` helper (`services/pending_order_serializer.py`), which both the dashboard's cash-hold figure and the engine's synthetic capacity check now use, so a Limit buy no longer blocks the extra ~1% of buying power for other orders. Tests cover Limit, Stop Limit, plain Stop and OCO reservations.
 
 ### v4.18.3
 * **Watchlist indicative prices:** a watchlist row can carry a manually maintained indicative price (plus an updated-at timestamp and an optional source note), set or cleared with `POST /api/watchlist/indicative`. The dashboard's Current Price column shows it with an "Indicative" badge only while the symbol has no live quote; a real quote always wins, so the display switches to the live ticker price on its own once trading starts. Built for IPOs in Nasdaq price discovery, where no quote exists until the opening cross: Anthropic (ANT) sits on the primary account's watchlist ahead of its first trading day so the opening-cross indication can be followed from the dashboard.

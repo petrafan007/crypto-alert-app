@@ -412,7 +412,8 @@ def get_synthetic_locked_funds(user_id, symbol, side, broker='binance', test_mod
                     import json
                     legs = json.loads(lo.conditional_spec)['legs']
                     candidates = legs[1:] if lo.conditional_phase == 'EXIT' else legs[:1] if lo.conditional_phase == 'ENTRY' else legs
-                    lo_px = max(float(leg.get('price') or leg.get('stop_price') or 0) for leg in candidates) * (1 + (lo.limit_cap_pct or 0) / 100)
+                    from services.pending_order_serializer import leg_reserve_price
+                    lo_px = max(leg_reserve_price(leg, lo.limit_cap_pct) for leg in candidates)
                 else:
                     lo_px = float(lo.upside_target_price or lo.downside_target_price or 0.0)
                 total_locked += rem_qty * lo_px

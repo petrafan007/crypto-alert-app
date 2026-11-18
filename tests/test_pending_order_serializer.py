@@ -60,7 +60,7 @@ class PendingOrderSerializerTests(unittest.TestCase):
         self.assertEqual([leg['side'] for leg in entry['legs']], ['BUY'])
         self.assertEqual([(leg['side'], leg['trigger_price']) for leg in entry['waiting_legs']], [('SELL', 175.0), ('SELL', 150.0)])
         locked = ex.get_synthetic_locked_funds(1, 'NVDA', 'BUY', broker='webull', test_mode=False, account_id='A')
-        self.assertAlmostEqual(entry['quantity_usdt'], 10 * 160 * 1.01)
+        self.assertAlmostEqual(entry['quantity_usdt'], 10 * 160, msg='a Limit entry is sent at its exact limit, without the extended-hours cap')
         self.assertAlmostEqual(entry['quantity_usdt'], locked, msg='the dashboard figure equals the engine capacity check')
 
         # After the entry fills, the exits are the working legs and hold no cash as sells.
@@ -69,6 +69,28 @@ class PendingOrderSerializerTests(unittest.TestCase):
         exits = serializer.serialize_ladder(parent)
         self.assertEqual((exits['side'], exits['quantity'], exits['price'], exits['stop_price'], exits['waiting_legs']), ('SELL', 6.0, 175.0, 150.0, []))
         self.assertEqual(len(exits['legs']), 2)
+
+    def reservation(self, kind, legs, quantity=6):
+        parent = self.otoco(strategy_type=kind, total_quantity=quantity, legs=legs)
+        entry = serializer.serialize_ladder(parent)
+        locked = ex.get_synthetic_locked_funds(1, 'NVDA', 'BUY', broker='webull', test_mode=False, account_id='A')
+        self.assertAlmostEqual(entry['quantity_usdt'], locked, msg='the dashboard figure equals the engine capacity check')
+        return entry['quantity_usdt']
+
+    def test_single_limit_buy_holds_its_exact_limit_cost(self):
+        self.assertAlmostEqual(self.reservation('LIMIT', [dict(side='BUY', order_type='LIMIT', price=83.33)]), 6 * 83.33)
+
+    def test_stop_limit_buy_holds_its_limit_price_without_the_cap(self):
+        legs = [dict(side='BUY', order_type='STOP_LOSS_LIMIT', stop_price=120, price=122)]
+        self.assertAlmostEqual(self.reservation('STOP', legs), 6 * 122)
+
+    def test_plain_stop_buy_holds_the_extended_hours_cap(self):
+        legs = [dict(side='BUY', order_type='STOP_LOSS', stop_price=120)]
+        self.assertAlmostEqual(self.reservation('STOP', legs), 6 * 120 * 1.01)
+
+    def test_oco_buy_holds_its_most_expensive_branch(self):
+        legs = [dict(side='BUY', order_type='LIMIT', price=100), dict(side='BUY', order_type='STOP_LOSS', stop_price=120)]
+        self.assertAlmostEqual(self.reservation('OCO', legs), 6 * 120 * 1.01)
 
     def test_trailing_strategy_reports_the_remainder_after_a_partial_fill(self):
         order = TrailingOrder(user_id=1, broker='binance', symbol='BTCUSD', side='BUY', quantity=10, trail_value=2,
