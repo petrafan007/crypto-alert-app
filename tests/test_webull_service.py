@@ -1223,6 +1223,26 @@ class WebullServiceTests(unittest.TestCase):
             get_webull_market_snapshot('key', 'secret', symbol='BTC', instrument_type='CRYPTO')
         self.assertEqual(request_mock.call_args.kwargs['query_params'], {'symbols': 'BTCUSD', 'category': 'US_CRYPTO'})
 
+    def test_stock_snapshot_with_trade_timestamp_reports_has_traded(self):
+        response = Mock(status_code=200)
+        response.json.return_value = [{'symbol': 'AAPL', 'price': '250.5', 'timestamp': 1787832000000}]
+        with patch('services.webull_service._webull_request', return_value=response):
+            snapshot = get_webull_market_snapshot('key', 'secret', symbol='AAPL', instrument_type='STOCK')
+        self.assertTrue(snapshot['has_traded'])
+        self.assertEqual(snapshot['as_of'], 1787832000000)
+        self.assertEqual(snapshot['price'], 250.5)
+
+    def test_stock_snapshot_without_trade_timestamp_reports_not_traded(self):
+        # Pre-IPO placeholder (the ANT case): price/close are populated from
+        # the offer price but the symbol has never traded, so no timestamp.
+        response = Mock(status_code=200)
+        response.json.return_value = [{'symbol': 'ANT', 'price': '83.00', 'close': '83.00', 'pre_close': '83.00'}]
+        with patch('services.webull_service._webull_request', return_value=response):
+            snapshot = get_webull_market_snapshot('key', 'secret', symbol='ANT', instrument_type='STOCK')
+        self.assertFalse(snapshot['has_traded'])
+        self.assertIsNone(snapshot['as_of'])
+        self.assertEqual(snapshot['price'], 83.0)
+
     def test_options_catalog_filters_and_cursor_pagination(self):
         from services.webull_service import get_webull_option_contracts
         first = Mock(status_code=200)

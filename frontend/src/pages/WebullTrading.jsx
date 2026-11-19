@@ -3277,7 +3277,15 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
             : response.data?.snapshot?.price || 0);
         if (active && price > 0) {
           setLivePrice(price);
-          setOrderForm((prev) => (prev.price ? prev : { ...prev, price: price.toFixed(price >= 1 ? 2 : 4) }));
+          // Never pre-fill the limit price from an equity quote that has
+          // no trade behind it (e.g. a pre-IPO placeholder price): the
+          // box stays empty so the user types their own limit. The live
+          // reference price above still updates either way.
+          const quoteHasNotTraded = selectedInstrumentType === 'EQUITY'
+            && response.data?.snapshot?.has_traded === false;
+          if (!quoteHasNotTraded) {
+            setOrderForm((prev) => (prev.price ? prev : { ...prev, price: price.toFixed(price >= 1 ? 2 : 4) }));
+          }
         }
       } catch {
         // Retain the imported price if the user's OpenAPI quote entitlement is unavailable.

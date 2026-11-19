@@ -919,13 +919,18 @@ def get_webull_market_snapshot(
     price = number('price', 'last_price', 'lastPrice', 'last', 'close')
     extended_price = number('ext_price', 'extended_price', 'extendedPrice')
     overnight_price = number('overnight_price', 'overnightPrice')
+    as_of = raw.get('timestamp') or raw.get('last_trade_time') or raw.get('trade_time')
     return {
         'symbol': str(raw.get('symbol') or clean_symbol).upper(),
         'price': price or extended_price or overnight_price,
         'regular_price': price,
         'extended_price': extended_price,
         'overnight_price': overnight_price,
-        'as_of': raw.get('timestamp') or raw.get('last_trade_time') or raw.get('trade_time'),
+        'as_of': as_of,
+        # A quote with no trade behind it (e.g. a pre-IPO placeholder such
+        # as the offer price) has no trade timestamp. The trade ticket uses
+        # this to avoid pre-filling a limit price from such a quote.
+        'has_traded': as_of is not None,
     }
 
 

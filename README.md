@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.2
+**Version:** 4.19.3
 
 ## Recent Updates
+
+### v4.19.3
+* **Trade ticket no longer pre-fills a limit price from a quote with no trade behind it:** the Webull market snapshot now reports `has_traded`, true only when the quote carries a real trade timestamp. On the Webull Trading page the snapshot still updates the reference price as before, but for an equity that has never traded (for example a pre-IPO placeholder such as the offer price) the Limit Price box is left empty, so the user always types their own limit. Before, opening the ticket for ANT — priced at $83 but not yet trading — pre-filled $352.45 from a stale placeholder quote, so 5 shares showed a $1,762.25 order value. Symbols that have traded keep the pre-fill exactly as before; options, futures and crypto tickets are unchanged.
 
 ### v4.19.2
 * **Watchlist no longer sits blank for seconds on dashboard load:** the watchlist now paints immediately from the prices already stored in the database (the same stored-data path the portfolio renders from), and the live quotes replace them a moment later when they arrive. The stored response carries a lower watchlist fetch id than the live batch, so it can never overwrite fresher live rows, and in-progress row edits stay protected by the existing edit ledger. The live watchlist endpoint (`/api/watchlist-live`) also fetches its per-symbol prices concurrently (up to 8 at a time) instead of one after another, so fresh quotes land faster; a symbol whose price fetch fails keeps its stored price, and the response shape is unchanged.
