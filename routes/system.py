@@ -4135,10 +4135,15 @@ def set_watch_alert():
         if value <= 0:
             return jsonify({"success": False, "error": "The alert price must be greater than 0."}), 400
 
-    # Webull watchlist rows live in their own table; never fall through to a
-    # crypto watchlist coin that happens to share the symbol.
+    # Webull watchlist rows live in their own table and are the only rows
+    # whose id carries the "webull-watchlist-" prefix. Generic watchlist
+    # rows -- including stock rows, whose provider identity is Webull --
+    # carry plain numeric ids and live in the watchlist table. Route on the
+    # id prefix, never on the provider label: since v4.19.6 generic stock
+    # rows report source="webull", so keying off the label sent their alert
+    # edits to the Webull table, which has no such row, and the edits 404'd.
     raw_id = str(data.get("id") or "")
-    if raw_id.startswith("webull-watchlist-") or str(data.get("source") or "").lower() == "webull":
+    if raw_id.startswith("webull-watchlist-"):
         from models import WebullWatchlistItem
         try:
             item_id = int(raw_id.removeprefix("webull-watchlist-"))
@@ -4146,6 +4151,8 @@ def set_watch_alert():
             return jsonify({"success": False, "error": "Invalid Webull watchlist item"}), 400
         item = WebullWatchlistItem.query.filter_by(id=item_id, user_id=current_user.id).first()
         if not item:
+            # Never fall through to a generic watchlist coin that happens to
+            # share the symbol: a prefixed id names a Webull row only.
             return jsonify({"success": False, "error": "Webull watchlist item not found"}), 404
         if direction == "down":
             item.down_alert = round(value, 4) if value not in ("", None) else None
@@ -4156,7 +4163,15 @@ def set_watch_alert():
         db.session.commit()
         return jsonify({"success": True})
 
-    w = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+    # Generic watchlist row: resolve by its numeric id when one was sent
+    # (and it names this symbol), otherwise by symbol as before.
+    w = None
+    if raw_id.isdigit():
+        candidate = WatchlistCoin.query.filter_by(id=int(raw_id), user_id=current_user.id).first()
+        if candidate is not None and (not symbol or (candidate.symbol or "").upper() == symbol):
+            w = candidate
+    if w is None:
+        w = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
     if not w:
         logger.error(f"Watchlist coin not found: {symbol}")
         return jsonify({"success": False, "error": "Watchlist coin not found"}), 404
