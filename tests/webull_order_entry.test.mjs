@@ -49,6 +49,12 @@ assert.equal(shouldUseEquityCashAmount({ ...aaplCashBuy, rawQuantity: 1.25 }), f
 
 import { sanitizeTotpCode, formatBufferPercent } from '../frontend/src/utils/webullOrderEntry.mjs';
 
+import {
+  cashAmountCarry,
+  quoteBlurCashAmount,
+  quoteValueEntry,
+} from '../frontend/src/utils/webullOrderEntry.mjs';
+
 assert.equal(sanitizeTotpCode('123456'), '123456');
 assert.equal(sanitizeTotpCode('123 456'), '123456');
 assert.equal(sanitizeTotpCode('123-456-789'), '123456');
@@ -61,5 +67,35 @@ assert.equal(formatBufferPercent('2.5'), '2.50');
 assert.equal(formatBufferPercent(''), '3.00');
 assert.equal(formatBufferPercent('-1'), '3.00');
 assert.equal(formatBufferPercent('abc'), '3.00');
+
+
+// Typing a dollar value keeps every keystroke verbatim (regression: the
+// old mid-typing flip to cash-amount mode swapped the rendered input and
+// swallowed a digit — "500" arrived as "50").
+const antPrice = 101.23;
+const typedSteps = ['5', '50', '500'].map((rawValue) => quoteValueEntry({
+  rawValue, instrumentType: 'EQUITY', price: antPrice, fractionalQuantityAllowed: true,
+}));
+assert.deepEqual(typedSteps.map((s) => s.quoteVal), ['5', '50', '500']);
+assert.equal(typedSteps[2].computedQty, '4.93924');
+
+// The cash conversion is decided on the completed value at blur: $500 at
+// $101.23 buys more than one share, so it stays a shares entry...
+const blurCtx = {
+  instrumentType: 'EQUITY', side: 'BUY', orderType: 'MARKET',
+  tradingSession: 'CORE', isAlgoEnabled: false, isBracketEnabled: false,
+  price: antPrice,
+};
+assert.equal(quoteBlurCashAmount({ ...blurCtx, quoteQuantity: '500' }), null);
+// ...while a genuine sub-share amount converts, carrying the typed text.
+assert.equal(quoteBlurCashAmount({ ...blurCtx, quoteQuantity: '50' }), '50');
+assert.equal(quoteBlurCashAmount({ ...blurCtx, quoteQuantity: '50', orderType: 'LIMIT' }), null);
+assert.equal(quoteBlurCashAmount({ ...blurCtx, quoteQuantity: '' }), null);
+
+// Manual mode switch: a typed value always wins over the $25.00 default.
+assert.equal(cashAmountCarry({ totalCashAmount: '', quoteQuantity: '3' }), '3');
+assert.equal(cashAmountCarry({ totalCashAmount: '', quoteQuantity: '500' }), '500');
+assert.equal(cashAmountCarry({ totalCashAmount: '75.00', quoteQuantity: '3' }), '75.00');
+assert.equal(cashAmountCarry({ totalCashAmount: '', quoteQuantity: '' }), '25.00');
 
 console.log('Webull order-entry regression checks passed.');

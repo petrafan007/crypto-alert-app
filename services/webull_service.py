@@ -917,6 +917,24 @@ def get_webull_market_snapshot(
     # products, and asking for them caused Webull to reject the entire basic
     # quote request for accounts without an overnight subscription.
     price = number('price', 'last_price', 'lastPrice', 'last', 'close')
+    # A price candidate that wildly disagrees with the record's own bid/ask
+    # is a bogus reference value, not a trade (Webull transiently carried
+    # ~349.91 for the newly listed ANT while its real quote was ~100.7, and
+    # the trade ticket latches the first snapshot price it sees into the
+    # limit box). Prefer the first candidate corroborated by the quote
+    # band, else the quote midpoint. Records without a sane bid/ask are
+    # left exactly as before.
+    bid = number('bid', 'bid_price', 'bidPrice')
+    ask = number('ask', 'ask_price', 'askPrice')
+    if price is not None and bid is not None and ask is not None and bid <= ask:
+        if price > ask * 2 or price < bid * 0.5:
+            corroborated = None
+            for candidate in (number('last_price'), number('lastPrice'),
+                              number('last'), number('close')):
+                if candidate is not None and bid * 0.5 <= candidate <= ask * 2:
+                    corroborated = candidate
+                    break
+            price = corroborated if corroborated is not None else (bid + ask) / 2
     extended_price = number('ext_price', 'extended_price', 'extendedPrice')
     overnight_price = number('overnight_price', 'overnightPrice')
     as_of = raw.get('timestamp') or raw.get('last_trade_time') or raw.get('trade_time')

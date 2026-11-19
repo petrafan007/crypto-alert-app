@@ -45,6 +45,10 @@ import {
   floorCashAmountForTicket,
   floorQuantityForTicket,
   quantityDecimalPlaces,
+  cashAmountCarry,
+  formatQuantityForTicket,
+  quoteBlurCashAmount,
+  quoteValueEntry,
   shouldUseEquityCashAmount,
 } from '../utils/webullOrderEntry.mjs';
 import LadderOrderConfig, { defaultLadderState } from '../components/LadderOrderConfig';
@@ -984,12 +988,6 @@ const isSecurityHolding = (holding) => {
 const QUANTITY_EPSILON = 1e-8;
 const OPTION_CONTRACT_MULTIPLIER = 100;
 const OPTION_STRIKE_EPSILON = 0.0001;
-
-const formatQuantityForTicket = (value, precision = 6) => {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return '';
-  return numeric.toFixed(precision).replace(/\.?0+$/, '');
-};
 
 const isFractionalQuantity = (value) => {
   const numeric = Number(value);
@@ -3504,16 +3502,17 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
   };
 
   const handleQuoteQuantityChange = (val) => {
-    const quoteVal = val.replace(/[^0-9.]/g, '');
-    const numQuote = parseFloat(quoteVal) || 0;
-    const mult = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
-    const unitCost = effectivePrice * mult;
-    const rawQuantity = numQuote > 0 && unitCost > 0 ? numQuote / unitCost : 0;
-    const wholeQuantity = Math.floor(rawQuantity);
-    const computedQty = (fractionalQuantityAllowed || selectedInstrumentType === 'EQUITY')
-      ? generatedQuantity(rawQuantity)
-      : wholeQuantity > 0 ? String(wholeQuantity) : '';
-    const cashAmountMode = wantsEquityCashAmount(numQuote, rawQuantity);
+    // The typed value stays verbatim in quoteQuantity and the entry never
+    // flips to cash-amount mode mid-typing: that flip swaps the rendered
+    // input and swallows keystrokes (and the gate fires on partial values
+    // — the "5" of "500" is already a sub-share amount). The conversion
+    // is decided on the completed value at blur (handleQuoteQuantityBlur).
+    const { quoteVal, numQuote, rawQuantity, computedQty } = quoteValueEntry({
+      rawValue: val,
+      instrumentType: selectedInstrumentType,
+      price: effectivePrice,
+      fractionalQuantityAllowed,
+    });
     setOrderValidationError('');
     if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && isFractionalQuantity(rawQuantity)) {
       setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
@@ -3524,14 +3523,43 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         ? optionOrderValueText(computedQty, effectivePrice)
         : quoteVal,
       quantity: computedQty,
-      entrustType: cashAmountMode ? 'AMOUNT' : 'QTY',
-      totalCashAmount: cashAmountMode ? quoteVal : '',
+      entrustType: 'QTY',
+      totalCashAmount: '',
     }));
     updateManualAllocation({
       quantity: Number(computedQty) || 0,
       quoteValue: numQuote,
-      cashAmount: cashAmountMode ? numQuote : null,
-      entrustType: cashAmountMode ? 'AMOUNT' : 'QTY',
+      cashAmount: null,
+      entrustType: 'QTY',
+    });
+  };
+
+  // Leaving the Order Value field converts a completed sub-share dollar
+  // entry into Webull's cash-amount mode, carrying the typed text exactly
+  // as entered. Clicking Review/Place blurs the field first, so the
+  // conversion still happens before anything is submitted.
+  const handleQuoteQuantityBlur = () => {
+    if (selectedInstrumentType !== 'EQUITY' || orderForm.entrustType === 'AMOUNT') return;
+    const carried = quoteBlurCashAmount({
+      quoteQuantity: orderForm.quoteQuantity,
+      instrumentType: selectedInstrumentType,
+      side: orderForm.side,
+      orderType: orderForm.type,
+      tradingSession: orderForm.tradingSession,
+      isAlgoEnabled: orderForm.isAlgoEnabled,
+      isBracketEnabled: orderForm.isBracketEnabled,
+      price: effectivePrice,
+    });
+    if (carried == null) return;
+    setOrderForm((prev) => (prev.entrustType === 'AMOUNT' ? prev : {
+      ...prev,
+      entrustType: 'AMOUNT',
+      totalCashAmount: carried,
+    }));
+    updateManualAllocation({
+      quantity: Number(orderForm.quantity) || 0,
+      cashAmount: Number(carried),
+      entrustType: 'AMOUNT',
     });
   };
 
@@ -6443,7 +6471,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                         </div>
                         {selectedInstrumentType === 'EQUITY' && isFractional && (
                           <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '6px', lineHeight: 1.4 }}>
-                            ℹ️ Fractional share orders on Webull execute as Market orders during Regular Hours only. Other order types are grayed out.
+                            ℹ️ Fractional share orders on Webull are Market orders only, so Limit and the other order types are grayed out while the quantity is fractional. Fractional orders also require Regular Hours (CORE) — the session already selected.
                           </div>
                         )}
                         {selectedInstrumentType === 'EQUITY' && (isExtendedSession || isOvernightSession) && (
@@ -6500,7 +6528,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                               setOrderForm((prev) => ({
                                 ...prev,
                                 entrustType: 'AMOUNT',
-                                totalCashAmount: prev.totalCashAmount || (prev.quoteQuantity && Number(prev.quoteQuantity) >= 5 ? prev.quoteQuantity : '25.00'),
+                                totalCashAmount: cashAmountCarry(prev),
                               }));
                               setOrderValidationError('');
                             }}
@@ -6648,6 +6676,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                                 inputMode="decimal"
                                 value={selectedInstrumentType === 'OPTION' ? optionOrderValueText(orderForm.quantity, effectivePrice) : orderForm.quoteQuantity}
                                 onChange={(e) => handleQuoteQuantityChange(e.target.value)}
+                                onBlur={handleQuoteQuantityBlur}
                                 placeholder="$0.00"
                                 className="order-styled-input"
                                 disabled={ticketOrderControlsDisabled}

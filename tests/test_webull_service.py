@@ -1243,6 +1243,42 @@ class WebullServiceTests(unittest.TestCase):
         self.assertIsNone(snapshot['as_of'])
         self.assertEqual(snapshot['price'], 83.0)
 
+    def test_stock_snapshot_rejects_price_that_disagrees_with_bid_ask(self):
+        # ANT on its first trading day: Webull's price field transiently
+        # carried a bogus ~349.91 reference while the real quote was ~100.7
+        # (bid/ask and close agree). The snapshot must price from the
+        # corroborated last trade, never the bogus field — the trade
+        # ticket latches the first snapshot price into its limit box.
+        response = Mock(status_code=200)
+        response.json.return_value = [{
+            'symbol': 'ANT', 'price': '349.91', 'close': '100.705',
+            'bid': '100.69', 'ask': '100.72', 'last_trade_time': 1787832000000,
+        }]
+        with patch('services.webull_service._webull_request', return_value=response):
+            snapshot = get_webull_market_snapshot('key', 'secret', symbol='ANT', instrument_type='STOCK')
+        self.assertEqual(snapshot['price'], 100.705)
+        self.assertTrue(snapshot['has_traded'])
+
+    def test_stock_snapshot_keeps_price_that_agrees_with_bid_ask(self):
+        response = Mock(status_code=200)
+        response.json.return_value = [{
+            'symbol': 'ANT', 'price': '100.705', 'close': '100.705',
+            'bid': '100.69', 'ask': '100.72', 'last_trade_time': 1787832000000,
+        }]
+        with patch('services.webull_service._webull_request', return_value=response):
+            snapshot = get_webull_market_snapshot('key', 'secret', symbol='ANT', instrument_type='STOCK')
+        self.assertEqual(snapshot['price'], 100.705)
+
+    def test_stock_snapshot_midpoint_when_all_candidates_disagree_with_bid_ask(self):
+        response = Mock(status_code=200)
+        response.json.return_value = [{
+            'symbol': 'ANT', 'price': '349.91', 'close': '350.10',
+            'bid': '100.00', 'ask': '102.00', 'last_trade_time': 1787832000000,
+        }]
+        with patch('services.webull_service._webull_request', return_value=response):
+            snapshot = get_webull_market_snapshot('key', 'secret', symbol='ANT', instrument_type='STOCK')
+        self.assertEqual(snapshot['price'], 101.0)
+
     def test_options_catalog_filters_and_cursor_pagination(self):
         from services.webull_service import get_webull_option_contracts
         first = Mock(status_code=200)
