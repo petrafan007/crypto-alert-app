@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.1
+**Version:** 4.19.2
 
 ## Recent Updates
+
+### v4.19.2
+* **Watchlist no longer sits blank for seconds on dashboard load:** the watchlist now paints immediately from the prices already stored in the database (the same stored-data path the portfolio renders from), and the live quotes replace them a moment later when they arrive. The stored response carries a lower watchlist fetch id than the live batch, so it can never overwrite fresher live rows, and in-progress row edits stay protected by the existing edit ledger. The live watchlist endpoint (`/api/watchlist-live`) also fetches its per-symbol prices concurrently (up to 8 at a time) instead of one after another, so fresh quotes land faster; a symbol whose price fetch fails keeps its stored price, and the response shape is unchanged.
 
 ### v4.19.1
 * **Date and time pickers follow the theme:** the app now sets CSS `color-scheme` with its light/dark theme (`theme-variables.css`). The browser's built-in controls therefore match the app: in dark mode the Webull combo builder's "Start monitoring (optional)" calendar icon is no longer black on a black field, and its pop-up calendar and time columns are dark instead of white. The Research Workbench date fields and other built-in pickers and scrollbars follow the theme the same way.

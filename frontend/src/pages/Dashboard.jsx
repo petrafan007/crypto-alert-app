@@ -2210,6 +2210,24 @@ function Dashboard({ isLightMode }) {
       logRefresh('start', { request: requestId, hydrate });
       if (hydrate) {
         hydrate = false;
+        // Paint the watchlist right away from stored prices so the section
+        // is not blank while the live batch below fetches fresh quotes. This
+        // stored fetch takes a lower fetch id than the live batch's, so the
+        // live response supersedes it when it lands, and a stored response
+        // that resolves late is dropped by the staleness guard in
+        // applyWatchlistUpdate instead of overwriting fresher live rows.
+        const storedFetchId = nextWatchlistFetchId();
+        const storedMark = rowEditsRef.current.mark();
+        axios.get('/api/watchlist', options)
+          .then(response => {
+            if (!ticket.isCurrent() || window.globalIsLoggingOut) return;
+            if (Array.isArray(response.data)) {
+              applyWatchlistUpdate(response.data, storedFetchId, storedMark);
+            }
+          })
+          .catch(() => {
+            // Best-effort pre-paint only; the live batch below still runs.
+          });
         try {
           const hydrateMark = rowEditsRef.current.mark();
           const response = await axios.get('/api/coin-data', options);

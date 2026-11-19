@@ -7,6 +7,7 @@ import time
 import re
 import math
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Blueprint, send_file, request, jsonify, render_template, current_app, redirect, url_for, session, make_response
 from flask_login import current_user, login_required, login_user, logout_user
 from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullWatchlistItem, WebullOrder, WebullHolding
@@ -5540,19 +5541,37 @@ def api_watchlist_live():
     except Exception:
         ticker_map = {}
 
-    # Fetch current prices for all watchlist items
+    # Fetch current prices for all watchlist items concurrently. Each
+    # symbol's lookup is an independent network call, so fetching them
+    # serially made this endpoint take seconds on multi-symbol watchlists.
+    # Results are keyed by row id and applied in watchlist order below; a
+    # symbol whose fetch fails keeps its stored price, exactly as before.
+    def _fetch_live_price(row):
+        if (getattr(row, 'asset_type', 'crypto') or 'crypto') == 'stock':
+            return _fetch_stock_price_yf(row.symbol)
+        return fetch_binance_price(row.symbol)
+
+    fetched_prices = {}
+    failed_ids = set()
+    if wl:
+        with ThreadPoolExecutor(max_workers=min(8, len(wl))) as executor:
+            futures = {executor.submit(_fetch_live_price, w): w for w in wl}
+            for future in as_completed(futures):
+                row = futures[future]
+                try:
+                    fetched_prices[row.id] = future.result()
+                except Exception as e:
+                    logger.error(f"Failed to fetch price for {row.symbol}: {e}")
+                    failed_ids.add(row.id)
+
     watchlist_data = []
     for w in wl:
         asset_type = getattr(w, 'asset_type', 'crypto') or 'crypto'
-        try:
-            if asset_type == 'stock':
-                current_price = _fetch_stock_price_yf(w.symbol)
-            else:
-                current_price = fetch_binance_price(w.symbol)
-            w.current_price = current_price
-        except Exception as e:
-            logger.error(f"Failed to fetch price for {w.symbol}: {e}")
+        if w.id in failed_ids:
             current_price = w.current_price or 0.0
+        else:
+            current_price = fetched_prices[w.id]
+            w.current_price = current_price
 
         w_sym = (w.symbol or '').upper()
         w_news = news_cache.get(w.id) or news_cache.get(w_sym) or {}
