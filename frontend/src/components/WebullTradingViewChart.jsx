@@ -79,8 +79,21 @@ export default function WebullTradingViewChart({
         });
       }
     });
+    // A symbol that arrived pre-selected (e.g. a watchlist Buy for a stock
+    // the user does not hold yet, or one that has never traded) must still
+    // render as the selector's selected entry, exactly like a holding.
+    const selectedSymbolKey = String(symbol || '').trim().toUpperCase();
+    if (selectedSymbolKey && !map.has(selectedSymbolKey)) {
+      map.set(selectedSymbolKey, {
+        id: selectedSymbolKey,
+        symbol: selectedSymbolKey,
+        name: selectedSymbolKey,
+        display_name: `${selectedSymbolKey} \u2014 Selected symbol`,
+        type: 'EQUITY',
+      });
+    }
     return Array.from(map.values());
-  }, [holdings]);
+  }, [holdings, symbol]);
 
   const availableCrypto = useMemo(() => {
     const fromHoldings = holdings
@@ -114,8 +127,23 @@ export default function WebullTradingViewChart({
         });
       }
     });
+    const selectedPairKey = String(symbol || '').trim().toUpperCase();
+    if (selectedPairKey) {
+      const pairKey = selectedPairKey.endsWith('USD') ? selectedPairKey : `${selectedPairKey}USD`;
+      if (!map.has(pairKey)) {
+        map.set(pairKey, {
+          id: pairKey,
+          symbol: pairKey,
+          name: `${selectedPairKey.replace(/USD$/, '')} / USD`,
+          display_name: `${pairKey} (${selectedPairKey.replace(/USD$/, '')} / USD)`,
+          base: selectedPairKey.replace(/USD$/, ''),
+          quote: 'USD',
+          quote_currency: 'USD',
+        });
+      }
+    }
     return Array.from(map.values());
-  }, [holdings]);
+  }, [holdings, symbol]);
 
   const optionUnderlyings = useMemo(
     () => optionUnderlyingInstruments.length ? optionUnderlyingInstruments : availableTraditional,

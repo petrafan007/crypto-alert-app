@@ -3563,13 +3563,16 @@ def api_create_synthetic_conditional():
         if error:
             return error
         data['test_mode'] = test_mode
-        check_synthetic_order_capacity(current_user.id, data.get('symbol'), data.get('side'),
-            data.get('total_quantity'), data.get('broker', 'webull'), test_mode, account_id=data.get('account_id'))
+        replaced_order_id = _cancel_replaced_synthetic_order(data, current_user.id, test_mode)
+        if not replaced_order_id:
+            check_synthetic_order_capacity(current_user.id, data.get('symbol'), data.get('side'),
+                data.get('total_quantity'), data.get('broker', 'webull'), test_mode, account_id=data.get('account_id'))
         parent = create_conditional(current_user.id, data)
-        return jsonify(success=True, ladder_order=parent.to_dict())
+        return jsonify(success=True, ladder_order=parent.to_dict(), replaced_order_id=replaced_order_id)
     except Exception as exc:
         db.session.rollback()
-        return jsonify(success=False, error=str(exc)), 400
+        detail = _synthetic_replacement_failure(locals().get('replaced_order_id'), exc)
+        return jsonify(success=False, error=detail), 400
 
 
 @portfolio_bp.route('/api/trading/synthetic-orders/<kind>/<int:identifier>/recover', methods=['POST'])

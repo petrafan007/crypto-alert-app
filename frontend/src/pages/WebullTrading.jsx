@@ -1391,6 +1391,10 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     ],
   });
 
+  // Synthetic conditional order being replaced through this builder: the
+  // submit cancels it and creates the edited order in its place.
+  const [replacingSynthetic, setReplacingSynthetic] = useState(null);
+
   useEffect(() => {
     if (['LADDER', 'SYNTHETIC'].includes(orderForm.type)) {
       // Stock/ETF synthetic orders can also run in extended hours (ALL); every
@@ -4414,11 +4418,13 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         total_quantity: offer.quantity, strategy_type: offer.strategyType, legs: offer.legs,
         trading_session: offer.tradingSession, limit_cap_pct: cap, test_mode: isTestMode, activate_at: offer.activateAt || undefined,
         guardian_order_ref: offer.guardianOrderRef || undefined,
+        replacing_order_id: replacingSynthetic ? `ladder_${replacingSynthetic.id}` : undefined,
         ...(twofaToken ? { twofa_token: twofaToken } : {}),
       };
       const response = await axios.post('/api/trading/synthetic-conditional-orders', payload, { withCredentials: true });
       if (response.data?.success) {
         setSyntheticComboOffer(null);
+        setReplacingSynthetic(null);
         setOrderFeedback({
           type: 'success',
           message: `Synthetic ${offer.strategyType} #${response.data.ladder_order.id} placed for ${offer.quantity} ${offer.symbol}. Session: ${offer.tradingSession === 'ALL' ? 'Regular + Extended Hours' : 'Regular Hours'}.${offer.activateAt ? ` Monitoring starts ${new Date(offer.activateAt).toLocaleString()}.` : ''}${offer.guardianOrderRef ? ` Backstop linked to Webull order ${offer.guardianOrderRef} — nothing is placed unless that order ends cancelled with no fill.` : ''} Failures and recovery choices remain available in Order History.`,
@@ -4448,6 +4454,51 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     })),
     { symbol: comboForm.symbol, checkMarketHours: comboUsesWebullNative && !isTestMode },
   ), [comboForm.legs, comboForm.symbol, comboUsesWebullNative, isTestMode]);
+
+  const handleReplaceSynthetic = (order) => {
+    const spec = order?.conditional_spec || {};
+    const specLegs = Array.isArray(spec.legs) ? spec.legs : [];
+    if (!specLegs.length) return;
+    const strategyType = String(order.strategy_type || 'LIMIT').toUpperCase();
+    const rolesByType = { LIMIT: ['MASTER'], OTO: ['MASTER', 'OTO'], OCO: ['OCO', 'OCO'], OTOCO: ['MASTER', 'OTOCO', 'OTOCO'] };
+    const roles = rolesByType[strategyType] || specLegs.map((_, i) => (i === 0 ? 'MASTER' : 'OTOCO'));
+    const qty = String(order.total_quantity ?? spec.requested_quantity ?? '');
+    const toLocalInputValue = (iso) => {
+      if (!iso) return '';
+      const parsed = new Date(String(iso).endsWith('Z') ? iso : `${iso}Z`);
+      if (Number.isNaN(parsed.getTime())) return '';
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+    };
+    setComboForm({
+      comboType: strategyType,
+      executionMode: 'SYNTHETIC',
+      tradingSession: order.trading_session === 'CORE' ? 'CORE' : 'ALL',
+      activateAt: toLocalInputValue(order.activate_at),
+      guardianOrderRef: spec.guardian?.webull_order_id ? String(spec.guardian.webull_order_id) : '',
+      symbol: order.symbol || '',
+      legs: specLegs.map((leg, i) => ({
+        id: String(i + 1),
+        role: roles[i] || 'OTOCO',
+        side: leg.side || 'BUY',
+        order_type: leg.order_type || 'LIMIT',
+        price: leg.price != null ? String(leg.price) : '',
+        stopPrice: leg.stop_price != null ? String(leg.stop_price) : '',
+        quantity: qty,
+        timeInForce: 'DAY',
+        session: 'CORE',
+      })),
+    });
+    setReplacingSynthetic(order);
+    if (order.account_id) setSelectedAccountId(order.account_id);
+    if (order.symbol) setSelectedSymbol(order.symbol);
+    setSelectedInstrumentType('EQUITY');
+    setEquityOrderMode('combo');
+    setActiveTab('order');
+    setTicketFlash(true);
+    setTimeout(() => setTicketFlash(false), 1800);
+    setOrderFeedback({ type: 'success', message: `Replacing synthetic ${strategyType} #${order.id} \u2014 edit the terms below and submit; the old order is cancelled only when the replacement is placed.` });
+  };
 
   const handleComboSubmit = async (twofaToken = null) => {
     if (comboValidationErrors.length) {
@@ -7539,6 +7590,12 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                     </div>
                   </div>
 
+                  {replacingSynthetic && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '16px', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, .45)', background: 'rgba(56, 189, 248, .12)', color: '#e0f2fe', fontSize: '13px' }}>
+                      <span>Replacing synthetic {replacingSynthetic.strategy_type} #{replacingSynthetic.id} — {replacingSynthetic.side} {replacingSynthetic.total_quantity} {replacingSynthetic.symbol}. Submitting cancels the old order and places this one in its place; a backstop link shown below carries over.</span>
+                      <button type="button" className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '12px' }} onClick={() => setReplacingSynthetic(null)}>Cancel replace</button>
+                    </div>
+                  )}
                   {!isEmbeddedReplaceMode && <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
                     <label>Execution<select className="order-styled-input" value={comboForm.executionMode} onChange={e => setComboForm(prev => ({ ...prev, executionMode: e.target.value }))}><option value="SYNTHETIC">Synthetic · managed by this app</option><option value="NATIVE">Webull native · regular hours</option></select></label>
                     {comboForm.executionMode === 'SYNTHETIC' && <label>Trading session<select className="order-styled-input" value={comboForm.tradingSession} onChange={e => setComboForm(prev => ({ ...prev, tradingSession: e.target.value }))}><option value="ALL">Regular + Extended Hours</option><option value="CORE">Regular Hours</option></select></label>} {comboForm.executionMode === 'SYNTHETIC' && <label>Start monitoring (optional)<input type="datetime-local" className="order-styled-input" value={comboForm.activateAt} onChange={e => setComboForm(prev => ({ ...prev, activateAt: e.target.value }))} /></label>} {comboForm.executionMode === 'SYNTHETIC' && comboForm.comboType === 'LIMIT' && <label>Backstop Webull order ID (optional)<input type="text" className="order-styled-input" placeholder="Existing order this Limit stands behind" value={comboForm.guardianOrderRef} onChange={e => setComboForm(prev => ({ ...prev, guardianOrderRef: e.target.value }))} /></label>}
@@ -7726,7 +7783,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                   </p>
                 </div>
                 <p className="synthetic-muted">Showing strategies across your Webull accounts. Each row identifies its account; the chart account does not filter this list.</p>
-                <SyntheticOrdersTable testMode={isTestMode} defaultBroker="webull" showBrokerFilter={false} />
+                <SyntheticOrdersTable testMode={isTestMode} defaultBroker="webull" showBrokerFilter={false} onReplaceOrder={handleReplaceSynthetic} />
               </section>
             )}
 

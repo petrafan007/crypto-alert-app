@@ -59,7 +59,7 @@ function Strategy({ order }) {
   </div>;
 }
 
-export default function SyntheticOrdersTable({ defaultBroker = 'all', showBrokerFilter = true, accountId, testMode, onOrderCancelled, historyMode = false }) {
+export default function SyntheticOrdersTable({ defaultBroker = 'all', showBrokerFilter = true, accountId, testMode, onOrderCancelled, onReplaceOrder = null, historyMode = false }) {
   const [orders, setOrders] = useState([]);
   const [broker, setBroker] = useState(defaultBroker);
   const [status, setStatus] = useState(historyMode ? 'ALL' : 'ACTIVE');
@@ -164,7 +164,7 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
           <td><button type="button" className={`synthetic-status state-${order.status.toLowerCase()}`} onClick={() => openSyntheticRecovery(order)}>{order.status_label || order.status.replaceAll('_', ' ')}</button><small>Last price: {money(order.last_price, currency)}</small><small>Checked: {timestamp(order.last_checked_at)}</small>
             {(order.monitoring_error || order.error_message) && <small className="synthetic-warning">{order.monitoring_error || order.error_message}</small>}</td>
           <td><div className="synthetic-actions">{order.recovery_available && <button type="button" onClick={() => openSyntheticRecovery(order)}>Review issue</button>}<button type="button" aria-expanded={open} onClick={() => setExpanded(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; })}>{open ? 'Hide details' : 'Details'}</button>
-            {canCancel(order.status) && <button type="button" className="synthetic-cancel" disabled={busy === key} onClick={() => { setCancelTarget(order); setCancelError(''); }}>{busy === key ? 'Cancelling…' : 'Cancel'}</button>}</div></td>
+            {canCancel(order.status) && <button type="button" className="synthetic-cancel" disabled={busy === key} onClick={() => { setCancelTarget(order); setCancelError(''); }}>{busy === key ? 'Cancelling…' : 'Cancel'}</button>}{onReplaceOrder && order.conditional_spec && ['ACTIVE', 'SUBMITTED', 'TRIGGERED'].includes(order.status) && <button type="button" disabled={busy === key} onClick={() => onReplaceOrder(order)}>Replace</button>}</div></td>
         </tr>{open && <tr><td colSpan="6" className="synthetic-detail">
           <p>Updated: {timestamp(order.updated_at)} · {budgetOf(order) ? `Both sides share one ${money(budgetOf(order), currency)} budget; each side spends at most it at its trigger prices.` : 'Both sides share the total quantity.'} Failed strategies and strategies needing review are paused.</p>
           {!order.conditional_spec && <StepSections order={order} currency={currency} />}
