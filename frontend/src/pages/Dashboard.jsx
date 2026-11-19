@@ -2726,6 +2726,29 @@ function Dashboard({ isLightMode }) {
     return true; // Allow replacing all other open orders (Limit, OCO, Bracket, Synthetic)
   };
 
+  // A Webull conditional synthetic (the kind the Synthetic Orders tab can
+  // replace) must not go through the embedded native-order replace ticket:
+  // it is replaced by reopening the Conditional Orders builder pre-filled,
+  // which cancels the old synthetic only when the replacement is placed.
+  const webullSyntheticReplaceId = (order) => {
+    if (!order || !order.is_synthetic || !order.is_conditional) return null;
+    if (orderProvider(order) !== 'webull') return null;
+    const match = /^ladder_(\d+)$/.exec(String(order.order_id || order.orderId || order.id || ''));
+    return match ? match[1] : null;
+  };
+
+  const navigateToSyntheticReplace = (order, coin) => {
+    const ladderId = webullSyntheticReplaceId(order);
+    if (!ladderId) return false;
+    const symbol = (order.symbol || coin?.symbol || '').toUpperCase();
+    const accountId = order.account_id || order._webull_account_id || order.webull_account_id || '';
+    let url = `/trading/webull?symbol=${encodeURIComponent(symbol)}&side=${encodeURIComponent((order.side || 'BUY').toUpperCase())}&mode=REAL`;
+    if (accountId) url += `&account_id=${encodeURIComponent(accountId)}`;
+    url += `&replace_synthetic_id=${encodeURIComponent(ladderId)}`;
+    navigate(url, { state: { mode: 'REAL' } });
+    return true;
+  };
+
   const handleReplaceButtonClick = (coin, coinOrders, event) => {
     event.stopPropagation();
     if (!coinOrders || coinOrders.length === 0) return;
@@ -2733,6 +2756,7 @@ function Dashboard({ isLightMode }) {
     if (replaceableOrders.length === 0) return;
 
     if (replaceableOrders.length === 1) {
+      if (navigateToSyntheticReplace(replaceableOrders[0], coin)) return;
       setReplaceModalState({
         isOpen: true,
         coin,
@@ -2760,6 +2784,7 @@ function Dashboard({ isLightMode }) {
 
   const handleSelectReplaceOrderFromMenu = (order, coin) => {
     setReplaceContextMenu({ isOpen: false, coin: null, x: 0, y: 0, orders: [] });
+    if (navigateToSyntheticReplace(order, coin)) return;
     setReplaceModalState({
       isOpen: true,
       coin,

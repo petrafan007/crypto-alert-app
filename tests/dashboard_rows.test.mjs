@@ -70,6 +70,21 @@ test('pending orders match one provider, account, instrument and exact pair (F10
   assert.equal(orderMatchesRow({ provider: 'binance', symbol: 'ETHUSDT' }, { symbol: 'ETH', source: 'webull' }), false);
 });
 
+test('a Webull synthetic order highlights a stock watchlist row once the row reports Webull (F10b)', () => {
+  const synthetic = { provider: 'webull', source: 'webull', symbol: 'ANT', instrument_type: 'EQUITY', account_id: 'A', is_synthetic: true, is_conditional: true };
+  // The generic watchlist payload for a stock row now carries the Webull
+  // identity (the same shape as a Webull watchlist item), so the order
+  // matches and the row takes the pending-order highlight.
+  const markedRow = { symbol: 'ANT', asset_type: 'stock', source: 'webull', provider: 'webull', is_external: true, instrument_type: 'EQUITY' };
+  assert.equal(orderMatchesRow(synthetic, markedRow), true);
+  // Before the payload fix the same row arrived with no provider fields,
+  // was classified as Binance, and the Webull order could never match it.
+  assert.equal(orderMatchesRow(synthetic, { symbol: 'ANT', asset_type: 'stock' }), false);
+  // A Binance order still never highlights the Webull stock row.
+  assert.equal(orderMatchesRow({ provider: 'binance', symbol: 'ANTUSDT' }, markedRow), false);
+});
+
+
 test('a refresh requested before a save cannot restore the old value (F27)', () => {
   let time = 0;
   const ledger = createRowEditLedger({ now: () => time, ttlMs: 1000 });

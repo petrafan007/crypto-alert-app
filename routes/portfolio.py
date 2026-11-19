@@ -5457,6 +5457,26 @@ def api_delete_coin():
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "Coin not found"}), 404
 
+def _watchlist_coin_provider_fields(asset_type):
+    """Provider identity for a generic watchlist row.
+
+    A row stored as a stock is a Webull security. Without these fields the
+    dashboard classifies the row as a Binance row, so a Webull order for the
+    symbol (native or synthetic) can never match it for the pending-order
+    highlight or its Cancel/Replace actions. Mirrors the identity fields of
+    _webull_watchlist_item_payload; crypto rows keep the historical shape.
+    """
+    if (asset_type or 'crypto') == 'stock':
+        return {
+            'source': 'webull',
+            'source_label': 'Webull',
+            'provider': 'webull',
+            'is_external': True,
+            'instrument_type': 'EQUITY',
+        }
+    return {}
+
+
 @portfolio_bp.route("/api/watchlist")
 @login_required
 def api_watchlist():
@@ -5485,6 +5505,7 @@ def api_watchlist():
             "id": w.id,
             "symbol": w.symbol,
             "asset_type": getattr(w, 'asset_type', 'crypto') or 'crypto',
+            **_watchlist_coin_provider_fields(getattr(w, 'asset_type', 'crypto') or 'crypto'),
             "alert_enabled": w.alert_enabled,
             "down_val": w.down_alert,
             "up_val": w.up_alert,
@@ -5588,6 +5609,7 @@ def api_watchlist_live():
             "id": w.id,
             "symbol": w.symbol,
             "asset_type": asset_type,
+            **_watchlist_coin_provider_fields(asset_type),
             "alert_enabled": w.alert_enabled,
             "down_val": w.down_alert,
             "up_val": w.up_alert,
@@ -6051,20 +6073,41 @@ def api_watchlist_remove():
     data = request.get_json() or {}
     symbol = data.get("symbol", "").upper()
     if str(data.get('provider') or '').strip().lower() == 'webull':
-        raw_id = str(data.get('id') or '').removeprefix('webull-watchlist-')
+        raw_id = str(data.get('id') or '')
         item = None
-        try:
-            item = WebullWatchlistItem.query.filter_by(id=int(raw_id), user_id=current_user.id).first()
-        except (TypeError, ValueError):
-            # No server id yet (the row was removed before its add was confirmed):
-            # match the exact instrument, never just the first same-ticker row.
-            lookup = {'user_id': current_user.id, 'symbol': symbol}
-            if data.get('instrument_type') is not None:
-                lookup['instrument_type'] = str(data.get('instrument_type') or 'EQUITY').strip().upper()
-                lookup['event_outcome'] = str(data.get('event_outcome') or '').strip().upper()
-            item = WebullWatchlistItem.query.filter_by(**lookup).order_by(WebullWatchlistItem.id.asc()).first()
-        if item:
-            db.session.delete(item)
+        if raw_id.startswith('webull-watchlist-') or raw_id.startswith('temp-') or not raw_id:
+            # A WebullWatchlistItem row (its payload id carries the prefix), or
+            # no server id yet (the row was removed before its add was
+            # confirmed): match the exact instrument, never just the first
+            # same-ticker row.
+            stripped = raw_id.removeprefix('webull-watchlist-')
+            try:
+                item = WebullWatchlistItem.query.filter_by(id=int(stripped), user_id=current_user.id).first()
+            except (TypeError, ValueError):
+                lookup = {'user_id': current_user.id, 'symbol': symbol}
+                if data.get('instrument_type') is not None:
+                    lookup['instrument_type'] = str(data.get('instrument_type') or 'EQUITY').strip().upper()
+                    lookup['event_outcome'] = str(data.get('event_outcome') or '').strip().upper()
+                item = WebullWatchlistItem.query.filter_by(**lookup).order_by(WebullWatchlistItem.id.asc()).first()
+            if item:
+                db.session.delete(item)
+                db.session.commit()
+                return jsonify({'success': True})
+        # Generic watchlist rows stored as stocks also report provider
+        # 'webull', but they live in the WatchlistCoin table under their own
+        # numeric id. Remove that row so deleting a stock entry still works;
+        # a crypto row is never removed through the Webull branch.
+        coin = None
+        candidates = []
+        if raw_id.isdigit():
+            candidates.append(WatchlistCoin.query.filter_by(id=int(raw_id), user_id=current_user.id, symbol=symbol).first())
+        candidates.append(WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first())
+        for candidate in candidates:
+            if candidate is not None and (getattr(candidate, 'asset_type', 'crypto') or 'crypto') == 'stock':
+                coin = candidate
+                break
+        if coin:
+            db.session.delete(coin)
             db.session.commit()
         return jsonify({'success': True})
     wl = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()

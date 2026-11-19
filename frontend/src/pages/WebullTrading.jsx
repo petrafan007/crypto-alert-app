@@ -4500,6 +4500,34 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     setOrderFeedback({ type: 'success', message: `Replacing synthetic ${strategyType} #${order.id} \u2014 edit the terms below and submit; the old order is cancelled only when the replacement is placed.` });
   };
 
+  // Deep link from a Dashboard Replace action on a synthetic conditional
+  // order: load that order and open the same pre-filled Conditional Orders
+  // builder the Synthetic Orders tab Replace button uses.
+  const syntheticReplaceLinkRef = useRef(null);
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get('replace_synthetic_id');
+    const targetId = Number(raw);
+    if (!raw || !Number.isInteger(targetId) || targetId <= 0) return;
+    if (syntheticReplaceLinkRef.current === targetId) return;
+    syntheticReplaceLinkRef.current = targetId;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await axios.get('/api/trading/ladder-orders', { params: { broker: 'webull' }, withCredentials: true });
+        const order = (response.data?.ladder_orders || []).find((entry) => Number(entry.id) === targetId);
+        if (cancelled) return;
+        if (order && order.conditional_spec && ['ACTIVE', 'SUBMITTED', 'TRIGGERED'].includes(order.status)) {
+          handleReplaceSynthetic(order);
+        } else {
+          setOrderFeedback({ type: 'error', message: 'That synthetic order is no longer working, so it cannot be replaced.' });
+        }
+      } catch (err) {
+        if (!cancelled) setOrderFeedback({ type: 'error', message: err.response?.data?.error || err.message || 'Failed to load the synthetic order for replacement.' });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const handleComboSubmit = async (twofaToken = null) => {
     if (comboValidationErrors.length) {
       setOrderFeedback({ type: 'error', message: comboValidationErrors.join('\n') });
