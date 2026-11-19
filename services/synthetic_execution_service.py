@@ -714,6 +714,30 @@ def submit_execution(parent, kind, quantity, price, leg, rung=None, explicit_lim
     return row
 
 
+def _limit_timeout_applies(parent):
+    """Whether the 5-minute synthetic Limit timeout may fire for this parent.
+
+    The timeout exists for extended-hours marketable limits. A conditional
+    synthetic Limit on a Webull stock/ETF that has never traded (an IPO
+    still in price discovery) is exempt: its order is meant to rest at the
+    broker until trading opens, not be timed out from under the synthetic.
+    Any doubt (other order kinds, quote unavailable) keeps the timeout.
+    """
+    if parent.broker != 'webull' or parent.instrument_type not in {'EQUITY', 'ETF'}:
+        return True
+    if getattr(parent, 'strategy_type', None) != 'LIMIT' or not getattr(parent, 'conditional_spec', None):
+        return True
+    try:
+        from services.webull_service import get_webull_market_snapshot
+        cred, env = webull_credentials(parent)
+        quote = get_webull_market_snapshot(cred.webull_app_key, cred.webull_app_secret, env,
+                                           cred.webull_access_token, symbol=parent.symbol,
+                                           instrument_type=parent.instrument_type)
+    except Exception:
+        return True
+    return bool(quote.get('has_traded'))
+
+
 def reconcile_executions(parent, kind):
     rows = executions(parent, kind)
     for row in rows:
@@ -732,6 +756,8 @@ def reconcile_executions(parent, kind):
             row.error_message = 'Awaiting broker confirmation. No additional order will be sent while this execution is unresolved.'
         timed_out = row.order_type == 'LIMIT' and not parent.cancel_requested and row.created_at is not None and (
             utc_now(aware=False) - row.created_at).total_seconds() >= EXTENDED_LIMIT_TIMEOUT_SECONDS
+        if timed_out and not _limit_timeout_applies(parent):
+            timed_out = False
         if row.order_type == 'LIMIT' and row.status == 'CANCELLED' and not parent.cancel_requested:
             row.error_message = EXTENDED_TIMEOUT_MESSAGE
         if (parent.cancel_requested or timed_out) and row.status in OPEN_EXECUTIONS:

@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.3
+**Version:** 4.19.4
 
 ## Recent Updates
+
+### v4.19.4
+* **Synthetic Limit orders survive broker cancellations, and a Limit can now stand as a backstop behind an existing Webull order:** on the ANT IPO morning, two synthetic Limit orders (5 @ $88) died FAILED when their Webull children were cancelled before the symbol had ever traded, leaving nothing working. Now, when a plain synthetic Limit's child order ends cancelled or rejected with no fill, the synthetic returns to watching and places the order again (paced 30 seconds apart, and stopping for review after 3 straight broker rejections); a partial fill still stops it for review, exactly as before. The 5-minute synthetic Limit timeout no longer fires while the symbol has never traded (`has_traded` is false, e.g. an IPO in price discovery), so a resting order is not timed out from under its synthetic. New: in the combo builder, a synthetic Limit accepts an optional **Backstop Webull order ID** — the dashboard id or the Webull provider order id of an existing order on the same account, symbol, side and quantity. A backstopped synthetic places nothing while that order works; before taking over it re-checks the order live with Webull, so two orders are never live at once. If the linked order ends cancelled with no fill — including when it was already cancelled at link time — the synthetic takes over and places the order from its own leg settings, then keeps re-placing on later unfilled cancellations. If the linked order fills, the synthetic completes having placed nothing; a partial fill stops it for review.
 
 ### v4.19.3
 * **Trade ticket no longer pre-fills a limit price from a quote with no trade behind it:** the Webull market snapshot now reports `has_traded`, true only when the quote carries a real trade timestamp. On the Webull Trading page the snapshot still updates the reference price as before, but for an equity that has never traded (for example a pre-IPO placeholder such as the offer price) the Limit Price box is left empty, so the user always types their own limit. Before, opening the ticket for ANT — priced at $83 but not yet trading — pre-filled $352.45 from a stale placeholder quote, so 5 shares showed a $1,762.25 order value. Symbols that have traded keep the pre-fill exactly as before; options, futures and crypto tickets are unchanged.

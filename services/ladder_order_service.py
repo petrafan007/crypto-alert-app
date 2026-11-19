@@ -488,7 +488,9 @@ def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
     if pending or ladder.cancel_requested or ladder.status not in {'ACTIVE', 'PARTIALLY_FILLED'}:
         return True, 0
     if ladder.conditional_spec:
-        from services.synthetic_conditional_service import evaluate
+        from services.synthetic_conditional_service import evaluate, guardian_gate
+        if not guardian_gate(ladder):
+            return True, 0
         if execute_trigger:
             evaluate(ladder, price)
         return True, 0
