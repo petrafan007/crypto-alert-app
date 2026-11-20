@@ -151,6 +151,8 @@ class WebullOrder(db.Model):
     fee_asset = db.Column(db.String(20), nullable=True)
     # True when Webull did not report the fee and the app estimated it.
     fee_estimated = db.Column(db.Boolean, default=False)
+    # 'UI' for interface orders, 'CLAUDE_AGENT' for Muse-placed orders.
+    source = db.Column(db.String(30), default='UI')
     status = db.Column(db.String(40), nullable=True)
     created_at = db.Column(db.DateTime, nullable=True)
     updated_at = db.Column(db.DateTime, nullable=True)
@@ -381,6 +383,7 @@ class WebullTestOrder(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    source = db.Column(db.String(30), default='UI')
     user_id = db.Column(db.Integer, nullable=False, index=True)
     symbol = db.Column(db.String(80), nullable=False)
     instrument_type = db.Column(db.String(40), default='EQUITY', nullable=False)

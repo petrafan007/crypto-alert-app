@@ -73,6 +73,7 @@ def init_db(app=None):
         PortfolioStrategyLot, PortfolioEquitySnapshot, PortfolioAudit, PortfolioMarketObservation,
         PortfolioSignalDecision, PortfolioStrategyRevision, PortfolioAIReview, PortfolioOptionCoverage)
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
+    from claude_agent_models import ClaudeAgentConfig, ClaudeOrderDraft, ClaudeOrderAudit
     from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder, LadderOrder, LadderRung, SyntheticExecution, SyntheticRecovery, TaxCorrection, TaxFormTotals
     
     target_app = app if app is not None else current_app
@@ -103,6 +104,12 @@ def init_db(app=None):
                   ('last_price', 'FLOAT'), ('last_checked_at', 'TIMESTAMP'),
                   ('monitoring_error', 'TEXT'), ('cancel_requested', 'BOOLEAN DEFAULT FALSE'),
                   ('limit_cap_pct', 'FLOAT'), ('activate_at', 'TIMESTAMP'))],
+            ('webull_orders', 'source', "VARCHAR(30) DEFAULT 'UI'"),
+            ('webull_test_orders', 'source', "VARCHAR(30) DEFAULT 'UI'"),
+            ('ladder_orders', 'source', "VARCHAR(30) DEFAULT 'UI'"),
+            ('trailing_orders', 'source', "VARCHAR(30) DEFAULT 'UI'"),
+            ('real_orders', 'source', "VARCHAR(30) DEFAULT 'UI'"),
+            ('test_orders', 'source', "VARCHAR(30) DEFAULT 'UI'"),
             ("ladder_orders", "conditional_spec", "TEXT"),
             ("ladder_orders", "quote_budget", "FLOAT"),
             ("ladder_orders", "conditional_phase", "VARCHAR(12)"),

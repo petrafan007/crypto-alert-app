@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.14
+**Version:** 4.19.15
 
 ## Recent Updates
+
+### v4.19.15
+
+* New **Muse Orders** Settings tab: Muse can now place, replace, and cancel orders on your behalf — native Webull orders, synthetic ladders, conditionals and trailing stops, and Binance.US spot and staking orders, on real or paper accounts alike — authorized per action by a single spoken **Muse PIN** you set in Settings. Muse drafts each order first and reads it back, naming the account and whether it is paper or real; nothing is submitted until you confirm with the PIN. The PIN is stored encrypted, stays valid for at most 30 days, can be regenerated anytime or auto-generated on expiry, and is viewable only through the eyeball reveal after a fresh two-factor code. Three wrong PIN attempts lock the channel until you re-enable it in the tab, each account can be switched off for Muse orders individually (all start enabled), there are no amount or order-type limits, and every Muse-placed order is marked in the order records and listed in the tab's audit history. The feature ships **off** with no PIN set, and the Muse agent API key is generated in the same tab. Your normal in-app ordering and its two-factor checks are unchanged.
+
 
 ### v4.19.14
 

@@ -16,6 +16,7 @@ class TestOrder(db.Model):
     These orders validate against Binance.US but do not execute
     """
     __tablename__ = 'test_orders'
+    source = Column(String(30), default='UI')
     # __bind_key__ removed for Postgres migration
     
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -67,6 +68,7 @@ class RealOrder(db.Model):
     These orders execute actual trades with real money
     """
     __tablename__ = 'real_orders'
+    source = Column(String(30), default='UI')
     # __bind_key__ removed
     
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -212,6 +214,7 @@ class TrailingOrder(db.Model):
     Fires real/test market order when trigger is breached.
     """
     __tablename__ = 'trailing_orders'
+    source = Column(String(30), default='UI')
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, index=True)
@@ -286,6 +289,7 @@ class LadderOrder(db.Model):
     Supports both Binance.US (Crypto) and Webull (Equities, ETFs, Crypto).
     """
     __tablename__ = 'ladder_orders'
+    source = Column(String(30), default='UI')
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, index=True)

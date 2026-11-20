@@ -105,6 +105,286 @@ const getHeadlineCalloutStyle = (status, isLight) => {
   };
 };
 
+function ClaudeAgentSettings() {
+  const [config, setConfig] = useState(null);
+  const [audit, setAudit] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [message, setMessage] = useState('');
+  const [pinInput, setPinInput] = useState('');
+  const [totpInput, setTotpInput] = useState('');
+  const [revealedPin, setRevealedPin] = useState('');
+  const [generatedKey, setGeneratedKey] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const loadAll = async () => {
+    try {
+      const cfgRes = await fetch('/api/claude-agent/config');
+      const cfgData = await cfgRes.json();
+      if (cfgData.success) setConfig(cfgData.config);
+      const auditRes = await fetch('/api/claude-agent/audit?limit=50');
+      const auditData = await auditRes.json();
+      if (auditData.success) setAudit(auditData.audit || []);
+      const accRes = await fetch('/api/webull/accounts');
+      const accData = await accRes.json();
+      const list = accData.accounts || accData.data || [];
+      setAccounts(Array.isArray(list) ? list : []);
+    } catch (err) {
+      setMessage('❌ Failed to load Muse Orders settings.');
+    }
+  };
+
+  useEffect(() => { loadAll(); }, []);
+
+  const post = async (url, body, method = 'POST') => {
+    setBusy(true);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setMessage(`❌ ${data.error || 'Request failed.'}`);
+        return null;
+      }
+      setMessage('');
+      return data;
+    } catch (err) {
+      setMessage('❌ Request failed.');
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!config) {
+    return (
+      <div className="settings-page-section">
+        <h3>🤖 Muse Orders</h3>
+        <p>Loading…</p>
+      </div>
+    );
+  }
+
+  const disabledSet = new Set(config.disabled_accounts || []);
+  const pinStatus = !config.pin_set
+    ? 'No PIN set'
+    : config.pin_expired
+      ? 'Expired — set or regenerate a PIN'
+      : `Active until ${config.pin_expires_at ? new Date(config.pin_expires_at).toLocaleString() : ''}`;
+
+  const accountRows = [
+    ...accounts.map((a) => {
+      const id = a.account_id || a.id;
+      return { key: `webull:${id}`, label: `Webull · ${a.account_name || a.name || a.alias || id} (${id})` };
+    }),
+    { key: 'binance:US', label: 'Binance US' },
+  ];
+
+  const toggleAccount = async (key) => {
+    const next = new Set(disabledSet);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    const data = await post('/api/claude-agent/config', { disabled_accounts: [...next] }, 'PUT');
+    if (data) { setConfig(data.config); setMessage('✅ Account switchboard updated.'); }
+  };
+
+  return (
+    <div className="settings-page-section">
+      <h3>🤖 Muse Orders</h3>
+
+      <div className="settings-form-help" style={{ marginBottom: '20px', padding: '12px', background: 'rgba(102, 126, 234, 0.1)', borderLeft: '3px solid #667eea', borderRadius: '4px', fontSize: '13px' }}>
+        Muse can place, replace, and cancel orders for you — Webull, synthetic strategies, and Binance US, on real or paper accounts — when you ask in chat or on a call and confirm with your Muse PIN.
+        Muse drafts every order and reads it back first; the PIN you speak authorizes that action. Nothing here changes your normal in-app ordering or its two-factor checks.
+      </div>
+
+      {message && (
+        <div style={{ padding: '12px', marginBottom: '16px', borderRadius: '6px', background: message.startsWith('✅') ? 'rgba(76, 175, 80, 0.2)' : 'rgba(244, 67, 54, 0.2)', color: message.startsWith('✅') ? '#4CAF50' : '#f44336', border: `1px solid ${message.startsWith('✅') ? '#4CAF50' : '#f44336'}`, fontSize: '13px' }}>
+          {message}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+        <label style={{ fontWeight: 'bold' }}>Muse orders feature</label>
+        <button
+          className="settings-button"
+          disabled={busy}
+          onClick={async () => {
+            const body = config.enabled ? { enabled: false } : { enabled: true, two_factor_code: totpInput };
+            const data = await post('/api/claude-agent/config', body, 'PUT');
+            if (data) { setConfig(data.config); setMessage(config.enabled ? '✅ Muse orders are off.' : '✅ Muse orders are on.'); }
+          }}
+        >
+          {config.enabled ? 'Turn OFF' : 'Turn ON'}
+        </button>
+        <span style={{ color: config.enabled ? '#4CAF50' : '#f44336', fontWeight: 'bold' }}>
+          {config.enabled ? 'ON' : 'OFF'}
+        </span>
+      </div>
+
+      {config.locked && (
+        <div style={{ padding: '12px', marginBottom: '16px', borderRadius: '6px', background: 'rgba(244, 67, 54, 0.15)', border: '1px solid #f44336', fontSize: '13px' }}>
+          <strong>Channel locked</strong> after {config.failed_attempts} failed PIN attempts.
+          <button
+            className="settings-button"
+            style={{ marginLeft: '12px' }}
+            disabled={busy}
+            onClick={async () => {
+              const data = await post('/api/claude-agent/config', { unlock: true, two_factor_code: totpInput }, 'PUT');
+              if (data) { setConfig(data.config); setMessage('✅ Channel re-enabled.'); }
+            }}
+          >
+            Re-enable (needs 2FA code)
+          </button>
+        </div>
+      )}
+
+      <h4>🔑 Muse PIN</h4>
+      <p style={{ fontSize: '13px', color: '#999' }}>
+        Status: <strong>{pinStatus}</strong>. A PIN is valid for at most 30 days. Changing or regenerating it invalidates the old one immediately.
+      </p>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={6}
+          placeholder="New 6-digit PIN"
+          value={pinInput}
+          onChange={(e) => setPinInput(e.target.value.replace(/[^0-9]/g, ''))}
+          style={{ width: '150px' }}
+        />
+        <input
+          type="text"
+          inputMode="numeric"
+          maxLength={6}
+          placeholder="2FA code"
+          value={totpInput}
+          onChange={(e) => setTotpInput(e.target.value.replace(/[^0-9]/g, ''))}
+          style={{ width: '110px' }}
+        />
+        <button
+          className="settings-button"
+          disabled={busy || pinInput.length !== 6}
+          onClick={async () => {
+            const data = await post('/api/claude-agent/pin', { pin: pinInput, two_factor_code: totpInput });
+            if (data) { setConfig(data.config); setPinInput(''); setMessage('✅ Muse PIN updated.'); }
+          }}
+        >
+          Set PIN
+        </button>
+        <button
+          className="settings-button"
+          disabled={busy}
+          onClick={async () => {
+            const data = await post('/api/claude-agent/pin/regenerate', { two_factor_code: totpInput });
+            if (data) { setConfig(data.config); setRevealedPin(''); setMessage('✅ A new PIN was generated. Reveal it with the eye button.'); }
+          }}
+        >
+          Regenerate
+        </button>
+        <button
+          className="settings-button"
+          disabled={busy}
+          title="Reveal PIN (needs a fresh 2FA code)"
+          onClick={async () => {
+            const data = await post('/api/claude-agent/pin/reveal', { two_factor_code: totpInput });
+            if (data) {
+              setRevealedPin(data.pin);
+              setMessage('👁 PIN revealed for this session only.');
+              setTimeout(() => setRevealedPin(''), 30000);
+            }
+          }}
+        >
+          👁 Reveal
+        </button>
+        {revealedPin && (
+          <span style={{ fontFamily: 'monospace', fontSize: '18px', letterSpacing: '3px' }}>{revealedPin}</span>
+        )}
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', marginBottom: '20px' }}>
+        <input
+          type="checkbox"
+          checked={config.auto_generate_enabled}
+          onChange={async (e) => {
+            const data = await post('/api/claude-agent/config', { auto_generate_enabled: e.target.checked }, 'PUT');
+            if (data) setConfig(data.config);
+          }}
+        />
+        Auto-generate a new PIN when the current one expires
+      </label>
+
+      <h4>🏦 Accounts Muse may trade</h4>
+      <p style={{ fontSize: '13px', color: '#999' }}>Every account starts enabled. Switching one off refuses Muse orders for that account only — no amount or order-type limits apply anywhere.</p>
+      <div style={{ marginBottom: '20px' }}>
+        {accountRows.map((row) => (
+          <label key={row.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', marginBottom: '6px' }}>
+            <input
+              type="checkbox"
+              checked={!disabledSet.has(row.key)}
+              onChange={() => toggleAccount(row.key)}
+            />
+            {row.label}
+          </label>
+        ))}
+        {accounts.length === 0 && (
+          <p style={{ fontSize: '12px', color: '#999' }}>Webull accounts could not be loaded right now; the Binance US toggle above still applies. Reopen the tab to retry.</p>
+        )}
+      </div>
+
+      <h4>🗝️ Muse agent API key</h4>
+      <p style={{ fontSize: '13px', color: '#999' }}>
+        {config.agent_key_set ? 'An agent key is configured (stored hashed; generating a new one replaces it).' : 'No agent key yet. Generate one and give it to Muse — it is shown only once.'}
+      </p>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <button
+          className="settings-button"
+          disabled={busy}
+          onClick={async () => {
+            const data = await post('/api/claude-agent/agent-key', { two_factor_code: totpInput });
+            if (data) { setConfig(data.config); setGeneratedKey(data.agent_key); }
+          }}
+        >
+          Generate new key (needs 2FA code)
+        </button>
+        {generatedKey && (
+          <code style={{ fontSize: '12px', wordBreak: 'break-all' }}>{generatedKey}</code>
+        )}
+      </div>
+
+      <h4>📜 Muse-placed orders</h4>
+      {audit.length === 0 ? (
+        <p style={{ fontSize: '13px', color: '#999' }}>No Muse-placed orders yet.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '4px' }}>When</th>
+                <th style={{ textAlign: 'left', padding: '4px' }}>Action</th>
+                <th style={{ textAlign: 'left', padding: '4px' }}>Order</th>
+                <th style={{ textAlign: 'left', padding: '4px' }}>Account</th>
+                <th style={{ textAlign: 'left', padding: '4px' }}>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {audit.map((row) => (
+                <tr key={row.id} style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                  <td style={{ padding: '4px' }}>{row.created_at ? new Date(row.created_at).toLocaleString() : ''}</td>
+                  <td style={{ padding: '4px' }}>{row.action}{row.environment ? ` (${row.environment})` : ''}</td>
+                  <td style={{ padding: '4px' }}>{row.symbol || ''} {row.kind || ''}</td>
+                  <td style={{ padding: '4px' }}>{row.account_id || row.broker || ''}</td>
+                  <td style={{ padding: '4px' }}>{row.result_status}{row.broker_order_id ? ` · ${row.broker_order_id}` : ''}{row.ladder_order_id ? ` · ladder ${row.ladder_order_id}` : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function Settings({ isLightMode }) {
   // Pull user so we can gate admin-only sections without runtime errors
   const { user, isLoggingOut } = useAuth();
@@ -323,12 +603,13 @@ export default function Settings({ isLightMode }) {
     { id: 'security-2fa', label: 'Security & Trading Limits', icon: '🔐' },
     { id: 'system', label: 'Notifications & System', icon: '⚙️' },
     { id: 'quant-strategy', label: 'Quantitative Strategy Engine', icon: '🏛️' },
+    { id: 'claude-agent', label: 'Muse Orders', icon: '🤖' },
   ];
   const isEventStrategyAdmin = Boolean(user?.is_admin || user?.id === 1);
   const isSystemAdmin = Boolean(user?.is_admin || user?.id === 1);
   const visibleSettingsTabs = isEventStrategyAdmin
     ? SETTINGS_TABS
-    : SETTINGS_TABS.filter((tab) => tab.id !== 'quant-strategy' && tab.id !== 'event-strategy');
+    : SETTINGS_TABS.filter((tab) => tab.id !== 'quant-strategy' && tab.id !== 'event-strategy' && tab.id !== 'claude-agent');
 
   const [activeTab, setActiveTab] = useState(() => {
     const tabParam = searchParams.get('tab');
@@ -4733,6 +5014,10 @@ export default function Settings({ isLightMode }) {
       )}
 
       {/* Notifications & System Tab */}
+      {activeTab === 'claude-agent' && isEventStrategyAdmin && (
+        <ClaudeAgentSettings />
+      )}
+
       {activeTab === 'system' && (
         <>
           <ProviderHealth />
