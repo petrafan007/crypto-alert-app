@@ -294,7 +294,7 @@ def test_gemini_connection():
         payload = request.get_json(silent=True) or {}
         username = current_user.username
         ai_settings = get_user_ai_settings(username)
-        model = payload.get('model') or ai_settings.get('ai_model') or 'gemini-3.5-flash'
+        model = payload.get('model') or ai_settings.get('ai_model') or 'gemini-4-hydrogen'
         key = payload.get('gemini_key')
 
         cred = get_user_credentials(username)
@@ -1029,7 +1029,7 @@ def get_ai_models():
         'sonar-pro', 'sonar', 'sonar-reasoning',
     }
     gemini_models = {
-        'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash',
+        'gemini-3.8-flash', 'gemini-4-hydrogen',
     }
     inception_models = {
         'mercury-2', 'mercury', 'mercury-2.5', 'mercury-3',
@@ -1055,10 +1055,8 @@ def get_ai_models():
         'sonar-pro': 'Sonar Pro',
         'sonar': 'Sonar',
         'sonar-reasoning': 'Sonar Reasoning',
-        'gemini-3.5-flash': 'Gemini 3.5 Flash',
-        'gemini-3.6-flash': 'Gemini 3.6 Flash',
-        'gemini-3.7-flash': 'Gemini 3.7 Flash',
         'gemini-3.8-flash': 'Gemini 3.8 Flash',
+        'gemini-4-hydrogen': 'Gemini 4 Hydrogen',
         'mercury-2': 'Mercury 2',
         'mercury': 'Mercury (v1)',
         'mercury-2.5': 'Mercury 2.5',

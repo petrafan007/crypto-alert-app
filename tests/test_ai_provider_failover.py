@@ -101,7 +101,7 @@ class AIProviderFailoverTests(unittest.TestCase):
     def test_failover_chain_contains_only_explicitly_configured_tiers(self):
         settings = {
             'ai_provider': 'gemini',
-            'ai_model': 'gemini-3.7-flash',
+            'ai_model': 'gemini-4-hydrogen',
             'ai_provider_secondary': 'zai',
             'ai_model_secondary': 'glm-4.7-flash',
             'ai_provider_tertiary': 'inception',
@@ -111,7 +111,7 @@ class AIProviderFailoverTests(unittest.TestCase):
         self.assertEqual(
             build_configured_ai_tiers(settings),
             [
-                ('primary', 'gemini', 'gemini-3.7-flash', 'medium'),
+                ('primary', 'gemini', 'gemini-4-hydrogen', 'medium'),
                 ('secondary', 'zai', 'glm-4.7-flash', 'medium'),
                 ('tertiary', 'inception', 'mercury-2', 'medium'),
             ],
@@ -120,7 +120,7 @@ class AIProviderFailoverTests(unittest.TestCase):
     def test_unconfigured_tier_is_not_filled_from_any_other_provider(self):
         settings = {
             'ai_provider': ' GEMINI ',
-            'ai_model': 'gemini-3.7-flash',
+            'ai_model': 'gemini-4-hydrogen',
             # An unused OpenAI key is deliberately not an input to this function.
             'ai_provider_secondary': '',
             'ai_provider_tertiary': 'inception',
@@ -130,7 +130,7 @@ class AIProviderFailoverTests(unittest.TestCase):
         self.assertEqual(
             build_configured_ai_tiers(settings),
             [
-                ('primary', 'gemini', 'gemini-3.7-flash', 'medium'),
+                ('primary', 'gemini', 'gemini-4-hydrogen', 'medium'),
                 ('tertiary', 'inception', 'mercury-2', 'medium'),
             ],
         )

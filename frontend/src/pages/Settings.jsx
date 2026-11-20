@@ -673,7 +673,7 @@ export default function Settings({ isLightMode }) {
         if (availableModels.length > 0) {
           updatedTier.model = availableModels[0].value;
         } else if (value === 'gemini') {
-          updatedTier.model = 'gemini-3.8-flash';
+          updatedTier.model = 'gemini-4-hydrogen';
         } else if (value === 'ollama') {
           updatedTier.model = tierKey === 'quaternary' ? 'nemotron-3-ultra:cloud' : (tierKey === 'tertiary' ? 'qwen2.5:14b' : 'gpt-oss:120b-cloud');
         } else if (value === 'openai') {
@@ -4550,7 +4550,7 @@ export default function Settings({ isLightMode }) {
                                   ))
                                 ) : (
                                   <>
-                                    {provider === 'gemini' && <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>}
+                                    {provider === 'gemini' && <option value="gemini-4-hydrogen">Gemini 4 Hydrogen</option>}
                                     {provider === 'gemini' && <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>}
                                     {provider === 'ollama' && <option value="gpt-oss:120b-cloud">gpt-oss:120b-cloud</option>}
                                     {provider === 'ollama' && <option value="qwen2.5:14b">qwen2.5:14b</option>}
