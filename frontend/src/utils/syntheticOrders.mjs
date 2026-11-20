@@ -130,6 +130,55 @@ export function syntheticBuyCashRequired(review, capPct = 0) {
   return Math.ceil(required * 100 - 1e-8) / 100;
 }
 
+// Pre-submit validation for a ladder/synthetic strategy. Each side is checked
+// ONLY when it is enabled: a disabled side keeps its last-edited config in the
+// form state, and that stale config must never block an order that does not use
+// it (buildSyntheticPayload already maps a disabled side to mode 'NONE').
+// Returns the first error message, or null when every enabled side is valid.
+export function validateLadderConfig(config) {
+  const hasUpside = config.hasUpsideProtection ?? true;
+  if (hasUpside) {
+    if (config.upsideMode === 'LADDER') {
+      const totalPct = (config.rungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
+      if (Math.abs(totalPct - 100) > 0.01) {
+        return `Upside ladder rungs allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`;
+      }
+      if ((config.rungs || []).some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
+        return 'All upside ladder rungs must have a valid target price greater than 0.';
+      }
+    } else if (config.upsideMode === 'SINGLE') {
+      if (!config.upsideTargetPrice || parseFloat(config.upsideTargetPrice) <= 0) {
+        return 'Single target price must be greater than 0.';
+      }
+    } else if (config.upsideMode === 'TRAILING') {
+      if (!config.upsideTrailValue || parseFloat(config.upsideTrailValue) <= 0) {
+        return 'Trailing profit offset value must be greater than 0.';
+      }
+    }
+  }
+
+  if (config.hasDownsideProtection) {
+    if (config.downsideMode === 'LADDER') {
+      const totalSlPct = (config.downsideRungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
+      if (Math.abs(totalSlPct - 100) > 0.01) {
+        return `Downside ladder rungs allocation must sum to 100% (currently ${totalSlPct.toFixed(1)}%).`;
+      }
+      if ((config.downsideRungs || []).some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
+        return 'All downside ladder rungs must have a valid target price greater than 0.';
+      }
+    } else if (config.downsideMode === 'SINGLE') {
+      if (!config.downsideTargetPrice && !config.downsideOffsetPct) {
+        return 'Downside stop loss price or percentage is required.';
+      }
+    } else if (config.downsideMode === 'TRAILING') {
+      if (!config.downsideTrailValue || parseFloat(config.downsideTrailValue) <= 0) {
+        return 'Downside trailing stop offset value must be greater than 0.';
+      }
+    }
+  }
+  return null;
+}
+
 export function buildSyntheticPayload(config) {
   const numeric = value => value === '' || value === null || value === undefined ? null : Number(value);
   const rungs = rows => (rows || []).map(r => ({ price_offset_pct: Number(r.price_offset_pct), percentage_of_total: Number(r.percentage_of_total), target_price: numeric(r.target_price) }));

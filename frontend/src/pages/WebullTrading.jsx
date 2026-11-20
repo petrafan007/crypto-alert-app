@@ -1,4 +1,4 @@
-import { buildSyntheticPayload, strategySummary, buildSyntheticReview, syntheticBuyCashRequired } from '../utils/syntheticOrders.mjs';
+import { buildSyntheticPayload, strategySummary, buildSyntheticReview, syntheticBuyCashRequired, validateLadderConfig } from '../utils/syntheticOrders.mjs';
 import { validateWebullComboLegs } from '../utils/webullComboValidation.mjs';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -3954,50 +3954,10 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       }
     }
     if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
-      if (ladderConfig.upsideMode === 'LADDER') {
-        const totalPct = (ladderConfig.rungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-        if (Math.abs(totalPct - 100) > 0.01) {
-          rejectOrder(`Upside ladder rungs allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`);
-          return;
-        }
-        if (ladderConfig.rungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
-          rejectOrder('All upside ladder rungs must have a valid target price greater than 0.');
-          return;
-        }
-      } else if (ladderConfig.upsideMode === 'SINGLE') {
-        if (!ladderConfig.upsideTargetPrice || parseFloat(ladderConfig.upsideTargetPrice) <= 0) {
-          rejectOrder('Single target price must be greater than 0.');
-          return;
-        }
-      } else if (ladderConfig.upsideMode === 'TRAILING') {
-        if (!ladderConfig.upsideTrailValue || parseFloat(ladderConfig.upsideTrailValue) <= 0) {
-          rejectOrder('Trailing profit offset value must be greater than 0.');
-          return;
-        }
-      }
-
-      if (ladderConfig.hasDownsideProtection) {
-        if (ladderConfig.downsideMode === 'LADDER') {
-          const totalSlPct = (ladderConfig.downsideRungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-          if (Math.abs(totalSlPct - 100) > 0.01) {
-            rejectOrder(`Downside ladder rungs allocation must sum to 100% (currently ${totalSlPct.toFixed(1)}%).`);
-            return;
-          }
-          if (ladderConfig.downsideRungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
-            rejectOrder('All downside ladder rungs must have a valid target price greater than 0.');
-            return;
-          }
-        } else if (ladderConfig.downsideMode === 'SINGLE') {
-          if (!ladderConfig.downsideTargetPrice && !ladderConfig.downsideOffsetPct) {
-            rejectOrder('Downside stop loss price or percentage is required.');
-            return;
-          }
-        } else if (ladderConfig.downsideMode === 'TRAILING') {
-          if (!ladderConfig.downsideTrailValue || parseFloat(ladderConfig.downsideTrailValue) <= 0) {
-            rejectOrder('Downside trailing stop offset value must be greater than 0.');
-            return;
-          }
-        }
+      const ladderError = validateLadderConfig(ladderConfig);
+      if (ladderError) {
+        rejectOrder(ladderError);
+        return;
       }
     }
     if (!['FUTURES', 'EVENT'].includes(selectedInstrumentType) && !(selectedInstrumentType === 'OPTION' && !optionIsSingle) && orderForm.side === 'SELL' && !isCashAmountMode && qty > heldQuantity + QUANTITY_EPSILON) {

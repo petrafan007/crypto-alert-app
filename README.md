@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.13
+**Version:** 4.19.14
 
 ## Recent Updates
+
+### v4.19.14
+
+* Ladder and synthetic order validation now applies only to the strategy sides that are switched on. Turning a side off (for example the breakout-entry side of a buy bracket) no longer lets that side's leftover settings block the order: a disabled side's stale multi-rung ladder whose allocations sum to less than 100%, blank target price, or blank trail value is simply ignored, exactly as a disabled downside side already was. Every check for an enabled side is unchanged, with the same error messages, on both the Webull and Binance trading pages.
 
 ### v4.19.13
 

@@ -1,4 +1,4 @@
-import { buildSyntheticPayload, strategySummary, buildSyntheticReview, money } from '../utils/syntheticOrders.mjs';
+import { buildSyntheticPayload, strategySummary, buildSyntheticReview, money, validateLadderConfig } from '../utils/syntheticOrders.mjs';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import PaperDepositModal from '../components/PaperDepositModal';
@@ -1705,93 +1705,17 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
       }
 
       if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
-        if (ladderConfig.upsideMode === 'LADDER') {
-          const totalPct = (ladderConfig.rungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-          if (Math.abs(totalPct - 100) > 0.01) {
-            setFeedbackModal({
-              isVisible: true,
-              message: `Upside ladder rungs allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`,
-              type: 'error'
-            });
-            setLoading(false);
-            return;
-          }
-          if (ladderConfig.rungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
-            setFeedbackModal({
-              isVisible: true,
-              message: 'All upside ladder rungs must have a valid target price greater than 0.',
-              type: 'error'
-            });
-            setLoading(false);
-            return;
-          }
-        } else if (ladderConfig.upsideMode === 'SINGLE') {
-          if (!ladderConfig.upsideTargetPrice || parseFloat(ladderConfig.upsideTargetPrice) <= 0) {
-            setFeedbackModal({
-              isVisible: true,
-              message: 'Single target price must be greater than 0.',
-              type: 'error'
-            });
-            setLoading(false);
-            return;
-          }
-        } else if (ladderConfig.upsideMode === 'TRAILING') {
-          if (!ladderConfig.upsideTrailValue || parseFloat(ladderConfig.upsideTrailValue) <= 0) {
-            setFeedbackModal({
-              isVisible: true,
-              message: 'Trailing profit offset value must be greater than 0.',
-              type: 'error'
-            });
-            setLoading(false);
-            return;
-          }
-        }
-
-        if (ladderConfig.hasDownsideProtection) {
-          if (ladderConfig.downsideMode === 'LADDER') {
-            const totalSlPct = (ladderConfig.downsideRungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-            if (Math.abs(totalSlPct - 100) > 0.01) {
-              setFeedbackModal({
-                isVisible: true,
-                message: `Downside ladder rungs allocation must sum to 100% (currently ${totalSlPct.toFixed(1)}%).`,
-                type: 'error'
-              });
-              setLoading(false);
-              return;
-            }
-            if (ladderConfig.downsideRungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
-              setFeedbackModal({
-                isVisible: true,
-                message: 'All downside ladder rungs must have a valid target price greater than 0.',
-                type: 'error'
-              });
-              setLoading(false);
-              return;
-            }
-          } else if (ladderConfig.downsideMode === 'SINGLE') {
-            if (!ladderConfig.downsideTargetPrice && !ladderConfig.downsideOffsetPct) {
-              setFeedbackModal({
-                isVisible: true,
-                message: 'Downside stop loss price or percentage is required.',
-                type: 'error'
-              });
-              setLoading(false);
-              return;
-            }
-          } else if (ladderConfig.downsideMode === 'TRAILING') {
-            if (!ladderConfig.downsideTrailValue || parseFloat(ladderConfig.downsideTrailValue) <= 0) {
-              setFeedbackModal({
-                isVisible: true,
-                message: 'Downside trailing stop offset value must be greater than 0.',
-                type: 'error'
-              });
-              setLoading(false);
-              return;
-            }
-          }
+        const ladderError = validateLadderConfig(ladderConfig);
+        if (ladderError) {
+          setFeedbackModal({
+            isVisible: true,
+            message: ladderError,
+            type: 'error'
+          });
+          setLoading(false);
+          return;
         }
       }
-
       if (['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER'].includes(orderForm.type)) {
         if (!orderForm.price || parseFloat(orderForm.price) <= 0) {
           setFeedbackModal({
@@ -2094,7 +2018,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
           successMessage = `Trailing Stop order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nTrail: ${orderForm.trailType === 'PERCENT' ? `${orderForm.trailValue}%` : `$${orderForm.trailValue}`}\n\nThe synthetic engine will track ${orderForm.side === 'SELL' ? 'market highs' : 'market lows'} and trigger automatically.`;
           loadTrailingOrders();
         } else if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
-          successMessage = `⚡ Synthetic Smart Bracket Order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nUpside: ${ladderConfig.upsideMode}\nDownside: ${ladderConfig.hasDownsideProtection ? ladderConfig.downsideMode : 'NONE'}\n\nThe synthetic bracket engine is now actively monitoring execution.`;
+          successMessage = `⚡ Synthetic Smart Bracket Order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nUpside: ${(ladderConfig.hasUpsideProtection ?? true) ? ladderConfig.upsideMode : 'NONE'}\nDownside: ${ladderConfig.hasDownsideProtection ? ladderConfig.downsideMode : 'NONE'}\n\nThe synthetic bracket engine is now actively monitoring execution.`;
           loadLadderOrders();
           setActiveTab('synthetic_orders');
         } else {
