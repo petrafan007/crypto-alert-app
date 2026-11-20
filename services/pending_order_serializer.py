@@ -213,11 +213,15 @@ def working_synthetic_orders(user_id):
     """Every working live synthetic strategy of a user, in the shared pending-order shape."""
     from trading_models import TrailingOrder, LadderOrder
     from services.synthetic_execution_service import WORKING_PARENTS
+    # A parked TRIGGERED_NOT_FILLED synthetic is no longer worked by the
+    # engine, but it must stay visible wherever working orders are shown:
+    # its stop fired and the user has a position decision to make.
+    visible = WORKING_PARENTS + ('TRIGGERED_NOT_FILLED',)
     trailing = TrailingOrder.query.filter(
-        TrailingOrder.user_id == user_id, TrailingOrder.status.in_(WORKING_PARENTS), TrailingOrder.test_mode.is_(False),
+        TrailingOrder.user_id == user_id, TrailingOrder.status.in_(visible), TrailingOrder.test_mode.is_(False),
     ).order_by(TrailingOrder.id.asc()).all()
     ladders = LadderOrder.query.filter(
-        LadderOrder.user_id == user_id, LadderOrder.status.in_(WORKING_PARENTS), LadderOrder.test_mode.is_(False),
+        LadderOrder.user_id == user_id, LadderOrder.status.in_(visible), LadderOrder.test_mode.is_(False),
     ).order_by(LadderOrder.id.asc()).all()
     return [serialize_trailing(order) for order in trailing] + [serialize_ladder(order) for order in ladders]
 

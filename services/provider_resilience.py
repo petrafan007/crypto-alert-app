@@ -30,6 +30,14 @@ class ProviderUnavailable(RuntimeError):
     pass
 
 
+class ProviderCooldown(ProviderUnavailable):
+    """A call rejected by an active provider cooldown before any attempt was made."""
+
+
+def is_cooldown_rejection(exc):
+    return isinstance(exc, ProviderCooldown)
+
+
 class AIRequestDeferred(RuntimeError):
     """Expected scheduling deferral before an AI provider is attempted."""
 
@@ -148,7 +156,7 @@ def write(key, owner, service, kind, payload, seconds):
 def check(key):
     row = read(key)
     if row:
-        raise ProviderUnavailable(f"{row['service']}: {row['payload']['reason']}; retry after {row['expires_at'].isoformat()}Z")
+        raise ProviderCooldown(f"{row['service']}: {row['payload']['reason']}; retry after {row['expires_at'].isoformat()}Z")
 
 
 def retry_seconds(response=None, detail='', now=None):
@@ -192,7 +200,29 @@ def block_failure(key, owner, service, exc):
         seconds, reason = 60, 'provider temporarily unavailable'
     else:
         return
-    write(key, owner, service, 'cooldown', {'reason': reason}, seconds)
+    write(key, owner, service, 'cooldown', {'reason': reason, 'announced': False}, seconds)
+
+
+def claim_notification(key):
+    """True for exactly one caller per cooldown window.
+
+    The first failure handler to reach a fresh cooldown row claims the
+    window's one notification and marks the row announced; later handlers in
+    the same window get False. With no cooldown row there is nothing to
+    dedupe and every caller may notify, exactly as before cooldowns existed.
+    """
+    row = read(key)
+    if not row:
+        return True
+    payload = dict(row['payload'] or {})
+    if payload.get('announced'):
+        return False
+    remaining = (row['expires_at'] - datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds()
+    if remaining <= 0:
+        return True
+    payload['announced'] = True
+    write(key, row['owner'], row['service'], row['kind'], payload, remaining)
+    return True
 
 
 def checked_get(service, owner, credential, url, **kwargs):

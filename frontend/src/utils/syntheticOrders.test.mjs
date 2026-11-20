@@ -114,3 +114,17 @@ test('Webull buy funding prices allocated shares, a trailing remainder and exten
   // Two shares at 99, then two trailing at 96 costs more than either complete branch.
   assert.equal(syntheticBuyCashRequired(buildSyntheticReview(mixed, options)), 390);
 });
+
+test('bracket tooltip surfaces an unconfirmed (UNKNOWN) step instead of calling it settled', () => {
+  const text = syntheticOrderTooltip({type:'LADDER',asset:'ANT',synthetic_details:{broker:'webull',symbol:'ANT',side:'BUY',status:'CANCEL_PENDING',total_quantity:4,filled_quantity:0,remaining_quantity:4,upside_mode:'LADDER',downside_mode:'LADDER',rungs:[
+    {rung_number:1,rung_type:'TAKE_PROFIT',status:'FILLED',target_price:95,quantity:1.3332},
+    {rung_number:4,rung_type:'STOP_LOSS',status:'UNKNOWN',target_price:85,quantity:1.3332}
+  ]}});
+  assert.match(text,/Breakout entry: 1\/1 steps filled · no pending steps/);
+  assert.match(text,/Dip entry: 0\/1 steps filled · 1 step awaiting broker confirmation/);
+});
+test('parked stop shows TRIGGERED — NOT FILLED and stays in the active filter', () => {
+  const text = syntheticOrderTooltip({type:'LADDER',asset:'NVDA',synthetic_details:{broker:'webull',symbol:'NVDA',side:'SELL',status:'TRIGGERED_NOT_FILLED',strategy_type:'STOP',total_quantity:1,filled_quantity:0,remaining_quantity:1,conditional_phase:'SINGLE',conditional_spec:{legs:[{side:'SELL',order_type:'STOP_LOSS_LIMIT',price:143.9,stop_price:144}]},trading_session:'CORE'}});
+  assert.match(text,/TRIGGERED — NOT FILLED/);
+  assert.ok(matchesStatus({status:'TRIGGERED_NOT_FILLED'}, 'ACTIVE'));
+});

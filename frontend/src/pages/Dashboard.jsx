@@ -2907,10 +2907,11 @@ function Dashboard({ isLightMode }) {
         if (twoFactorCode) {
           payload.two_factor_code = twoFactorCode;
         }
-        const response = await axios.post(syntheticCancellationEndpoint(order) || '/api/webull/orders/cancel', payload, { withCredentials: true });
+        const syntheticEndpoint = syntheticCancellationEndpoint(order);
+        const response = await axios.post(syntheticEndpoint || '/api/webull/orders/cancel', payload, { withCredentials: true });
         if (cancellationOutcome(response.data) === 'pending') {
           window.dispatchEvent(new Event('app:synthetic-updated'));
-          setCancelModalState(prev => ({ ...prev, loading: false, error: 'Cancellation requested. The order remains visible until the broker confirms its final state. No additional cancellation is needed.' }));
+          setCancelModalState(prev => ({ ...prev, loading: false, error: syntheticEndpoint ? 'Cancellation requested. A live order placed by this synthetic is still working at the broker, so it remains visible until the broker confirms its final state. No additional cancellation is needed.' : 'Cancellation requested. The order remains visible until the broker confirms its final state. No additional cancellation is needed.' }));
           return response.data;
         }
 
@@ -2935,11 +2936,12 @@ function Dashboard({ isLightMode }) {
         if (twoFactorCode) {
           payload.two_factor_code = twoFactorCode;
         }
-        const response = await axios.post(syntheticCancellationEndpoint(order) || `/api/cancel-order/${orderId}`, payload, { withCredentials: true });
+        const syntheticEndpoint = syntheticCancellationEndpoint(order);
+        const response = await axios.post(syntheticEndpoint || `/api/cancel-order/${orderId}`, payload, { withCredentials: true });
 
         if (cancellationOutcome(response.data) === 'pending') {
           refreshDashboard();
-          setCancelModalState(prev => ({ ...prev, loading: false, error: 'Cancellation requested. The order remains visible until the broker confirms its final state. No additional cancellation is needed.' }));
+          setCancelModalState(prev => ({ ...prev, loading: false, error: syntheticEndpoint ? 'Cancellation requested. A live order placed by this synthetic is still working at the broker, so it remains visible until the broker confirms its final state. No additional cancellation is needed.' : 'Cancellation requested. The order remains visible until the broker confirms its final state. No additional cancellation is needed.' }));
           return response.data;
         }
 

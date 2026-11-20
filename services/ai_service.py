@@ -1067,8 +1067,10 @@ def _call_generative_with_web_search(
                 raise Exception(f"Inception API error: {r.text}")
 
             elif provider == 'gemini':
+                # 120s read budget: Hydrogen's real latency on full prompts
+                # overruns the old 45s and reads as a provider failure.
                 return call_gemini_chat(_pick_key('gemini'), model, p_messages, p_max_tokens,
-                    audit_timeout if is_portfolio_audit else provider_timeout(45), ai_reasoning_level)
+                    audit_timeout if is_portfolio_audit else provider_timeout(120), ai_reasoning_level)
 
             elif provider == 'ollama':
                 return call_ollama_chat(
@@ -1378,6 +1380,21 @@ def _call_generative_with_web_search(
         has_next_tier = ('tier_configs' in locals() and (tier_index + 1) < len(tier_configs) and bool(tier_configs[tier_index + 1][1]))
         try:
             target_user = user_id or username
+            if target_user:
+                # One notification per provider per cooldown window. The
+                # first failure handler to reach the window claims it;
+                # cooldown rejections and repeats inside the window are
+                # logged, not toasted — never one popup per symbol. (The
+                # real failure may have been absorbed upstream, e.g. by
+                # stage-1 query generation, so this cannot key off the
+                # exception type alone.)
+                from services.provider_resilience import claim_notification, identity as _resilience_identity
+                _cooldown_key = _resilience_identity(
+                    'ai', username, locals().get('provider'), locals().get('model'),
+                    (_pick_key(locals().get('provider')) or '') if '_pick_key' in locals() and locals().get('provider') else '')
+                if not claim_notification(_cooldown_key):
+                    logger.info("AI provider failure inside an already-announced cooldown window (no notification): %s", err_str)
+                    target_user = None
             if target_user:
                 tier_label = str(locals().get('current_tier_name') or f'Tier {tier_index + 1}').upper()
                 prov_label = str(locals().get('provider') or 'AI').title()

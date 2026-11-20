@@ -756,6 +756,31 @@ def _limit_timeout_applies(parent):
     return bool(quote.get('has_traded'))
 
 
+NOT_FOUND_EXECUTION_MESSAGE = ('Webull reports no order with this client ID, so the submission '
+                               'never reached the broker. The execution is closed as cancelled.')
+
+
+def _broker_order_not_found(exc):
+    """True only when the broker definitively states the order does not exist.
+
+    Webull answers an order-detail lookup for an unknown client_order_id with
+    HTTP 417 / OPENAPI_PARAM_ERR / "Order not present." (verified live against
+    a phantom execution and a bogus client ID). Any other failure (network,
+    5xx, throttling) is ambiguous and must keep waiting: the order may exist.
+    """
+    if 'not present' not in str(exc).lower():
+        return False
+    return (getattr(exc, 'error_code', None) == 'OPENAPI_PARAM_ERR'
+            or getattr(exc, 'http_status', None) == 417)
+
+
+def _resolve_not_found(row):
+    """Close an UNKNOWN execution the broker has never heard of."""
+    row.status = 'CANCELLED'
+    row.error_message = NOT_FOUND_EXECUTION_MESSAGE
+    row.updated_at = utc_now(aware=False)
+
+
 def reconcile_executions(parent, kind):
     rows = executions(parent, kind)
     for row in rows:
@@ -770,13 +795,17 @@ def reconcile_executions(parent, kind):
                 result = get_webull_order_detail(cred.webull_app_key, cred.webull_app_secret, env, cred.webull_access_token,
                     account_id=parent.account_id, client_order_id=row.client_order_id)
             apply_broker_result(row, result, parent.broker)
-        except Exception:
-            row.error_message = 'Awaiting broker confirmation. No additional order will be sent while this execution is unresolved.'
+        except Exception as exc:
+            if row.status == 'UNKNOWN' and parent.broker == 'webull' and _broker_order_not_found(exc):
+                _resolve_not_found(row)
+            else:
+                row.error_message = 'Awaiting broker confirmation. No additional order will be sent while this execution is unresolved.'
         timed_out = row.order_type == 'LIMIT' and not parent.cancel_requested and row.created_at is not None and (
             utc_now(aware=False) - row.created_at).total_seconds() >= EXTENDED_LIMIT_TIMEOUT_SECONDS
         if timed_out and not _limit_timeout_applies(parent):
             timed_out = False
-        if row.order_type == 'LIMIT' and row.status == 'CANCELLED' and not parent.cancel_requested:
+        if row.order_type == 'LIMIT' and row.status == 'CANCELLED' and not parent.cancel_requested \
+                and row.error_message != NOT_FOUND_EXECUTION_MESSAGE:
             row.error_message = EXTENDED_TIMEOUT_MESSAGE
         if (parent.cancel_requested or timed_out) and row.status in OPEN_EXECUTIONS:
             try:
@@ -791,8 +820,11 @@ def reconcile_executions(parent, kind):
                     # Cancellation acknowledgement is not final; reconcile on the next cycle.
                 if timed_out:
                     row.error_message = EXTENDED_TIMEOUT_MESSAGE if row.status == 'CANCELLED' else 'Limit order timed out; cancellation requested. Awaiting final broker confirmation.'
-            except Exception:
-                row.error_message = 'Cancellation requested; waiting for the broker to confirm the final order state.'
+            except Exception as exc:
+                if row.status == 'UNKNOWN' and parent.broker == 'webull' and _broker_order_not_found(exc):
+                    _resolve_not_found(row)
+                else:
+                    row.error_message = 'Cancellation requested; waiting for the broker to confirm the final order state.'
     return rows
 
 

@@ -1,5 +1,6 @@
 export const orderKey = (order) => `${order.parentKind || (order.trail_type ? 'TRAILING' : 'LADDER')}:${order.id}`;
-export const isWorking = (status) => ['ACTIVE', 'PARTIALLY_FILLED', 'SUBMITTED', 'CANCEL_PENDING', 'TRIGGERED'].includes(status);
+export const isWorking = (status) => ['ACTIVE', 'PARTIALLY_FILLED', 'SUBMITTED', 'CANCEL_PENDING', 'TRIGGERED', 'TRIGGERED_NOT_FILLED'].includes(status);
+export const statusLabel = (status) => status === 'TRIGGERED_NOT_FILLED' ? 'TRIGGERED \u2014 NOT FILLED' : status;
 export const strategyKind = (order) => {
   if (order.conditional_spec) return ['OCO', 'OTO', 'OTOCO'].includes(order.strategy_type) ? 'BRACKET' : 'SINGLE';
   if (order.parentKind === 'TRAILING' || order.trail_type) return 'TRAILING';
@@ -191,7 +192,7 @@ function conditionalTooltip(pending, order, broker, currency, base) {
   const { active, waiting } = conditionalLegs(pending, order);
   const total = order.total_quantity ?? order.quantity;
   const lines = [
-    `${CONDITIONAL_TITLES[order.strategy_type] || 'Conditional order'} ${order.side} · ${broker === 'webull' ? 'Webull' : 'Binance.US'} · synthetic · ${order.status || 'ACTIVE'}`,
+    `${CONDITIONAL_TITLES[order.strategy_type] || 'Conditional order'} ${order.side} · ${broker === 'webull' ? 'Webull' : 'Binance.US'} · synthetic · ${statusLabel(order.status || 'ACTIVE')}`,
     `Filled ${number(order.filled_quantity)} / ${number(total)} ${base} · Remaining ${number(order.remaining_quantity)}`,
   ];
   const label = order.conditional_phase === 'ENTRY' ? 'Entry' : order.conditional_phase === 'EXIT' ? 'Exit' : 'Trigger';
@@ -216,7 +217,7 @@ export function syntheticOrderTooltip(pending, asset = '') {
   const title = standalone ? 'Trailing stop' : protectedOrder ? 'Smart bracket' : 'Ladder';
   const total = order.total_quantity ?? order.quantity;
   const budget = Number(order.quote_budget) > 0 ? Number(order.quote_budget) : null;
-  const lines = [`${title} ${order.side} · ${broker === 'webull' ? 'Webull' : 'Binance.US'} · ${order.status || 'ACTIVE'}`,
+  const lines = [`${title} ${order.side} · ${broker === 'webull' ? 'Webull' : 'Binance.US'} · ${statusLabel(order.status || 'ACTIVE')}`,
     budget ? `Budget ${money(budget, currency)} · Unused ${money(order.budget_remaining ?? budget, currency)} · Bought ${number(order.filled_quantity)} ${base}`
       : `Filled ${number(order.filled_quantity)} / ${number(total)} ${base} · Remaining ${number(order.remaining_quantity)}`];
   const trail = prefix => {
@@ -236,7 +237,8 @@ export function syntheticOrderTooltip(pending, asset = '') {
     else {
       const rungs = (order.rungs || []).filter(r => (r.rung_type || 'TAKE_PROFIT') === (prefix === 'upside' ? 'TAKE_PROFIT' : 'STOP_LOSS'));
       const next = rungs.filter(r => r.status === 'PENDING').sort((a,b) => a.rung_number-b.rung_number)[0];
-      lines.push(`${label}: ${rungs.filter(r => r.status === 'FILLED').length}/${rungs.length} steps filled${next ? ` · next ${direction} ${money(next.target_price, currency)} (${number(next.quantity)} ${base})` : ' · no pending steps'}`);
+      const unconfirmed = rungs.filter(r => r.status === 'UNKNOWN').length;
+      lines.push(`${label}: ${rungs.filter(r => r.status === 'FILLED').length}/${rungs.length} steps filled${next ? ` · next ${direction} ${money(next.target_price, currency)} (${number(next.quantity)} ${base})` : unconfirmed ? ` · ${unconfirmed} step${unconfirmed > 1 ? 's' : ''} awaiting broker confirmation` : ' · no pending steps'}`);
     }
   }
   lines.push(standalone ? 'Market execution at trigger; fill price can vary.' : budget ? 'Both sides share one budget; each side spends at most it at its trigger prices; market fill prices can vary.' : 'Both sides share the remainder; market fill prices can vary.');

@@ -4,6 +4,8 @@ OTO children activate only after the entry has a confirmed terminal state. A
 partially filled, cancelled entry activates exits for the confirmed shares only.
 """
 import json
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from core.extensions import db
 from core.time_utils import utc_now
 from trading_models import LadderOrder
@@ -139,12 +141,29 @@ def evaluate(parent, price):
         upward = (leg['side'] == 'SELL') if leg['order_type'] == 'LIMIT' else (leg['side'] == 'BUY')
         if not (price >= target if upward else price <= target):
             continue
+        leg_name = 'ENTRY' if parent.conditional_phase == 'ENTRY' else f'EXIT_{index}'
+        if leg['order_type'] in {'STOP_LOSS', 'STOP_LOSS_LIMIT'} and _stop_attempts_exhausted(parent, leg_name):
+            # The stop already triggered and failed to fill repeatedly this
+            # session. Park it in a visible state instead of placing broker
+            # orders forever; the user can cancel or replace it.
+            parent.status = 'TRIGGERED_NOT_FILLED'
+            parent.monitoring_error = TRIGGERED_NOT_FILLED_MESSAGE
+            return
         # Exact entered limits are preserved. Plain stops use the configured cap
-        # in extended hours, and market execution in regular hours.
+        # in extended hours, and market execution in regular hours. A stop-limit
+        # whose price has already gapped through its limit can never fill at
+        # that limit, so in regular hours it executes like a plain stop
+        # instead: the protection the user asked for is the exit, not the band
+        # between stop and limit. Extended hours have no market orders, so
+        # there the entered limit still stands (and the attempt cap above
+        # parks the stop visibly if it keeps not filling).
         limit = leg['price'] if leg['order_type'] != 'STOP_LOSS' else None
+        if (leg['order_type'] == 'STOP_LOSS_LIMIT' and _through_limit(leg, price)
+                and ex.session_phase(parent) != 'EXTENDED'):
+            limit = None
         try:
             ex.submit_execution(parent, 'LADDER', parent.total_quantity, price,
-                                'ENTRY' if parent.conditional_phase == 'ENTRY' else f'EXIT_{index}',
+                                leg_name,
                                 explicit_limit=limit, trigger_price=target)
             sync(parent, ex.executions(parent, 'LADDER'))
         except Exception as exc:
@@ -169,6 +188,35 @@ REWATCH_MESSAGE = ('The Webull order was cancelled before it filled; '
                    'watching to place it again.')
 REPLACEMENT_MIN_INTERVAL_SECONDS = 30
 MAX_REPLACEMENT_REJECTIONS = 3
+MAX_STOP_ATTEMPTS_PER_SESSION = 3
+TRIGGERED_NOT_FILLED_MESSAGE = ('Stop triggered, but the order did not fill after '
+                                f'{MAX_STOP_ATTEMPTS_PER_SESSION} attempts this session, so it is parked '
+                                'instead of placing more orders. Review the position and cancel or '
+                                'replace this synthetic if you still want the execution.')
+
+
+def _through_limit(leg, price):
+    """True when the market is already past a stop-limit leg's limit price."""
+    limit = leg.get('price')
+    if limit is None:
+        return False
+    return price < limit if leg['side'] == 'SELL' else price > limit
+
+
+def _session_start_utc():
+    """Naive UTC instant of the current Eastern session day's start."""
+    start = datetime.now(ZoneInfo('America/New_York')).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _stop_attempts_exhausted(parent, leg_name):
+    """Whether this stop leg already used up its submissions for the session."""
+    start = _session_start_utc()
+    attempts = [r for r in ex.executions(parent, 'LADDER')
+                if r.leg == leg_name and r.status in {'CANCELLED', 'FAILED'}
+                and not (r.filled_quantity or 0)
+                and r.created_at is not None and r.created_at >= start]
+    return len(attempts) >= MAX_STOP_ATTEMPTS_PER_SESSION
 
 
 def resolve_guardian(user_id, data, *, kind, legs, symbol, side, account, quantity):

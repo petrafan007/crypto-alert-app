@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.12
+**Version:** 4.19.13
 
 ## Recent Updates
+
+### v4.19.13
+
+* A triggered stop-limit whose price has already gapped through its limit now executes like a plain stop in regular hours (market) instead of placing a limit order that can never fill; in extended hours the entered limit still stands. A stop that fails to fill three times in a session is parked in a visible TRIGGERED — NOT FILLED state instead of re-placing orders all day, and it stays listed with the working orders.
+* A synthetic execution that Webull definitively reports as not present (HTTP 417, "Order not present") is closed as cancelled, so a submission that never reached the broker can no longer hold its parent in CANCEL_PENDING forever; ambiguous broker errors still wait, and acknowledged orders are never swept. Bracket tooltips now show a step that is awaiting broker confirmation instead of "no pending steps", and the cancel dialog says when a synthetic is waiting on a live broker order.
+* Gemini's read timeout is raised from 45s to 120s for Gemini 4 Hydrogen's real latency on full prompts, and AI failure notifications are capped at one per provider per cooldown window — a single timeout no longer raises one warning popup per symbol while failover proceeds.
 
 ### v4.19.12
 
