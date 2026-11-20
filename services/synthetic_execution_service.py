@@ -356,6 +356,26 @@ def check_order_limit(parent, quantity, price, rules):
         raise ValueError(f'Order exceeds the configured ${limit:,.2f} maximum order size.')
 
 
+def webull_buy_cash(parent):
+    if parent.test_mode:
+        from services.webull_paper_trading_service import available_paper_buy_cash
+        return available_paper_buy_cash(parent.user_id)
+    from services.webull_service import get_webull_account_balance
+    cred, env = webull_credentials(parent)
+    balance = get_webull_account_balance(cred.webull_app_key, cred.webull_app_secret, env,
+                                         cred.webull_access_token, parent.account_id)
+    if isinstance(balance, dict):
+        for key in ('available_cash', 'availableCash', 'free_cash', 'freeCash', 'total_cash_balance'):
+            value = balance.get(key)
+            if value in (None, ''):
+                continue
+            amount = float(str(value).replace(',', '').replace('$', ''))
+            if math.isfinite(amount):
+                return max(0.0, amount)
+            break
+    raise ValueError('Could not verify available cash in the selected Webull account.')
+
+
 def check_live_funding(parent, quantity, price, rules):
     """Recheck the selected account immediately before transmission; never open a short."""
     if parent.test_mode:
@@ -365,23 +385,21 @@ def check_live_funding(parent, quantity, price, rules):
         balance = binance_client(parent.user_id).get_asset_balance(asset=asset)
         available = float((balance or {}).get('free') or 0)
         required = quantity if parent.side == 'SELL' else quantity * price
+    elif parent.side == 'BUY':
+        available = webull_buy_cash(parent)
+        required = quantity * price
     else:
-        from services.webull_service import get_webull_account_positions, get_webull_account_balance
+        from services.webull_service import get_webull_account_positions
         cred, env = webull_credentials(parent)
         args = (cred.webull_app_key, cred.webull_app_secret, env, cred.webull_access_token, parent.account_id)
-        if parent.side == 'SELL':
-            positions = get_webull_account_positions(*args)
-            def matches(position):
-                symbol = str(position.get('symbol') or '').upper()
-                if parent.instrument_type == 'CRYPTO' and not symbol.endswith('USD'):
-                    symbol += 'USD'
-                return symbol == parent.symbol and str(position.get('side') or '').upper() != 'SHORT'
-            available = sum(max(0, float(p.get('available_quantity', p.get('quantity', 0)) or 0)) for p in positions if matches(p))
-            required = quantity
-        else:
-            balance = get_webull_account_balance(*args)
-            available = float(balance.get('available_cash', balance.get('total_cash_balance', 0)) or 0)
-            required = quantity * price
+        positions = get_webull_account_positions(*args)
+        def matches(position):
+            symbol = str(position.get('symbol') or '').upper()
+            if parent.instrument_type == 'CRYPTO' and not symbol.endswith('USD'):
+                symbol += 'USD'
+            return symbol == parent.symbol and str(position.get('side') or '').upper() != 'SHORT'
+        available = sum(max(0, float(p.get('available_quantity', p.get('quantity', 0)) or 0)) for p in positions if matches(p))
+        required = quantity
     if not math.isfinite(available) or available + 1e-10 < required:
         raise ValueError('The selected account no longer has sufficient available assets or cash for this execution.')
 

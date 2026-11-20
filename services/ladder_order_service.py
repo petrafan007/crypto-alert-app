@@ -6,7 +6,7 @@ and lifecycle management for both Binance.US (Crypto) and Webull (Equities, ETFs
 """
 
 import time
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 import math
 from datetime import datetime
 from flask import current_app
@@ -16,7 +16,7 @@ from trading_models import LadderOrder, LadderRung, TestOrder, RealOrder, AllAct
 from models import Coin
 from credentials import Credential, UserSetting
 from log import logger
-from services.trailing_order_service import _get_reference_price
+from services.trailing_order_service import _get_reference_price, calculate_trailing_stop_price
 from services import synthetic_execution_service as execution
 
 
@@ -147,6 +147,47 @@ def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Con
     return calculated_rungs
 
 
+def _webull_buy_cash_required(ladder, rungs, reference_price):
+    """Price the shared quantity at configured triggers, including extended-session buy caps."""
+    if ladder.quote_budget:
+        return ladder.quote_budget
+
+    def funding_price(trigger):
+        if ladder.trading_session == 'ALL' and not ladder.test_mode:
+            trigger = execution.extended_limit_price('BUY', trigger, ladder.limit_cap_pct)
+        return Decimal(str(trigger))
+
+    remainder_price = Decimal(0)
+    for prefix in ('upside', 'downside'):
+        mode = getattr(ladder, f'{prefix}_mode')
+        if mode == 'SINGLE':
+            if prefix == 'downside' and ladder.stop_loss_action == 'CANCEL_REMAINING':
+                continue
+            trigger = getattr(ladder, f'{prefix}_target_price')
+        elif mode == 'TRAILING':
+            activation = getattr(ladder, f'{prefix}_activation_price')
+            anchor = min(reference_price, activation or reference_price)
+            trigger = calculate_trailing_stop_price('BUY', anchor, getattr(ladder, f'{prefix}_trail_type'),
+                                                    getattr(ladder, f'{prefix}_trail_value'))
+        else:
+            continue
+        remainder_price = max(remainder_price, funding_price(trigger))
+
+    total = Decimal(str(ladder.total_quantity))
+    required = total * remainder_price
+    for mode, kind in ((ladder.upside_mode, 'TAKE_PROFIT'), (ladder.downside_mode, 'STOP_LOSS')):
+        if mode != 'LADDER':
+            continue
+        remaining, spent = total, Decimal(0)
+        for rung in rungs:
+            if rung['rung_type'] == kind:
+                quantity = min(remaining, Decimal(str(rung['quantity'])))
+                spent += quantity * funding_price(rung['target_price'])
+                remaining -= quantity
+                required = max(required, spent + remaining * remainder_price)
+    return float(required.quantize(Decimal('0.01'), rounding=ROUND_CEILING))
+
+
 def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Conservative',
                         custom_rungs=None, has_stop_loss=False, stop_loss_trigger_price=None,
                         stop_loss_action='SELL_ALL', broker='binance', account_id=None,
@@ -156,7 +197,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
                         downside_mode='NONE', downside_target_price=None, downside_trail_value=None,
                         downside_trail_type='PERCENT', downside_activation_price=None,
                         downside_preset='Moderate', downside_rungs=None, limit_cap_pct=None, activate_at=None, commit=True,
-                        quote_budget=None):
+                        quote_budget=None, before_persist=None):
     """
     Validate, calculate, and persist a parent LadderOrder with child LadderRungs.
     Supports Mode A (Single), Mode B (Ladder), Mode C (Trailing) for both Upside and Downside.
@@ -384,6 +425,17 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
             allocated = round(allocated + r['quantity'], 8)
             r['estimated_usd'] = r['quantity'] * r['target_price']
             r['percentage_of_total'] = 100 * r['quantity'] / qty
+    if clean_broker == 'webull' and clean_side == 'BUY':
+        required = _webull_buy_cash_required(ladder, all_rungs_data, current_price)
+        ladder.total_budget_usd = required
+        if required:
+            available = execution.webull_buy_cash(ladder)
+            if required > available + 1e-10:
+                raise ValueError(f'Insufficient cash for this buy strategy. Estimated cost at the configured triggers '
+                                 f'is ${required:,.2f}. Available cash is ${available:,.2f} '
+                                 f'(${required - available:,.2f} short). Reduce the quantity or adjust the strategy.')
+    if before_persist:
+        before_persist()
     db.session.add(ladder)
     db.session.flush()
 

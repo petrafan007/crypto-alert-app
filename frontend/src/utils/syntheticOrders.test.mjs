@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSyntheticPayload, buildSyntheticReview, strategyKind, matchesStatus, number, trailLabel, orderKey, strategySummary, syntheticOrderTooltip } from './syntheticOrders.mjs';
+import { buildSyntheticPayload, buildSyntheticReview, syntheticBuyCashRequired, strategyKind, matchesStatus, number, trailLabel, orderKey, strategySummary, syntheticOrderTooltip } from './syntheticOrders.mjs';
 const config = { hasDownsideProtection: true, upsideMode: 'LADDER', upsidePreset: 'CUSTOM', upsideRungs: [{ target_price: '123.12345678', price_offset_pct: 23, percentage_of_total: 100 }], downsideMode: 'TRAILING', downsideTrailValue: '5', downsideTrailType: 'AMOUNT', downsideActivationPrice: '120' };
 test('preserves protection, custom target precision, allocation and dollar trail units', () => {
   const payload = buildSyntheticPayload(config);
@@ -97,4 +97,20 @@ test('a budget strategy tooltip reports the budget, not the base quantity', () =
     quote_budget: 1000, budget_remaining: 666.7, filled_quantity: 0.00486, total_quantity: 0.01679, rungs: [] } }, 'BTC');
   assert.match(text, /Budget 1,000\.00 USDT · Unused 666\.70 USDT/);
   assert.match(text, /share one budget/);
+});
+
+test('Webull buy funding prices allocated shares, a trailing remainder and extended caps', () => {
+  const options = { side: 'BUY', quantity: 4, currentPrice: 100, quantityStep: .00001 };
+  const config = { upsideMode: 'LADDER', upsideRungs: [105, 110, 115, 120].map(target_price =>
+    ({ target_price, percentage_of_total: 25 })), hasDownsideProtection: true, downsideMode: 'TRAILING',
+    downsideTrailType: 'AMOUNT', downsideTrailValue: 10 };
+  const review = buildSyntheticReview(config, options);
+  assert.equal(syntheticBuyCashRequired(review), 450);
+  assert.equal(syntheticBuyCashRequired(review, 1), 454.5);
+  assert.equal(syntheticBuyCashRequired(buildSyntheticReview(config, { ...options, side: 'SELL' })), 0);
+  const mixed = { ...config, upsideMode: 'TRAILING', upsideTrailType: 'AMOUNT', upsideTrailValue: 2,
+    upsideActivationPrice: 94, downsideMode: 'LADDER', downsideRungs: [99, 90].map(target_price =>
+      ({ target_price, percentage_of_total: 50 })) };
+  // Two shares at 99, then two trailing at 96 costs more than either complete branch.
+  assert.equal(syntheticBuyCashRequired(buildSyntheticReview(mixed, options)), 390);
 });

@@ -103,6 +103,32 @@ export function buildSyntheticReview(config, { side = 'SELL', quantity = 0, curr
   if (budget) total = Math.max(0, ...branches.map(branch => branch.rows.reduce((sum, row) => sum + row.quantity, 0)));
   return { side, baseAsset, quoteAsset, total, requested: budget ? total : Number(quantity), market, branches, fees, quantityStep: step, quoteBudget: budget };
 }
+// Both branches consume the same quantity. A single or trailing trigger can
+// take the remainder after a prefix of the opposite ladder has filled.
+export function syntheticBuyCashRequired(review, capPct = 0) {
+  if (!review || review.side !== 'BUY') return 0;
+  if (review.quoteBudget) return review.quoteBudget;
+  const fundingPrice = price => {
+    if (!(capPct > 0)) return price;
+    const capped = price * (1 + capPct / 100);
+    const scale = capped >= 1 ? 100 : 10000;
+    return Math.floor(capped * scale + 1e-9) / scale;
+  };
+  const remainderPrice = Math.max(0, ...review.branches
+    .filter(branch => branch.mode === 'SINGLE' || branch.mode === 'TRAILING')
+    .map(branch => fundingPrice(branch.rows[0]?.price || 0)));
+  let required = review.total * remainderPrice;
+  for (const branch of review.branches.filter(branch => branch.mode === 'LADDER')) {
+    let spent = 0, remaining = review.total;
+    for (const row of branch.rows) {
+      spent += row.quantity * fundingPrice(row.price);
+      remaining = Math.max(0, remaining - row.quantity);
+      required = Math.max(required, spent + remaining * remainderPrice);
+    }
+  }
+  return Math.ceil(required * 100 - 1e-8) / 100;
+}
+
 export function buildSyntheticPayload(config) {
   const numeric = value => value === '' || value === null || value === undefined ? null : Number(value);
   const rungs = rows => (rows || []).map(r => ({ price_offset_pct: Number(r.price_offset_pct), percentage_of_total: Number(r.percentage_of_total), target_price: numeric(r.target_price) }));

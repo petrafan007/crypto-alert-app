@@ -189,6 +189,12 @@ def get_or_create_webull_test_account(user_id: int, *, commit=True) -> WebullTes
     return account
 
 
+def available_paper_buy_cash(user_id):
+    account = get_or_create_webull_test_account(user_id, commit=False)
+    return max(0.0, float(account.cash_balance or 0) - _reserved_cash_amount(user_id)
+               - _reserved_short_margin(user_id) - _current_short_margin(user_id))
+
+
 def _lock_webull_test_account(user_id: int, *, wait=True, commit=True) -> WebullTestAccount:
     """Serialize paper-ledger mutations for one user to prevent reservation races."""
     get_or_create_webull_test_account(user_id, commit=commit)

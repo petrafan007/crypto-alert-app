@@ -1,4 +1,4 @@
-import { buildSyntheticPayload, strategySummary, buildSyntheticReview } from '../utils/syntheticOrders.mjs';
+import { buildSyntheticPayload, strategySummary, buildSyntheticReview, syntheticBuyCashRequired } from '../utils/syntheticOrders.mjs';
 import { validateWebullComboLegs } from '../utils/webullComboValidation.mjs';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -2661,6 +2661,9 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       return Number(quantSummary?.total_cash ?? quantSummary?.buying_power ?? 0);
     }
     if (isTestMode) {
+      if (activeAccount?.available_cash != null) {
+        return nonNegativeNumber(Math.min(activeAccount.available_cash, activeAccount.buying_power ?? activeAccount.available_cash));
+      }
       if (activeAccount?.cash_balance != null) {
         return Number(activeAccount.cash_balance);
       }
@@ -2668,7 +2671,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     }
     if (!activeAccount?.balance) return 0;
     const b = activeAccount.balance;
-    return nonNegativeNumber(b.total_cash_balance ?? b.cash_balance ?? b.settled_cash ?? b.cashBalance ?? 0);
+    return nonNegativeNumber(b.available_cash ?? b.availableCash ?? b.free_cash ?? b.freeCash ?? b.total_cash_balance ?? b.cash_balance ?? b.settled_cash ?? b.cashBalance ?? 0);
   }, [isTestMode, isQuantMode, quantSummary, paperSummary, activeAccount]);
 
   const selectFuturesContract = (contract) => {
@@ -3748,6 +3751,16 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
   const activeAccountLabel = () => accountLabel(activeAccount, selectedAccountId);
 
+  const ladderReview = ['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? buildSyntheticReview(ladderConfig, {
+    side: orderForm.side, quantity: orderForm.quantity, currentPrice: livePrice,
+    baseAsset: selectedSymbol, quantityStep: selectedInstrumentType === 'CRYPTO' ? .00000001 : .00001,
+  }) : undefined;
+  const ladderCashRequired = syntheticBuyCashRequired(ladderReview, isSyntheticExtendedOrder && !isTestMode ? Number(orderForm.limitCapPct || 1) : 0);
+  const reviewOrderValue = ladderReview?.side === 'BUY' ? ladderCashRequired : orderTotal;
+  const ladderCashWarning = ladderCashRequired > cashBalance + QUANTITY_EPSILON
+    ? `Insufficient cash for this buy strategy. Estimated cost at the configured triggers is $${ladderCashRequired.toFixed(2)}. Available cash is $${cashBalance.toFixed(2)} ($${(ladderCashRequired - cashBalance).toFixed(2)} short). Reduce the quantity or adjust the strategy.`
+    : '';
+
   const webullTwoFactorOrderDetails = () => ({
     provider: 'Webull',
     accountLabel: activeAccountLabel(),
@@ -3759,13 +3772,13 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     cashAmount: orderForm.entrustType === 'AMOUNT' ? Number(orderForm.totalCashAmount).toFixed(2) : undefined,
     price: ['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type) || selectedInstrumentType === 'EVENT' ? orderForm.price : undefined,
     stopPrice: ['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? orderForm.stopPrice : undefined,
-    estimatedValue: orderTotal > 0 ? orderTotal.toFixed(2) : undefined,
+    estimatedValue: reviewOrderValue > 0 ? reviewOrderValue.toFixed(2) : undefined,
     timeInForce: orderForm.timeInForce,
     tradingSession: selectedInstrumentType === 'EQUITY' ? orderForm.tradingSession : 'CORE',
     optionType: selectedInstrumentType === 'OPTION' ? orderForm.optionType : undefined,
     optionStrike: selectedInstrumentType === 'OPTION' ? orderForm.optionStrike : undefined,
     optionExpiration: selectedInstrumentType === 'OPTION' ? orderForm.optionExpiration : undefined,
-    syntheticReview: ['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? buildSyntheticReview(ladderConfig, { side: orderForm.side, quantity: orderForm.quantity, currentPrice: Number(livePrice), baseAsset: selectedSymbol, quantityStep: selectedInstrumentType === 'CRYPTO' ? .00000001 : .00001 }) : undefined,
+    syntheticReview: ladderReview,
     syntheticSummary: ['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? strategySummary(ladderConfig) : undefined,
     trailingType: orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingType : undefined,
     trailingStopStep: orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingStopStep : undefined,
@@ -3816,6 +3829,10 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
   // Pre-trade submit handler
   const handleOrderSubmit = (e) => {
     e.preventDefault();
+    if (ladderCashWarning) {
+      rejectOrder(ladderCashWarning);
+      return;
+    }
     if (isQuantMode) {
       setOrderFeedback({
         type: 'error',
@@ -4091,6 +4108,11 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
   // Transmit order to Webull OpenAPI
   const handleConfirmSubmit = async (tokenOverride) => {
+    if (ladderCashWarning) {
+      setShowConfirmModal(false);
+      rejectOrder(ladderCashWarning);
+      return;
+    }
     setOrderSubmitting(true);
     try {
       const isCashAmountMode = selectedInstrumentType === 'EQUITY' && orderForm.entrustType === 'AMOUNT';
@@ -6972,6 +6994,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                     {(orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') && (
                       <div style={{ width: '100%', marginBottom: '14px' }}>
                         <LadderOrderConfig
+                          strategyReview={ladderReview}
                           side={orderForm.side}
                           currentPrice={Number(livePrice) || 0}
                           totalQuantity={orderForm.quantity}
@@ -6981,6 +7004,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                           ladderConfig={ladderConfig}
                           onChange={setLadderConfig}
                         />
+                        {ladderCashWarning && <p id="ladder-cash-warning" role="alert" className="alert alert-warning mt-2">{ladderCashWarning}</p>}
                       </div>
                     )}
 
@@ -7313,7 +7337,8 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                       <button
                         type="submit"
                         className={`modern-submit-button ${orderForm.side.toLowerCase()}`}
-                        disabled={orderSubmitting || ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType) || isQuantMode}
+                        aria-describedby={ladderCashWarning ? 'ladder-cash-warning' : undefined}
+                        disabled={Boolean(ladderCashWarning) || orderSubmitting || ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType) || isQuantMode}
                       >
                         {orderSubmitting ? (
                           <span>⏳ Processing Order...</span>
@@ -7502,7 +7527,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Estimated Total:</span>
                           <strong style={{ color: '#38bdf8' }}>
-                            {orderTotal > 0 ? `$${number(orderTotal)}` : 'Market Price'}
+                            {reviewOrderValue > 0 ? `$${number(reviewOrderValue)}` : 'Market Price'}
                           </strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>

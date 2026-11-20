@@ -686,6 +686,7 @@ export default function Help({ isLightMode }) {
                     <li><strong>Replace</strong> opens the order ticket prefilled from the original. The app checks the new order and your 2FA code first, then cancels the original, and only places the replacement once the cancellation is confirmed. If the original cannot be cancelled (it filled, partly filled, or the exchange refused), nothing new is placed and you are told why.</li>
                     <li>If the replacement is then rejected, a simple limit or stop-limit original is put back with its original terms where possible; otherwise the message says plainly that no order is working.</li>
                     <li><strong>Synthetic orders</strong> (ladders, trailing stops, smart brackets) are strategies the app monitors and executes for you. They appear in the Synthetic Orders table with their legs, trigger prices and trading session.</li>
+                    <li>A Webull buy ladder prices each rung at its trigger and checks the total against the selected account’s available cash. If cash is short, reduce the share quantity or edit the strategy to enable review. Actual market fills can differ from the preview.</li>
                     <li><strong>Webull OCO / OTOCO tickets</strong> are checked as you type: legs on the same side must differ in price by at least 0.1%, a stop-limit&apos;s limit must sit on the fillable side of its stop, and native combo orders can only be sent during regular market hours.</li>
                 </ul>
             </Section>

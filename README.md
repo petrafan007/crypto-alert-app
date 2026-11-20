@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.10
+**Version:** 4.19.11
 
 ## Recent Updates
+
+### v4.19.11
+
+* Webull buy ladders now disable order review when the configured triggers cost more than the selected account’s available cash. The ticket shows the estimated cost, available cash, and shortfall as you edit. The server checks the balance again before saving the strategy. The upside and downside share a single quantity. Regular-hours market fills can differ from their trigger prices.
 
 ### v4.19.10
 

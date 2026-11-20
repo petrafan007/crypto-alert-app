@@ -61,6 +61,23 @@ try {
   await review.filter({ hasText: /Price:\s*\$87/ }).waitFor();
   assert.match(await review.allTextContents().then(rows => rows.join('\n')), /Quantity:\s*1\b/);
   assert.match(await review.allTextContents().then(rows => rows.join('\n')), /Limit/i);
+  quote = 92.125;
+  account.balance = { total_cash_balance: 600, available_cash: 412.48 };
+  await page.goto(origin + '/trading/webull?symbol=ANT&side=BUY&mode=REAL&instrument_type=EQUITY');
+  await page.getByRole('button', { name: 'Ladder / Trailing Stop', exact: true }).click();
+  await page.locator('select').filter({ has: page.locator('option[value="CORE"]') }).selectOption('CORE');
+  await qty.fill('4');
+  await page.getByRole('button', { name: /Aggressive/ }).click();
+  const warning = page.locator('#ladder-cash-warning');
+  await warning.waitFor();
+  const message = await warning.textContent();
+  for (const amount of ['$414.56', '$412.48', '$2.08']) assert.ok(message.includes(amount), message);
+  const submit = page.locator('.modern-submit-button');
+  assert.ok(await submit.isDisabled());
+  await qty.fill('3');
+  await warning.waitFor({ state: 'hidden' });
+  assert.ok(await submit.isEnabled());
+  console.log('ANT ladder blocked at $414.56 against $412.48, then enabled after resizing.');
   assert.deepEqual(errors, []);
   console.log('Webull Limit by Shares remained 1 share at $87 through review.');
 } finally {

@@ -144,6 +144,7 @@ const LadderOrderConfig = ({
   onChange,
   fees = null,
   quantityStep,
+  strategyReview,
   quoteBudget = null
 }) => {
   const isSell = side === 'SELL';
@@ -151,7 +152,7 @@ const LadderOrderConfig = ({
   const price = parseFloat(currentPrice) || 0;
   const totalQty = parseFloat(totalQuantity) || 0;
   const priceDecimals = ['USD', 'USDT'].includes(quoteAsset) ? 2 : 12;
-  const review = buildSyntheticReview(ladderConfig, { side, quantity: totalQty, currentPrice: price, baseAsset, quoteAsset, fees, quantityStep, quoteBudget });
+  const review = strategyReview ?? buildSyntheticReview(ladderConfig, { side, quantity: totalQty, currentPrice: price, baseAsset, quoteAsset, fees, quantityStep, quoteBudget });
 
   // Active configurations with safe fallbacks
   const upsideMode = ladderConfig.upsideMode || 'LADDER';

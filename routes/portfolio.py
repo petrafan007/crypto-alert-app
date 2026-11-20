@@ -3459,9 +3459,16 @@ def api_create_ladder_order():
         downside_preset = data.get('downside_preset', 'Moderate')
         downside_rungs = data.get('downside_rungs')
 
-        replaced_order_id = _cancel_replaced_synthetic_order(data, current_user.id, test_mode)
+        replaced_order_id = None
+        def cancel_original():
+            nonlocal replaced_order_id
+            replaced_order_id = _cancel_replaced_synthetic_order(data, current_user.id, test_mode)
 
-        if not replaced_order_id:
+        defer_cancel = (str(broker).lower() == 'webull' and str(side).upper() == 'BUY'
+                        and str(data.get('replacing_order_id') or '').startswith(('ladder_', 'trail_')))
+        if not defer_cancel:
+            cancel_original()
+        if not data.get('replacing_order_id'):
             from services.synthetic_execution_service import check_synthetic_order_capacity
             check_synthetic_order_capacity(
                 user_id=current_user.id,
@@ -3503,6 +3510,7 @@ def api_create_ladder_order():
             downside_rungs=downside_rungs,
             limit_cap_pct=data.get('limit_cap_pct'),
             activate_at=data.get('activate_at'),
+            before_persist=cancel_original if defer_cancel else None,
             quote_budget=data.get('quote_budget'),
         )
         return jsonify({'success': True, 'ladder_order': ladder_dict, 'replaced_order_id': replaced_order_id})

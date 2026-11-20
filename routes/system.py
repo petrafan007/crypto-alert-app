@@ -518,6 +518,7 @@ def _webull_account_response(accounts, *, aliases=None, snapshots=None, enabled_
             item['balance'] = {
                 key: raw_balance.get(key) for key in (
                     'total_asset_currency', 'total_cash_balance', 'total_market_value',
+                    'available_cash', 'availableCash', 'free_cash', 'freeCash',
                     'total_net_liquidation_value', 'total_unrealized_profit_loss', 'total_day_profit_loss',
                 )
             }

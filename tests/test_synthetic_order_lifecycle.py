@@ -199,6 +199,40 @@ class SyntheticLifecycleTests(unittest.TestCase):
                 self.assertEqual(parent.status, 'FILLED')
         self.assertEqual(self.client.create_order.call_count, 1)
 
+    def test_webull_buy_ladder_checks_trigger_cost_before_saving_or_cancelling(self):
+        self.mocks[1].return_value = 92.125
+        targets = [96.73, 101.34, 105.94, 110.55]
+        account = WebullTestAccount(user_id=1, cash_balance=412.48, currency='USD')
+        db.session.add(account)
+        db.session.commit()
+        cancel = Mock()
+        args = dict(broker='webull', instrument_type='ETF', symbol='ANT', side='BUY', total_quantity=4,
+                    custom_rungs=[dict(target_price=price, pct_of_total=25) for price in targets],
+                    downside_mode='LADDER', before_persist=cancel)
+        with self.assertRaisesRegex(ValueError, r'414\.56.*412\.48.*2\.08 short'):
+            self.create(**args)
+        self.assertEqual(LadderOrder.query.count(), 0)
+        cancel.assert_not_called()
+        account.cash_balance = 414.56
+        parent = self.create(**args)
+        self.assertEqual(parent.total_budget_usd, 414.56)
+        cancel.assert_called_once()
+        self.webull_submit.assert_not_called()
+
+    def test_live_webull_buy_ladder_checks_selected_account_and_extended_price_cap(self):
+        cred = SimpleNamespace(webull_app_key='key', webull_app_secret='secret', webull_access_token='token')
+        with patch.object(ex, 'webull_credentials', return_value=(cred, 'uat')), patch(
+            'services.webull_service.get_webull_account_balance',
+            return_value={'total_cash_balance': 500, 'available_cash': 440},
+        ) as balance:
+            with self.assertRaisesRegex(ValueError, r'444\.40.*440\.00'):
+                self.create(broker='webull', symbol='ANT', instrument_type='EQUITY', side='BUY',
+                            total_quantity=4, upside_mode='SINGLE', upside_target_price=110,
+                            trading_session='ALL', limit_cap_pct=1, account_id='cash123', test_mode=False)
+            balance.assert_called_once_with('key', 'secret', 'uat', 'token', 'cash123')
+        self.assertEqual(LadderOrder.query.count(), 0)
+        self.webull_submit.assert_not_called()
+
     def test_webull_paper_uses_its_own_positions_cash_and_ledger(self):
         db.session.add(WebullTestAccount(user_id=1, cash_balance=10000, currency='USD')); db.session.commit()
         parent = self.create(broker='webull', instrument_type='ETF', symbol='SPY', side='BUY',
@@ -251,6 +285,8 @@ class SyntheticLifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError): ladder.cancel_ladder_order(one.id, 2)
 
     def test_worker_holds_closed_market_and_pauses_legacy_orders(self):
+        db.session.add(WebullTestAccount(user_id=1, cash_balance=1000, currency='USD'))
+        db.session.commit()
         parent = self.create(broker='webull', instrument_type='ETF', symbol='SPY', side='BUY', upside_mode='NONE', downside_mode='LADDER')
         identifier = parent.id
         with patch.object(ex, 'market_is_open', return_value=False): ladder.evaluate_active_ladder_orders()

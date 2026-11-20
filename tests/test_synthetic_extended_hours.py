@@ -68,7 +68,8 @@ class ExtendedHoursExecutionTests(unittest.TestCase):
                     test_mode=False, account_id='ACC1', trading_session='ALL', limit_cap_pct=1.0,
                     upside_mode='SINGLE', upside_target_price=110, downside_mode='SINGLE', downside_target_price=90)
         args.update(kwargs)
-        return self.create(**args)
+        with patch.object(ex, 'webull_buy_cash', return_value=100000):
+            return self.create(**args)
 
     def live_patches(self, now, detail):
         cred = SimpleNamespace(webull_app_key='key', webull_app_secret='secret', webull_access_token='token')
