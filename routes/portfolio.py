@@ -3456,7 +3456,7 @@ def api_create_ladder_order():
         downside_trail_value = data.get('downside_trail_value')
         downside_trail_type = data.get('downside_trail_type', 'PERCENT')
         downside_activation_price = data.get('downside_activation_price')
-        downside_preset = data.get('downside_preset', 'Moderate')
+        downside_preset = data.get('downside_preset', 'Aggressive')
         downside_rungs = data.get('downside_rungs')
 
         replaced_order_id = None

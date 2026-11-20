@@ -20,61 +20,8 @@ from services.trailing_order_service import _get_reference_price, calculate_trai
 from services import synthetic_execution_service as execution
 
 
-PRESET_TEMPLATES = {
-    'SELL': {
-        'Conservative': [
-            {'offset_pct': 2.0, 'pct_of_total': 33.33},
-            {'offset_pct': 4.0, 'pct_of_total': 33.33},
-            {'offset_pct': 6.0, 'pct_of_total': 33.34},
-        ],
-        'Aggressive': [
-            {'offset_pct': 5.0, 'pct_of_total': 25.0},
-            {'offset_pct': 10.0, 'pct_of_total': 25.0},
-            {'offset_pct': 15.0, 'pct_of_total': 25.0},
-            {'offset_pct': 20.0, 'pct_of_total': 25.0},
-        ]
-    },
-    'BUY': {
-        'Conservative': [
-            {'offset_pct': 2.0, 'pct_of_total': 33.33},
-            {'offset_pct': 4.0, 'pct_of_total': 33.33},
-            {'offset_pct': 6.0, 'pct_of_total': 33.34},
-        ],
-        'Aggressive': [
-            {'offset_pct': 5.0, 'pct_of_total': 25.0},
-            {'offset_pct': 10.0, 'pct_of_total': 25.0},
-            {'offset_pct': 15.0, 'pct_of_total': 25.0},
-            {'offset_pct': 20.0, 'pct_of_total': 25.0},
-        ]
-    }
-}
-
-DOWNSIDE_PRESET_TEMPLATES = {
-    'SELL': {
-        'Tight': [
-            {'offset_pct': -1.5, 'pct_of_total': 33.33},
-            {'offset_pct': -3.0, 'pct_of_total': 33.33},
-            {'offset_pct': -4.5, 'pct_of_total': 33.34},
-        ],
-        'Moderate': [
-            {'offset_pct': -3.0, 'pct_of_total': 30.0},
-            {'offset_pct': -5.0, 'pct_of_total': 30.0},
-            {'offset_pct': -8.0, 'pct_of_total': 40.0},
-        ]
-    },
-    'BUY': {
-        'Tight': [
-            {'offset_pct': -1.5, 'pct_of_total': 33.33},
-            {'offset_pct': -3.0, 'pct_of_total': 33.33},
-            {'offset_pct': -4.5, 'pct_of_total': 33.34},
-        ],
-        'Moderate': [
-            {'offset_pct': -3.0, 'pct_of_total': 30.0},
-            {'offset_pct': -5.0, 'pct_of_total': 30.0},
-            {'offset_pct': -8.0, 'pct_of_total': 40.0},
-        ]
-    }
-}
+PRESET_DISTANCES = {'Conservative': (2, 4, 6), 'Aggressive': (5, 10, 15)}
+PRESET_ALLOCATIONS = (33.33, 33.33, 33.34)
 
 
 def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Conservative', custom_rungs=None, rung_type='TAKE_PROFIT'):
@@ -89,14 +36,13 @@ def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Con
     if custom_rungs and len(custom_rungs) > 0:
         specs = custom_rungs
     else:
-        if rung_type == 'STOP_LOSS':
-            templates = DOWNSIDE_PRESET_TEMPLATES.get(clean_side, {})
-            preset = str(preset_name).title() if str(preset_name).title() in templates else 'Moderate'
-            specs = templates.get(preset, templates.get('Moderate', []))
-        else:
-            templates = PRESET_TEMPLATES.get(clean_side, {})
-            preset = str(preset_name).title() if str(preset_name).title() in templates else 'Conservative'
-            specs = templates.get(preset, templates.get('Conservative', []))
+        downside = rung_type == 'STOP_LOSS'
+        preset = str(preset_name).title()
+        if downside:
+            preset = {'Tight': 'Conservative', 'Moderate': 'Aggressive'}.get(preset, preset)
+        offsets = PRESET_DISTANCES.get(preset, PRESET_DISTANCES['Aggressive' if downside else 'Conservative'])
+        specs = [{'offset_pct': -offset if downside else offset, 'pct_of_total': allocation}
+                 for offset, allocation in zip(offsets, PRESET_ALLOCATIONS)]
 
     if not specs or len(specs) > 10:
         raise ValueError('Use between 1 and 10 rungs per ladder.')
@@ -196,7 +142,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
                         upside_trail_value=None, upside_trail_type='PERCENT', upside_activation_price=None,
                         downside_mode='NONE', downside_target_price=None, downside_trail_value=None,
                         downside_trail_type='PERCENT', downside_activation_price=None,
-                        downside_preset='Moderate', downside_rungs=None, limit_cap_pct=None, activate_at=None, commit=True,
+                        downside_preset='Aggressive', downside_rungs=None, limit_cap_pct=None, activate_at=None, commit=True,
                         quote_budget=None, before_persist=None):
     """
     Validate, calculate, and persist a parent LadderOrder with child LadderRungs.

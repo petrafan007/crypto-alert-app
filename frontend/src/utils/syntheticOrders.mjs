@@ -144,7 +144,7 @@ export function buildSyntheticPayload(config) {
     downside_mode: protectedOrder ? config.downsideMode || 'SINGLE' : 'NONE',
     downside_target_price: protectedOrder ? numeric(config.downsideTargetPrice) : null,
     downside_trail_value: numeric(config.downsideTrailValue), downside_trail_type: config.downsideTrailType || 'PERCENT',
-    downside_activation_price: numeric(config.downsideActivationPrice), downside_preset: config.downsidePreset || 'MODERATE',
+    downside_activation_price: numeric(config.downsideActivationPrice), downside_preset: config.downsidePreset || 'AGGRESSIVE',
     downside_rungs: rungs(config.downsideRungs), has_stop_loss: protectedOrder,
     stop_loss_action: config.downsideStopAction || config.stopLossAction || 'MARKET_SELL_ALL',
   };

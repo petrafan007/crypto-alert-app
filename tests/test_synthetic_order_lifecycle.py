@@ -267,7 +267,7 @@ class SyntheticLifecycleTests(unittest.TestCase):
 
     def test_aggressive_and_custom_are_preserved(self):
         parent = self.create(preset_name='AGGRESSIVE')
-        self.assertEqual([r.target_price for r in parent.rungs], [105, 110, 115, 120])
+        self.assertEqual([r.target_price for r in parent.rungs], [105, 110, 115])
         parent = self.create(custom_rungs=[{'target_price': 111, 'pct_of_total': 60}, {'target_price': 123, 'pct_of_total': 40}])
         self.assertEqual([r.target_price for r in parent.rungs], [111, 123])
         self.assertEqual([r.quantity for r in parent.rungs], [6, 4])

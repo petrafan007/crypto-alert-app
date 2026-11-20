@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.11
+**Version:** 4.19.12
 
 ## Recent Updates
+
+### v4.19.12
+
+* Webull and Binance.US multi-rung ladders start with three rungs. Conservative uses 2%, 4%, and 6% distances and Aggressive uses 5%, 10%, and 15%. Upside targets rise and downside targets fall from the reference price. Both presets allocate 33.33%, 33.33%, and 33.34%. Select Custom to add more rungs.
 
 ### v4.19.11
 

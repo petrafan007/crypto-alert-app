@@ -4,89 +4,20 @@ import './SyntheticOrders.css';
 import SyntheticOrderReview, { ExecutionProceeds } from './SyntheticOrderReview';
 import { money, number, trailLabel, priceInput, buildSyntheticReview } from '../utils/syntheticOrders.mjs';
 
-export const UPSIDE_PRESETS = {
-  CONSERVATIVE: {
-    name: 'Conservative',
-    label: '🛡️ Conservative',
-    descSell: '3 rungs: +2%, +4%, +6%',
-    descBuy: '3 rungs: +2%, +4%, +6%',
-    rungsSell: [
-      { price_offset_pct: 2.0, percentage_of_total: 33.33 },
-      { price_offset_pct: 4.0, percentage_of_total: 33.33 },
-      { price_offset_pct: 6.0, percentage_of_total: 33.34 }
-    ],
-    rungsBuy: [
-      { price_offset_pct: 2.0, percentage_of_total: 33.33 },
-      { price_offset_pct: 4.0, percentage_of_total: 33.33 },
-      { price_offset_pct: 6.0, percentage_of_total: 33.34 }
-    ]
-  },
-  AGGRESSIVE: {
-    name: 'Aggressive',
-    label: '🚀 Aggressive',
-    descSell: '4 rungs: +5%, +10%, +15%, +20%',
-    descBuy: '4 rungs: +5%, +10%, +15%, +20%',
-    rungsSell: [
-      { price_offset_pct: 5.0, percentage_of_total: 25.0 },
-      { price_offset_pct: 10.0, percentage_of_total: 25.0 },
-      { price_offset_pct: 15.0, percentage_of_total: 25.0 },
-      { price_offset_pct: 20.0, percentage_of_total: 25.0 }
-    ],
-    rungsBuy: [
-      { price_offset_pct: 5.0, percentage_of_total: 25.0 },
-      { price_offset_pct: 10.0, percentage_of_total: 25.0 },
-      { price_offset_pct: 15.0, percentage_of_total: 25.0 },
-      { price_offset_pct: 20.0, percentage_of_total: 25.0 }
-    ]
-  },
-  CUSTOM: {
-    name: 'Custom',
-    label: '⚙️ Custom',
-    descSell: 'User-defined rungs',
-    descBuy: 'User-defined rungs'
-  }
-};
+const presetRungs = (offsets) => offsets.map((offset, index) => ({
+  price_offset_pct: offset,
+  percentage_of_total: [33.33, 33.33, 33.34][index],
+  target_price: '',
+}));
 
-export const DOWNSIDE_PRESETS = {
-  TIGHT: {
-    name: 'Tight',
-    label: '🛡️ Tight',
-    descSell: '3 rungs: -1.5%, -3.0%, -4.5%',
-    descBuy: '3 rungs: -1.5%, -3.0%, -4.5%',
-    rungsSell: [
-      { price_offset_pct: -1.5, percentage_of_total: 33.33 },
-      { price_offset_pct: -3.0, percentage_of_total: 33.33 },
-      { price_offset_pct: -4.5, percentage_of_total: 33.34 }
-    ],
-    rungsBuy: [
-      { price_offset_pct: -1.5, percentage_of_total: 33.33 },
-      { price_offset_pct: -3.0, percentage_of_total: 33.33 },
-      { price_offset_pct: -4.5, percentage_of_total: 33.34 }
-    ]
-  },
-  MODERATE: {
-    name: 'Moderate',
-    label: '🛑 Moderate',
-    descSell: '3 rungs: -3%, -5%, -8%',
-    descBuy: '3 rungs: -3%, -5%, -8%',
-    rungsSell: [
-      { price_offset_pct: -3.0, percentage_of_total: 30.0 },
-      { price_offset_pct: -5.0, percentage_of_total: 30.0 },
-      { price_offset_pct: -8.0, percentage_of_total: 40.0 }
-    ],
-    rungsBuy: [
-      { price_offset_pct: -3.0, percentage_of_total: 30.0 },
-      { price_offset_pct: -5.0, percentage_of_total: 30.0 },
-      { price_offset_pct: -8.0, percentage_of_total: 40.0 }
-    ]
-  },
-  CUSTOM: {
-    name: 'Custom',
-    label: '⚙️ Custom',
-    descSell: 'User-defined stop rungs',
-    descBuy: 'User-defined stop rungs'
-  }
-};
+const ladderPresets = (direction) => ({
+  CONSERVATIVE: { label: '🛡️ Conservative', rungs: presetRungs([2, 4, 6].map(offset => direction * offset)) },
+  AGGRESSIVE: { label: '🚀 Aggressive', rungs: presetRungs([5, 10, 15].map(offset => direction * offset)) },
+  CUSTOM: { label: '⚙️ Custom' },
+});
+
+export const UPSIDE_PRESETS = ladderPresets(1);
+export const DOWNSIDE_PRESETS = ladderPresets(-1);
 
 export const defaultLadderState = {
   strategyType: 'SYNTHETIC',
@@ -98,35 +29,23 @@ export const defaultLadderState = {
   upsideTrailValue: '2.0',
   upsideTrailType: 'PERCENT', // 'PERCENT' | 'AMOUNT'
   upsideActivationPrice: '',
-  upsideRungs: [
-    { price_offset_pct: 2.0, percentage_of_total: 33.33, target_price: '' },
-    { price_offset_pct: 4.0, percentage_of_total: 33.33, target_price: '' },
-    { price_offset_pct: 6.0, percentage_of_total: 33.34, target_price: '' }
-  ],
+  upsideRungs: UPSIDE_PRESETS.CONSERVATIVE.rungs,
 
   // Downside Strategy
   hasDownsideProtection: true,
   downsideMode: 'LADDER', // 'SINGLE' | 'LADDER' | 'TRAILING'
-  downsidePreset: 'MODERATE', // 'TIGHT' | 'MODERATE' | 'CUSTOM'
+  downsidePreset: 'AGGRESSIVE',
   downsideTargetPrice: '',
   downsideOffsetPct: '5.0',
   downsideTrailValue: '3.0',
   downsideTrailType: 'PERCENT', // 'PERCENT' | 'AMOUNT'
   downsideActivationPrice: '',
   downsideStopAction: 'MARKET_SELL_ALL', // 'MARKET_SELL_ALL' | 'CANCEL_REMAINING'
-  downsideRungs: [
-    { price_offset_pct: -3.0, percentage_of_total: 30.0, target_price: '' },
-    { price_offset_pct: -5.0, percentage_of_total: 30.0, target_price: '' },
-    { price_offset_pct: -8.0, percentage_of_total: 40.0, target_price: '' }
-  ],
+  downsideRungs: DOWNSIDE_PRESETS.AGGRESSIVE.rungs,
 
   // Legacy mappings for backwards compatibility
   preset: 'CONSERVATIVE',
-  rungs: [
-    { price_offset_pct: 2.0, percentage_of_total: 33.33, target_price: '' },
-    { price_offset_pct: 4.0, percentage_of_total: 33.33, target_price: '' },
-    { price_offset_pct: 6.0, percentage_of_total: 33.34, target_price: '' }
-  ],
+  rungs: UPSIDE_PRESETS.CONSERVATIVE.rungs,
   hasStopLoss: true,
   stopLossType: 'PERCENT',
   stopLossOffsetPct: '5.0',
@@ -188,7 +107,7 @@ const LadderOrderConfig = ({
 
     if (ladderConfig.upsidePreset !== 'CUSTOM') {
       const p = UPSIDE_PRESETS[ladderConfig.upsidePreset] || UPSIDE_PRESETS.CONSERVATIVE;
-      const tpl = isSell ? p.rungsSell : p.rungsBuy;
+      const tpl = p.rungs;
       newUpsideRungs = upsideRungs.map((r, i) => {
         const off = tpl[i]?.price_offset_pct ?? r.price_offset_pct;
         const tgt = (price * (1 + off / 100)).toFixed(priceDecimals);
@@ -198,8 +117,8 @@ const LadderOrderConfig = ({
     }
 
     if (ladderConfig.downsidePreset !== 'CUSTOM') {
-      const p = DOWNSIDE_PRESETS[ladderConfig.downsidePreset] || DOWNSIDE_PRESETS.MODERATE;
-      const tpl = isSell ? p.rungsSell : p.rungsBuy;
+      const p = DOWNSIDE_PRESETS[ladderConfig.downsidePreset] || DOWNSIDE_PRESETS.AGGRESSIVE;
+      const tpl = p.rungs;
       newDownsideRungs = downsideRungs.map((r, i) => {
         const off = tpl[i]?.price_offset_pct ?? r.price_offset_pct;
         const tgt = (price * (1 + off / 100)).toFixed(priceDecimals);
@@ -240,7 +159,7 @@ const LadderOrderConfig = ({
     }
     const preset = UPSIDE_PRESETS[key];
     if (!preset) return;
-    const tpl = isSell ? preset.rungsSell : preset.rungsBuy;
+    const tpl = preset.rungs;
     const updated = tpl.map(r => ({
       price_offset_pct: r.price_offset_pct,
       percentage_of_total: r.percentage_of_total,
@@ -260,7 +179,7 @@ const LadderOrderConfig = ({
     }
     const preset = DOWNSIDE_PRESETS[key];
     if (!preset) return;
-    const tpl = isSell ? preset.rungsSell : preset.rungsBuy;
+    const tpl = preset.rungs;
     const updated = tpl.map(r => ({
       price_offset_pct: r.price_offset_pct,
       percentage_of_total: r.percentage_of_total,
@@ -292,7 +211,7 @@ const LadderOrderConfig = ({
   const handleAddUpsideRung = () => {
     if (upsideRungs.length >= 10) return;
     const last = upsideRungs[upsideRungs.length - 1];
-    const nextOffset = last ? (isSell ? Number(last.price_offset_pct) + 2.5 : Number(last.price_offset_pct) - 2.5) : (isSell ? 2.5 : -2.5);
+    const nextOffset = last ? Number(last.price_offset_pct) + 2.5 : 2.5;
     const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(priceDecimals) : '';
     const updated = [...upsideRungs, { price_offset_pct: nextOffset, percentage_of_total: 10, target_price: nextPrice }];
     updateConfig({ upsidePreset: 'CUSTOM', upsideRungs: updated });
@@ -334,7 +253,7 @@ const LadderOrderConfig = ({
   const handleAddDownsideRung = () => {
     if (downsideRungs.length >= 10) return;
     const last = downsideRungs[downsideRungs.length - 1];
-    const nextOffset = last ? (isSell ? Number(last.price_offset_pct) - 2.5 : Number(last.price_offset_pct) + 2.5) : (isSell ? -2.5 : 2.5);
+    const nextOffset = last ? Number(last.price_offset_pct) - 2.5 : -2.5;
     const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(priceDecimals) : '';
     const updated = [...downsideRungs, { price_offset_pct: nextOffset, percentage_of_total: 10, target_price: nextPrice }];
     updateConfig({ downsidePreset: 'CUSTOM', downsideRungs: updated });

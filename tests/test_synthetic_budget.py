@@ -17,7 +17,8 @@ class SyntheticBudgetTests(unittest.TestCase):
 
     def bracket(self, **extra):
         # Reference price 100: breakout steps 102/104/106 (33.33/33.33/33.34%), dip steps 97/95/92 (30/30/40%).
-        args = dict(side='BUY', total_quantity=None, quote_budget=1000, upside_mode='LADDER', downside_mode='LADDER')
+        args = dict(side='BUY', total_quantity=None, quote_budget=1000, upside_mode='LADDER', downside_mode='LADDER',
+                    downside_rungs=[dict(offset_pct=offset, pct_of_total=pct) for offset, pct in ((-3, 30), (-5, 30), (-8, 40))])
         args.update(extra)
         return self.create(**args)
 
