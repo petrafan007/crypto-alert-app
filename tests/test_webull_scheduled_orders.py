@@ -102,6 +102,10 @@ class WebullScheduledOrdersTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_scheduled_fractional_order(user_id=1, account_id='acc-1', symbol='AAPL', quantity=0.123456)
 
+        with self.assertRaisesRegex(ValueError, 'under one share'):
+            create_scheduled_fractional_order(user_id=1, account_id='acc-1', symbol='ANT', quantity=4.43064)
+        mock_db_session.add.assert_not_called()
+
         # Cash amount under $5.00
         with self.assertRaises(ValueError):
             create_scheduled_fractional_order(

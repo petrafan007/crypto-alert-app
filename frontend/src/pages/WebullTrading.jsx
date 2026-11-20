@@ -46,6 +46,8 @@ import {
   floorQuantityForTicket,
   quantityDecimalPlaces,
   cashAmountCarry,
+  isMixedEquityQuantity,
+  MIXED_EQUITY_QUANTITY_MESSAGE,
   formatQuantityForTicket,
   quoteBlurCashAmount,
   quoteValueEntry,
@@ -1460,6 +1462,9 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
   const isCashAmountMode = selectedInstrumentType === 'EQUITY' && orderForm.entrustType === 'AMOUNT';
 
+  const mixedEquityQuantity = selectedInstrumentType === 'EQUITY' && !isCashAmountMode && isMixedEquityQuantity(orderForm.quantity);
+
+  const wholeShares = Math.floor(Number(orderForm.quantity));
   const isExtendedSession = selectedInstrumentType === 'EQUITY' && orderForm.tradingSession === 'ALL';
   const isOvernightSession = selectedInstrumentType === 'EQUITY' && orderForm.tradingSession === 'NIGHT';
   // Webull accepts only whole-share Limit orders outside Regular Hours. These
@@ -1473,8 +1478,9 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       return typeValue === 'LIMIT' ? '' : 'Event contracts support Limit orders only.';
     }
     if (selectedInstrumentType === 'EQUITY') {
+      if (mixedEquityQuantity) return MIXED_EQUITY_QUANTITY_MESSAGE;
       if (isFractional && typeValue !== 'MARKET') {
-        return 'Webull supports fractional stock and ETF orders as Market orders only.';
+        return 'A native fractional order through Webull OpenAPI requires Market. Enter whole shares to select this order type.';
       }
       if (isExtendedSession && typeValue !== 'LIMIT' && !isSyntheticExtendedType(typeValue)) {
         return 'Extended hours trading (pre-market & after-hours) on Webull supports Limit orders only.';
@@ -1511,31 +1517,6 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     }
   }, [availableOrderTypes, orderForm.type]);
 
-  // Auto-enforce Webull fractional rules: Market order, Regular Hours (CORE), and DAY order only
-  useEffect(() => {
-    if (selectedInstrumentType === 'EQUITY' && isFractional) {
-      setOrderForm((prev) => {
-        let changed = false;
-        let nextType = prev.type;
-        let nextSession = prev.tradingSession;
-        let nextTif = prev.timeInForce;
-        if (prev.type !== 'MARKET') {
-          nextType = 'MARKET';
-          changed = true;
-        }
-        if (prev.tradingSession !== 'CORE') {
-          nextSession = 'CORE';
-          changed = true;
-        }
-        if (prev.timeInForce !== 'DAY') {
-          nextTif = 'DAY';
-          changed = true;
-        }
-        return changed ? { ...prev, type: nextType, tradingSession: nextSession, timeInForce: nextTif, stopPrice: '' } : prev;
-      });
-    }
-  }, [selectedInstrumentType, isFractional]);
-
   // Auto-enforce Webull extended and overnight rules: Limit order and whole shares only; Overnight is DAY order only
   useEffect(() => {
     if (selectedInstrumentType === 'EQUITY' && (orderForm.tradingSession === 'ALL' || orderForm.tradingSession === 'NIGHT')) {
@@ -1562,7 +1543,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
   }, [selectedInstrumentType, orderForm.type, orderForm.tradingSession]);
 
   useEffect(() => {
-    if (selectedInstrumentType === 'EVENT' && orderForm.timeInForce !== 'DAY') {
+    if ((selectedInstrumentType === 'EVENT' || (isFractional && orderForm.type === 'MARKET')) && orderForm.timeInForce !== 'DAY') {
       setOrderForm((prev) => ({ ...prev, timeInForce: 'DAY' }));
     } else if (selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL' && orderForm.timeInForce !== 'DAY') {
       setOrderForm((prev) => ({ ...prev, timeInForce: 'DAY' }));
@@ -1571,7 +1552,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     } else if (['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) && orderForm.timeInForce !== 'DAY') {
       setOrderForm((prev) => ({ ...prev, timeInForce: 'DAY' }));
     }
-  }, [selectedInstrumentType, orderForm.side, orderForm.timeInForce, orderForm.type]);
+  }, [selectedInstrumentType, orderForm.side, orderForm.timeInForce, orderForm.type, isFractional]);
   const [balancePercentage, setBalancePercentage] = useState(0);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
@@ -4015,16 +3996,20 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         rejectOrder('Webull stock and ETF fractional quantities support no more than 5 decimal places.');
         return;
       }
+      if (mixedEquityQuantity) {
+        rejectOrder(MIXED_EQUITY_QUANTITY_MESSAGE);
+        return;
+      }
+      if (orderForm.type !== 'MARKET') {
+        rejectOrder(getOrderTypeDisabledReason(orderForm.type));
+        return;
+      }
       if (orderForm.tradingSession !== 'CORE') {
         if (orderForm.side === 'BUY') {
           handleOpenScheduleModal();
           return;
         }
         rejectOrder('Fractional stock and ETF orders are available only during Regular Hours. Select Only Regular Hours (CORE) or use a whole-share quantity.');
-        return;
-      }
-      if (!['MARKET', 'LADDER', 'SYNTHETIC'].includes(orderForm.type)) {
-        rejectOrder('Webull supports fractional stock and ETF orders as Market orders during Regular Hours. Select Market or use a whole-share quantity for this order type.');
         return;
       }
       if (orderTotal < 5) {
@@ -5494,6 +5479,49 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     </div>
   ) : null;
 
+  const equityLimitByShares = selectedInstrumentType === 'EQUITY' && orderForm.type === 'LIMIT' && !isCashAmountMode;
+  const limitPriceField = ['LIMIT', 'LIMIT_ON_OPEN'].includes(orderForm.type) && (
+    <div className="order-input-group">
+      <label className="order-field-label" htmlFor="price">
+        {selectedInstrumentType === 'EVENT' ? 'Event Contract Limit Price ($ USD)' : equityLimitByShares ? 'Limit price per share ($)' : 'Limit Price ($ USD)'}
+      </label>
+      <div className="order-input-wrapper">
+        <input
+          id="price"
+          type="text"
+          inputMode="decimal"
+          value={orderForm.price}
+          onChange={(e) => handlePriceChange(e.target.value)}
+          onBlur={() => {
+            if (selectedInstrumentType === 'EVENT') {
+              setOrderForm((prev) => ({ ...prev, price: formatEventLimitPrice(prev.price) }));
+            }
+          }}
+          placeholder={selectedInstrumentType === 'EVENT' ? 'Select a market quote' : '0.00'}
+          className="order-styled-input"
+          disabled={ticketOrderControlsDisabled}
+          required
+        />
+        {selectedInstrumentType !== 'EVENT' && (
+          <button
+            type="button"
+            className="input-percent-btn"
+            onClick={() => handleOpenPercentModal('price')}
+            title="Calculate limit price from percentage"
+            disabled={ticketOrderControlsDisabled}
+          >
+            %
+          </button>
+        )}
+      </div>
+      {selectedInstrumentType === 'EVENT' && (
+        <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+          Current Webull range: {eventPriceRangeLabel(eventRules.price_ranges)}. Winning settlement: {eventMoney(eventSettlementPayout)}. Implied win probability: {Math.round((Number(orderForm.price) || 0) * 100)}%.
+        </small>
+      )}
+    </div>
+  );
+
   return (
     <div className="trading-page webull-trading-page">
       {!isEmbeddedReplaceMode && (
@@ -6471,7 +6499,13 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                         </div>
                         {selectedInstrumentType === 'EQUITY' && isFractional && (
                           <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '6px', lineHeight: 1.4 }}>
-                            ℹ️ Fractional share orders on Webull are Market orders only, so Limit and the other order types are grayed out while the quantity is fractional. Fractional orders also require Regular Hours (CORE) — the session already selected.
+                            {mixedEquityQuantity ? MIXED_EQUITY_QUANTITY_MESSAGE : 'This dashboard uses Webull OpenAPI. Eligible fractional orders require Market and Regular Hours (CORE). For a Limit order here, enter a whole-share quantity.'}
+                            {mixedEquityQuantity && (
+                              <button type="button" className="webull-entrust-btn" disabled={ticketOrderControlsDisabled}
+                                onClick={() => handleBaseQuantityChange(String(wholeShares))}>
+                                Use {wholeShares} whole {wholeShares === 1 ? 'share' : 'shares'}
+                              </button>
+                            )}
                           </div>
                         )}
                         {selectedInstrumentType === 'EQUITY' && (isExtendedSession || isOvernightSession) && (
@@ -6657,6 +6691,8 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                           )}
                         </div>
 
+                        {equityLimitByShares && limitPriceField}
+
                         {selectedInstrumentType === 'FUTURES' ? (
                           <div className="order-input-group">
                             <label className="order-field-label">Margin &amp; Notional</label>
@@ -6667,7 +6703,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                         ) : (
                           <div className="order-input-group">
                             <label className="order-field-label" htmlFor="quoteQuantity">
-                              Order Value ($ USD)
+                              {equityLimitByShares ? 'Total order budget ($, adjusts shares)' : 'Order Value ($ USD)'}
                             </label>
                             <div className="order-input-wrapper">
                               <input
@@ -6681,7 +6717,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                                 className="order-styled-input"
                                 disabled={ticketOrderControlsDisabled}
                                 readOnly={selectedInstrumentType === 'OPTION'}
-                                aria-label={selectedInstrumentType === 'OPTION' ? `Calculated option order value, ${optionOrderValueText(orderForm.quantity, effectivePrice)} US dollars` : 'Order value in US dollars'}
+                                aria-label={selectedInstrumentType === 'OPTION' ? `Calculated option order value, ${optionOrderValueText(orderForm.quantity, effectivePrice)} US dollars` : equityLimitByShares ? 'Total order budget in US dollars, adjusts shares' : 'Order value in US dollars'}
                                 autoComplete="off"
                               />
                               <button
@@ -6948,48 +6984,8 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                       </div>
                     )}
 
-                    {['LIMIT', 'LIMIT_ON_OPEN'].includes(orderForm.type) && (
-                      <div className="order-inputs-row">
-                        <div className="order-input-group" style={{ width: '100%' }}>
-                          <label className="order-field-label" htmlFor="price">
-                            {selectedInstrumentType === 'EVENT' ? 'Event Contract Limit Price ($ USD)' : 'Limit Price ($ USD)'}
-                          </label>
-                          <div className="order-input-wrapper">
-                            <input
-                              id="price"
-                              type="text"
-                              inputMode="decimal"
-                              value={orderForm.price}
-                              onChange={(e) => handlePriceChange(e.target.value)}
-                              onBlur={() => {
-                                if (selectedInstrumentType === 'EVENT') {
-                                  setOrderForm((prev) => ({ ...prev, price: formatEventLimitPrice(prev.price) }));
-                                }
-                              }}
-                              placeholder={selectedInstrumentType === 'EVENT' ? 'Select a market quote' : '0.00'}
-                              className="order-styled-input"
-                              disabled={ticketOrderControlsDisabled}
-                              required
-                            />
-                            {selectedInstrumentType !== 'EVENT' && (
-                              <button
-                                type="button"
-                                className="input-percent-btn"
-                                onClick={() => handleOpenPercentModal('price')}
-                                title="Calculate limit price from percentage"
-                                disabled={ticketOrderControlsDisabled}
-                              >
-                                %
-                              </button>
-                            )}
-                          </div>
-                          {selectedInstrumentType === 'EVENT' && (
-                            <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
-                              Current Webull range: {eventPriceRangeLabel(eventRules.price_ranges)}. Winning settlement: {eventMoney(eventSettlementPayout)}. Implied win probability: {Math.round((Number(orderForm.price) || 0) * 100)}%.
-                            </small>
-                          )}
-                        </div>
-                      </div>
+                    {limitPriceField && !equityLimitByShares && (
+                      <div className="order-inputs-row">{limitPriceField}</div>
                     )}
 
                     {/* Execution Settings: Time in Force & Trading Session */}
@@ -7005,7 +7001,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                         >
                           {['LADDER', 'SYNTHETIC'].includes(orderForm.type) && <option value="SYNTHETIC_GTC">Until filled or cancelled</option>}
                           <option value="DAY">Day Order (DAY)</option>
-                          {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && selectedInstrumentType !== 'EVENT' && orderForm.tradingSession !== 'NIGHT' && !isFractional && !['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
+                          {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && selectedInstrumentType !== 'EVENT' && orderForm.tradingSession !== 'NIGHT' && !(isFractional && orderForm.type === 'MARKET') && !['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
                           {selectedInstrumentType === 'CRYPTO' && <option value="IOC">Immediate or Cancel (IOC)</option>}
                         </select>
                       </div>
@@ -7068,7 +7064,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
                     {selectedInstrumentType === 'EQUITY' && (
                       <p style={{ margin: '0 0 12px', color: '#94a3b8', fontSize: '12px', lineHeight: 1.45 }}>
-                        Fractional stock and ETF quantities are available only for <strong style={{ color: '#e2e8f0' }}>Only Regular Hours (CORE)</strong> and Webull Market orders. Extended and Overnight sessions require whole shares.
+                        On this dashboard, Webull OpenAPI accepts eligible fractional stock and ETF orders only for <strong style={{ color: '#e2e8f0' }}>Only Regular Hours (CORE)</strong> and Webull Market orders. Extended and Overnight sessions require whole shares.
                       </p>
                     )}
 

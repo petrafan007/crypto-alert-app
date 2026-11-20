@@ -3495,6 +3495,12 @@ def _webull_order_headers(orders):
     return {'category': f'{market}_{instrument_type}'}
 
 
+def mixed_webull_equity_quantity_error(quantity):
+    if quantity > 1 and quantity != quantity.to_integral_value():
+        return 'Webull OpenAPI accepts whole shares or a fractional Market order under one share.'
+    return None
+
+
 def place_webull_order(
     app_key, app_secret, environment='production', access_token=None, *,
     account_id, symbol=None, instrument_type='EQUITY', side=None, order_type=None, quantity=None,
@@ -3580,6 +3586,9 @@ def place_webull_order(
                     lqty = float(leg_quantity_decimal)
                 except (InvalidOperation, TypeError, ValueError):
                     raise WebullConnectionError(f'Combo leg #{i + 1} quantity must be a positive number.')
+                mixed_error = mixed_webull_equity_quantity_error(leg_quantity_decimal)
+                if mixed_error:
+                    raise WebullConnectionError(f'Combo leg #{i + 1}: {mixed_error}')
                 if not lqty.is_integer() and max(0, -leg_quantity_decimal.normalize().as_tuple().exponent) > 5:
                     raise WebullConnectionError(f'Combo leg #{i + 1} fractional quantity supports no more than 5 decimal places.')
                 leg_payload['quantity'] = format(leg_quantity_decimal.normalize(), 'f') if not lqty.is_integer() else str(int(lqty))
@@ -3875,6 +3884,9 @@ def place_webull_order(
                 if clean_type != 'MARKET':
                     raise WebullConnectionError('Webull supports fractional stock and ETF orders as Market orders only.')
             if clean_entrust_type == 'QTY' and not qty.is_integer():
+                mixed_error = mixed_webull_equity_quantity_error(quantity_decimal)
+                if mixed_error:
+                    raise WebullConnectionError(mixed_error)
                 decimal_places = max(0, -quantity_decimal.normalize().as_tuple().exponent)
                 if decimal_places > 5:
                     raise WebullConnectionError('Webull stock and ETF fractional quantities support no more than 5 decimal places.')

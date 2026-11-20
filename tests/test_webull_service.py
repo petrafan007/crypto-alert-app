@@ -1559,6 +1559,29 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(order['entrust_type'], 'QTY')
         self.assertEqual(order['support_trading_session'], 'CORE')
 
+    def test_mixed_share_quantity_is_refused_before_transport(self):
+        with patch('services.webull_service._webull_request') as request_mock:
+            with self.assertRaisesRegex(WebullConnectionError, 'under one share'):
+                place_webull_order(
+                    'app-key', 'app-secret', 'sandbox', 'token',
+                    account_id='cash-account', symbol='ANT', instrument_type='EQUITY',
+                    side='BUY', order_type='MARKET', quantity='4.43064',
+                    support_trading_session='CORE',
+                )
+        request_mock.assert_not_called()
+
+    def test_whole_share_limit_preserves_quantity_and_limit(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'order_id': 'test-limit'}}
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            place_webull_order(
+                'app-key', 'app-secret', 'sandbox', 'token', account_id='cash-account',
+                symbol='ANT', instrument_type='EQUITY', side='BUY', order_type='LIMIT',
+                quantity='4.00000', limit_price=90, support_trading_session='CORE',
+            )
+        order = request_mock.call_args.kwargs['body']['new_orders'][0]
+        self.assertEqual((order['order_type'], order['quantity'], order['limit_price']), ('LIMIT', '4', '90.00'))
+
     def test_fractional_equity_quantity_is_limited_to_five_decimal_places(self):
         with patch('services.webull_service._webull_request') as request_mock:
             with self.assertRaisesRegex(WebullConnectionError, 'no more than 5 decimal places'):

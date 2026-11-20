@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { isMixedEquityQuantity, MIXED_EQUITY_QUANTITY_MESSAGE } from '../utils/webullOrderEntry.mjs';
 import TotpCodeInput from './TotpCodeInput';
 import './WebullScheduledOrderModal.css';
 
@@ -228,6 +229,10 @@ export default function WebullScheduledOrderModal({
         return;
       }
     } else {
+      if (isMixedEquityQuantity(qtyNum)) {
+        setError(MIXED_EQUITY_QUANTITY_MESSAGE);
+        return;
+      }
       if (isNaN(qtyNum) || qtyNum <= 0) {
         setError('Please enter a valid share quantity greater than zero.');
         return;

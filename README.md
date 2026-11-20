@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.9
+**Version:** 4.19.10
 
 ## Recent Updates
+
+### v4.19.10
+
+* For a Limit order by shares, the per-share limit now appears beside Quantity. Changing the price keeps the share count and updates the total. The separate budget field identifies that editing it adjusts shares. The Webull ticket keeps your chosen order type and price when a share entry, dollar budget, or MAX produces a fractional quantity. For an entry such as 4.43064 shares, **Use 4 whole shares** updates the ticket for review. Webull OpenAPI documents fractional equity orders under one share as Market orders during regular hours. Webull’s own app also supports fractional Limit orders on eligible securities. [API stock order rules](https://developer.webull.com/apis/docs/trade-api/stock/) · [Webull fractional trading FAQ](https://www.webull.com/help/faq/10959)
 
 ### v4.19.9
 * **Gemini model lineup — Gemini 4 Hydrogen in, Gemini 3.5/3.6/3.7 out:** `gemini-4-hydrogen` joins the Gemini model list (label "Gemini 4 Hydrogen") and every active Gemini selection now points at it: the primary AI model, the event-strategy and portfolio-strategy AI tiers, and the built-in defaults in the Gemini connection test and the provider test endpoint (previously `gemini-3.8-flash` / `gemini-3.5-flash`; pre-change stored rows are backed up in `settings_backup_20261119_hydrogen_csdapp`). `gemini-3.5-flash`, `gemini-3.6-flash`, and `gemini-3.7-flash` are removed from the model catalog, the model labels, and the Settings fallback options entirely — they are no longer available via the API, so no code path can select or offer them. `gemini-3.8-flash` stays listed as a selectable option. The Decision Engine's `gemini-decision-1` transport is unchanged. Verified with a live `generateContent` call on `gemini-4-hydrogen` using the stored Gemini key (HTTP 200).

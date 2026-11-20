@@ -51,6 +51,7 @@ import { sanitizeTotpCode, formatBufferPercent } from '../frontend/src/utils/web
 
 import {
   cashAmountCarry,
+  isMixedEquityQuantity,
   quoteBlurCashAmount,
   quoteValueEntry,
 } from '../frontend/src/utils/webullOrderEntry.mjs';
@@ -72,6 +73,11 @@ assert.equal(formatBufferPercent('abc'), '3.00');
 // Typing a dollar value keeps every keystroke verbatim (regression: the
 // old mid-typing flip to cash-amount mode swapped the rendered input and
 // swallowed a digit — "500" arrived as "50").
+assert.equal(isMixedEquityQuantity('4.43064'), true);
+assert.equal(isMixedEquityQuantity('4.00000'), false);
+assert.equal(isMixedEquityQuantity('0.43064'), false);
+assert.equal(isMixedEquityQuantity('1'), false);
+
 const antPrice = 101.23;
 const typedSteps = ['5', '50', '500'].map((rawValue) => quoteValueEntry({
   rawValue, instrumentType: 'EQUITY', price: antPrice, fractionalQuantityAllowed: true,

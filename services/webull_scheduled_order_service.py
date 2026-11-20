@@ -26,6 +26,7 @@ from services.webull_service import (
     WebullConnectionError,
     get_webull_market_snapshot,
     normalize_webull_environment,
+    mixed_webull_equity_quantity_error,
     place_webull_order,
 )
 
@@ -92,6 +93,9 @@ def create_scheduled_fractional_order(
             parsed_qty = float(quantity_decimal)
         except (InvalidOperation, TypeError, ValueError) as exc:
             raise ValueError(str(exc) if 'Quantity' in str(exc) or 'decimal' in str(exc) else 'Enter a valid quantity.')
+        mixed_error = mixed_webull_equity_quantity_error(quantity_decimal)
+        if mixed_error:
+            raise ValueError(mixed_error)
         parsed_cash = None
 
     # Calculate next market open (9:30:00 AM Eastern Time)

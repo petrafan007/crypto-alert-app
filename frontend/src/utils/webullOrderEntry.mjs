@@ -21,6 +21,13 @@ export const allocationPercentage = (usedAmount, availableAmount) => {
   return Math.round(Math.max(0, Math.min(100, (used / available) * 100)) * 100) / 100;
 };
 
+export const MIXED_EQUITY_QUANTITY_MESSAGE = 'Webull OpenAPI accepts whole shares or a fractional Market order under one share. Enter whole shares for a Limit order.';
+
+export const isMixedEquityQuantity = (quantity) => {
+  const shares = Number(quantity);
+  return Number.isFinite(shares) && shares > 1 && !Number.isInteger(shares);
+};
+
 export const quantityDecimalPlaces = (value) => {
   const text = String(value ?? '').trim();
   const decimal = text.indexOf('.');

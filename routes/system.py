@@ -55,6 +55,7 @@ from services.webull_service import (
     get_webull_open_orders,
     get_webull_order_history,
     get_webull_portfolio_preview,
+    mixed_webull_equity_quantity_error,
     place_webull_order,
     cancel_webull_order,
     normalize_webull_environment,
@@ -2813,6 +2814,9 @@ def api_webull_place_order():
                     return jsonify({'success': False, 'message': 'Enter a valid order quantity.'}), 400
                 if not quantity_decimal.is_finite() or quantity_decimal <= 0:
                     return jsonify({'success': False, 'message': 'Enter a valid order quantity.'}), 400
+                mixed_error = mixed_webull_equity_quantity_error(quantity_decimal)
+                if mixed_error:
+                    return jsonify({'success': False, 'message': mixed_error}), 400
                 if not float(quantity_decimal).is_integer() and decimal_places > 5:
                     return jsonify({
                         'success': False,
