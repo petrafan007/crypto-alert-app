@@ -1,3 +1,4 @@
+import { cleanUserErrorMessage } from '../utils/errorDisplay.mjs';
 import React, { useState, useEffect } from 'react';
 import { formatOrderSide, formatOrderType } from '../utils/orderDisplay';
 import TotpCodeInput from './TotpCodeInput';
@@ -122,7 +123,7 @@ export default function CancelOrderModal({
 
             {(localError || error) && (
               <div className="error-message">
-                ❌ {localError || error}
+                ❌ {cleanUserErrorMessage(localError || error)}
               </div>
             )}
 

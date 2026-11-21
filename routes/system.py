@@ -1326,7 +1326,7 @@ def api_settings():
                 try:
                     data['webull_environment'] = normalize_webull_environment(data['webull_environment'])
                 except WebullConnectionError as exc:
-                    return jsonify({"success": False, "message": str(exc)}), 400
+                    return jsonify({"success": False, "message": getattr(exc, "user_message", None) or str(exc)}), 400
             
             # --- START UserSetting Logic ---
             # Update UserSetting columns
@@ -1707,7 +1707,7 @@ def api_test_webull_connection():
             **result,
         })
     except WebullConnectionError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull connection test failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to test the Webull connection.'}), 500
@@ -1831,7 +1831,7 @@ def api_initiate_webull_token():
         return jsonify(_webull_token_payload(token_details, environment, account_result=account_result))
     except WebullConnectionError as exc:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
         logger.error('Webull token initiation failed: %s', exc, exc_info=True)
@@ -1873,7 +1873,7 @@ def api_check_webull_token_status():
         return jsonify(_webull_token_payload(token_details, environment, account_result=account_result))
     except WebullConnectionError as exc:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
         logger.error('Webull token status check failed: %s', exc, exc_info=True)
@@ -1963,7 +1963,7 @@ def api_webull_accounts():
             'message': f'Found {len(display_accounts)} Webull account(s).',
         })
     except WebullConnectionError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull account discovery failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to discover Webull accounts.'}), 500
@@ -2025,7 +2025,7 @@ def api_save_webull_default_account():
             try:
                 _require_webull_account_access(setting, account_id)
             except WebullConnectionError as exc:
-                return jsonify({'success': False, 'message': str(exc)}), 400
+                return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
         setting.webull_default_account_id = account_id or None
         db.session.commit()
         return jsonify({
@@ -2105,7 +2105,7 @@ def api_webull_portfolio_preview():
             'message': f'Loaded a read-only preview for {len(accounts)} Webull account(s).',
         })
     except WebullConnectionError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull portfolio preview failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load the Webull portfolio preview.'}), 500
@@ -2190,7 +2190,7 @@ def api_webull_portfolio_sync():
         })
     except WebullConnectionError as exc:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
         logger.error('Webull portfolio import failed: %s', exc, exc_info=True)
@@ -2330,7 +2330,7 @@ def api_webull_open_orders():
         return jsonify({'success': True, 'orders': orders})
     except WebullConnectionError as exc:
         logger.warning('Webull open-order lookup failed: %s', exc)
-        return jsonify({'success': False, 'orders': [], 'message': str(exc)}), 400
+        return jsonify({'success': False, 'orders': [], 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull open-order lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'orders': [], 'message': 'Unable to load Webull open orders.'}), 500
@@ -2385,7 +2385,7 @@ def api_webull_create_scheduled_order():
         try:
             account_id = _require_webull_account_access(setting, account_id)
         except WebullConnectionError as exc:
-            return jsonify({'success': False, 'message': str(exc)}), 400
+            return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
 
         from services.trading_2fa_service import require_live_trading_2fa
         two_factor_error = require_live_trading_2fa(current_user.id, data, 'schedule this live Webull order')
@@ -2681,7 +2681,7 @@ def api_webull_place_order():
                 data['_event_market_rules'] = event_market.get('rules') or {}
                 data['_event_market'] = event_market
             except WebullConnectionError as exc:
-                return jsonify({'success': False, 'message': str(exc)}), 400
+                return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
 
         replacing_order_id = data.get('replacing_order_id')
         if is_test_order and isinstance(data.get('combo_orders'), list) and data['combo_orders']:
@@ -2690,7 +2690,7 @@ def api_webull_place_order():
             try:
                 validate_webull_combo_orders(data['combo_orders'], data.get('symbol'))
             except WebullConnectionError as exc:
-                return jsonify({'success': False, 'message': str(exc)}), 400
+                return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
         if replacing_order_id and is_test_order:
             from services.order_replacement_service import cancel_any_order
             try:
@@ -2795,7 +2795,7 @@ def api_webull_place_order():
             account_id = _require_webull_account_access(setting, account_id)
             instrument_type = _require_webull_instrument_account_match(setting, account_id, instrument_type)
         except WebullConnectionError as exc:
-            return jsonify({'success': False, 'message': str(exc)}), 400
+            return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
 
         is_combo = bool(combo_orders and isinstance(combo_orders, list))
         if not is_combo:
@@ -3130,7 +3130,7 @@ def api_webull_place_order():
                 ])
         except Exception:
             logger.debug("Could not log the rejected Webull combo legs", exc_info=True)
-        message = str(exc)
+        message = getattr(exc, 'user_message', None) or str(exc)
         original_restored = False
         if cancelled_for_replace:
             note, original_restored = _failed_replacement_note(
@@ -3172,7 +3172,7 @@ def api_webull_event_categories():
         return jsonify({'success': True, 'categories': categories, 'source': 'webull'})
     except WebullConnectionError as exc:
         logger.error('Error fetching Webull event categories: %s', exc)
-        return jsonify({'success': False, 'categories': [], 'message': str(exc)}), 502
+        return jsonify({'success': False, 'categories': [], 'message': getattr(exc, 'user_message', None) or str(exc)}), 502
 
 
 @system_bp.route('/api/webull/events/durations', methods=['GET'])
@@ -3195,7 +3195,7 @@ def api_webull_event_durations():
         return jsonify({'success': True, 'duration_options': duration_options, 'source': 'webull'})
     except WebullConnectionError as exc:
         logger.error('Error fetching Webull event durations: %s', exc)
-        return jsonify({'success': False, 'duration_options': [], 'message': str(exc)}), 502
+        return jsonify({'success': False, 'duration_options': [], 'message': getattr(exc, 'user_message', None) or str(exc)}), 502
 
 
 @system_bp.route('/api/webull/events/markets', methods=['GET'])
@@ -3263,7 +3263,7 @@ def api_webull_event_markets():
         return jsonify({'success': True, **result, 'source': 'webull'})
     except WebullConnectionError as exc:
         logger.error('Error fetching Webull event markets: %s', exc)
-        return jsonify({'success': False, 'markets': [], 'message': str(exc)}), 502
+        return jsonify({'success': False, 'markets': [], 'message': getattr(exc, 'user_message', None) or str(exc)}), 502
 
 
 @system_bp.route('/api/webull/events/position', methods=['GET'])
@@ -3338,7 +3338,7 @@ def api_webull_event_position():
         })
     except WebullConnectionError as exc:
         logger.error('Error fetching Webull Event position details: %s', exc)
-        return jsonify({'success': False, 'message': str(exc)}), 502
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 502
 
 
 @system_bp.route('/api/webull/orders/cancel', methods=['POST'])
@@ -3412,7 +3412,7 @@ def api_webull_cancel_order():
         try:
             account_id = _require_webull_account_access(setting, account_id)
         except WebullConnectionError as exc:
-            return jsonify({'success': False, 'message': str(exc), 'error': str(exc)}), 400
+            return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc), 'error': str(exc)}), 400
         if not client_order_id and not order_id:
             return jsonify({'success': False, 'message': 'Order identifier is required to cancel.', 'error': 'Order identifier is required to cancel.'}), 400
 
@@ -3435,7 +3435,7 @@ def api_webull_cancel_order():
         return jsonify(success=False, error=str(exc), message=str(exc)), 400
     except WebullConnectionError as exc:
         logger.warning('Webull order cancellation failed: %s', exc)
-        return jsonify({'success': False, 'message': str(exc), 'error': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc), 'error': str(exc)}), 400
     except Exception as exc:
         logger.error('Webull order cancellation error: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': f'Order cancellation failed: {exc}', 'error': f'Order cancellation failed: {exc}'}), 500
@@ -3570,7 +3570,7 @@ def api_webull_market_bars():
         return jsonify({'success': True, 'bars': bars})
     except WebullConnectionError as exc:
         logger.warning('Webull market-data lookup failed: %s', exc)
-        return jsonify({'success': False, 'bars': [], 'message': str(exc)}), 400
+        return jsonify({'success': False, 'bars': [], 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull market-data lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'bars': [], 'message': 'Unable to load Webull market data.'}), 500
@@ -3660,7 +3660,7 @@ def api_webull_market_snapshot():
         return jsonify({'success': True, 'snapshot': snapshot})
     except WebullConnectionError as exc:
         logger.warning('Webull market snapshot lookup failed: %s', exc)
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull market snapshot lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load the Webull market quote.'}), 500
@@ -3696,7 +3696,7 @@ def api_webull_event_underlying_history():
         return jsonify({'success': True, 'symbol': symbol, 'source': source, 'points': points, 'cached': False})
     except WebullConnectionError as exc:
         logger.warning('Event underlying history lookup failed: %s', exc)
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Event underlying history lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load Event Contract price history.'}), 500
@@ -3747,7 +3747,7 @@ def api_webull_futures_contracts():
         )
         return jsonify({'success': True, 'contracts': contracts})
     except WebullConnectionError as exc:
-        return jsonify({'success': False, 'contracts': [], 'message': str(exc)}), 400
+        return jsonify({'success': False, 'contracts': [], 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull futures contract lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'contracts': [], 'message': 'Unable to load Webull futures contracts.'}), 500
@@ -3775,7 +3775,7 @@ def api_webull_futures_market_data():
         )
         return jsonify({'success': True, 'quote': quote})
     except WebullConnectionError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull futures quote lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load the Webull futures quote.'}), 500
@@ -3818,7 +3818,7 @@ def api_webull_option_market_data():
     except (TypeError, ValueError):
         return jsonify({'success': False, 'message': 'Choose an imported Webull option holding.'}), 400
     except WebullConnectionError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull option market-data lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load Webull option market data.'}), 500
@@ -3852,7 +3852,7 @@ def api_webull_options_expirations():
             'selected_expiration': data['selected_expiration'],
         })
     except WebullConnectionError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull options expirations lookup failed for %s: %s', request.args.get('symbol'), exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load options expirations.'}), 500
@@ -3882,7 +3882,7 @@ def api_webull_options_chain():
         response.headers['Pragma'] = 'no-cache'
         return response
     except WebullConnectionError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({'success': False, 'message': getattr(exc, 'user_message', None) or str(exc)}), 400
     except Exception as exc:
         logger.error('Webull option chain lookup failed for %s: %s', request.args.get('symbol'), exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load option chain.'}), 500

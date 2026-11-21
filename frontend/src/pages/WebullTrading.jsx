@@ -6,6 +6,7 @@ import axios from 'axios';
 import { useAuth } from '../components/AuthContext';
 import { useGlobalMode } from '../components/GlobalModeContext';
 import { toWebullTradingMode } from '../utils/globalMode.mjs';
+import { cleanUserErrorMessage, defaultWebullTradingSession, isWebullOvernightWindow } from '../utils/errorDisplay.mjs';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import { FaArrowDown, FaArrowUp, FaSearch, FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import WebullTradingViewChart, { DEFAULT_STOCKS } from '../components/WebullTradingViewChart';
@@ -1304,37 +1305,9 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     );
   };
 
-  // Determine smart default trading session based on US Eastern time (ET)
-  const getDefaultTradingSession = () => {
-    try {
-      const now = new Date();
-      const etString = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
-      const etDate = new Date(etString);
-      const day = etDate.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
-      const hour = etDate.getHours();
-      const minute = etDate.getMinutes();
-      const timeInMinutes = hour * 60 + minute;
-
-      // Webull regular market hours: 9:30 AM to 4:00 PM Eastern, Monday - Friday
-      const isWeekday = day >= 1 && day <= 5;
-      const isMarketOpen = isWeekday && timeInMinutes >= (9 * 60 + 30) && timeInMinutes < (16 * 60);
-      // After-hours: 4:00 PM to 8:00 PM Eastern, Monday - Friday
-      const isAfterHours = isWeekday && timeInMinutes >= (16 * 60) && timeInMinutes < (20 * 60);
-      // Pre-market: 4:00 AM to 9:30 AM Eastern, Monday - Friday
-      const isPreMarket = isWeekday && timeInMinutes >= (4 * 60) && timeInMinutes < (9 * 60 + 30);
-
-      if (isMarketOpen) {
-        return 'CORE'; // Only Regular Hours
-      }
-      if (isAfterHours || isPreMarket) {
-        return 'ALL'; // Including Extended Hours
-      }
-      // Overnight: 8:00 PM to 4:00 AM Eastern or weekends
-      return 'NIGHT'; // Overnight Hours Only
-    } catch (e) {
-      return 'CORE';
-    }
-  };
+  // Determine smart default trading session based on US Eastern time (ET).
+  // Overnight (NIGHT) runs Sun–Thu 8:00 PM – 4:00 AM ET only (closed Fri night & Saturday).
+  const getDefaultTradingSession = () => defaultWebullTradingSession(new Date());
 
   // Order Placement Form State (mirroring Binance.US Trading)
   const [orderForm, setOrderForm] = useState({
@@ -6938,7 +6911,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                               disabled={Boolean(getSessionDisabledReason('NIGHT'))}
                               title={getSessionDisabledReason('NIGHT')}
                             >
-                              Overnight Hours Only (NIGHT: 8:00 PM - 4:00 AM ET){getSessionDisabledReason('NIGHT') ? ' — (Limit & whole shares only)' : ''}
+                              Overnight Hours Only (NIGHT: Sun–Thu 8:00 PM - 4:00 AM ET){getSessionDisabledReason('NIGHT') ? ' — (Limit & whole shares only)' : (!isWebullOvernightWindow(new Date(liveClock)) ? ' — (Closed Fri night & Sat)' : '')}
                             </option>
                           </select>
                         </div>
@@ -7861,13 +7834,12 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                             </div>
                             <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>
                               Alternatively, ordering whole shares (if funded) bypasses fractional agreements entirely.
-                              {orderFeedback.requestId && ` (Request ID: ${orderFeedback.requestId})`}
                             </p>
                           </div>
                         ) : (
                           <div>
                             <p style={{ margin: '0 0 16px', color: '#f8fafc', fontSize: '1.05rem', lineHeight: 1.5 }}>
-                              {orderFeedback.message}
+                              {cleanUserErrorMessage(orderFeedback.message)}
                             </p>
                             {String(orderFeedback.message).includes('2% greater') && (
                               <div style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '12px 16px', borderRadius: '8px', color: '#e0f2fe', fontSize: '0.95rem' }}>

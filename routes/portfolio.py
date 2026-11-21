@@ -1023,7 +1023,8 @@ def api_cancel_order(order_id):
             })
         except Exception as e:
             logger.error(f"Failed to cancel Binance order {order_id}: {e}")
-            return jsonify({'error': f'Failed to cancel order: {str(e)}'}), 400
+            from services.webull_service import clean_broker_error_message
+            return jsonify({'error': f'Failed to cancel order: {clean_broker_error_message(e)}'}), 400
 
     except Exception as e:
         logger.error(f"Cancel order error: {e}")
@@ -4664,7 +4665,8 @@ def place_real_oco_order():
                     'success': False,
                     'error': ('Insufficient balance in your Binance.US account to execute this OCO order.') + replacement_note
                 }), 400
-            return jsonify({'success': False, 'error': f'OCO order placement failed: {error_msg}' + replacement_note}), 400
+            from services.webull_service import clean_broker_error_message
+            return jsonify({'success': False, 'error': f'OCO order placement failed: {clean_broker_error_message(error_msg)}' + replacement_note}), 400
 
     except Exception as e:
         err_msg = str(e)

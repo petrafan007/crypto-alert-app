@@ -2007,3 +2007,19 @@ class AccountScopeAndFilteringTests(unittest.TestCase):
             _require_webull_instrument_account_match(setting, 'cash-acct', 'EVENT')
         with self.assertRaisesRegex(WebullConnectionError, 'Futures Webull account'):
             _require_webull_instrument_account_match(setting, 'cash-acct', 'FUTURES')
+
+    def test_overnight_non_trading_hours_user_message_is_clear_and_strips_codes(self):
+        response = Mock(
+            status_code=417,
+            text='{"message":"Overnight Trading is only available during the Overnight Session, which operates from 8:00pm to 4:00am ET.","error_code":"OPENAPI_OVERNIGHT_CAN_NOT_TRADING_FOR_NON_TRADING_HOURS"}',
+            headers={'X-Request-Id': 'bf131504-773b-4b9e-9971-901d7984c5c6'},
+        )
+        with self.assertRaises(WebullConnectionError) as ctx:
+            _response_payload(response, 'order placement')
+        exc = ctx.exception
+        self.assertEqual(exc.error_code, 'OPENAPI_OVERNIGHT_CAN_NOT_TRADING_FOR_NON_TRADING_HOURS')
+        self.assertIn('Sunday through Thursday', exc.user_message)
+        self.assertIn('closed Friday night and Saturday', exc.user_message)
+        self.assertNotIn('OPENAPI_', exc.user_message)
+        self.assertNotIn('HTTP 417', exc.user_message)
+        self.assertNotIn('bf131504', exc.user_message)

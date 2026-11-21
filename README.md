@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.18
+**Version:** 4.19.19
 
 ## Recent Updates
+
+### v4.19.19
+
+* **Clearer broker error messages with internal API codes removed:** Order and dialog modals across Webull and Binance.US now display only the plain-English error message — stripping raw `OPENAPI_*` codes, `APIError(code=...)` wrappers, `HTTP 417` prefixes, and provider request IDs (full details remain in server logs for debugging). Webull's Overnight Session rejection now explicitly explains that Overnight Trading runs **Sunday–Thursday 8:00 PM – 4:00 AM ET** (closed Friday night and Saturday) and suggests switching to Extended or Regular Hours.
+* **Fix weekend Overnight session auto-default on Webull Trading:** `defaultWebullTradingSession()` no longer defaults the Webull equity ticket to `NIGHT` (Overnight Hours Only) on Friday nights and Saturdays when the overnight session is closed; it defaults to Including Extended Hours (`ALL`) until Sunday 8:00 PM ET, and labels the `NIGHT` option with `Sun–Thu 8:00 PM - 4:00 AM ET`.
 
 ### v4.19.18
 

@@ -94,3 +94,37 @@ test('columnStorageKey isolates Positions table columns across REAL, TEST, and Q
   assert.notEqual(realKey, quantKey);
   assert.notEqual(testKey, quantKey);
 });
+
+import { cleanUserErrorMessage, defaultWebullTradingSession, isWebullOvernightWindow } from './errorDisplay.mjs';
+
+test('cleanUserErrorMessage strips OPENAPI codes, HTTP status prefixes, request IDs, and Binance APIError codes', () => {
+  const rawOvernight = 'Webull order placement failed (HTTP 417): Overnight Trading is only available during the Overnight Session, which operates from 8:00pm to 4:00am ET. (OPENAPI_OVERNIGHT_CAN_NOT_TRADING_FOR_NON_TRADING_HOURS) (Webull request ID: bf131504-773b-4b9e-9971-901d7984c5c6)';
+  const cleanedOvernight = cleanUserErrorMessage(rawOvernight);
+  assert.ok(cleanedOvernight.includes('Sunday through Thursday from 8:00 PM to 4:00 AM ET'));
+  assert.ok(!cleanedOvernight.includes('OPENAPI_'));
+  assert.ok(!cleanedOvernight.includes('HTTP 417'));
+  assert.ok(!cleanedOvernight.includes('bf131504'));
+
+  const rawBinance = 'APIError(code=-1013): Filter failure: NOTIONAL';
+  assert.equal(cleanUserErrorMessage(rawBinance), 'Filter failure: NOTIONAL');
+
+  const rawWebull = 'Webull order placement failed (HTTP 417): Insufficient buying power. (OPENAPI_INSUFFICIENT_BUYING_POWER) (Webull request ID: req-123)';
+  assert.equal(cleanUserErrorMessage(rawWebull), 'Insufficient buying power.');
+});
+
+test('defaultWebullTradingSession never defaults to NIGHT on Friday night or Saturday', () => {
+  const friNight = new Date('2026-11-21T01:13:00Z');
+  assert.equal(isWebullOvernightWindow(friNight), false);
+  assert.equal(defaultWebullTradingSession(friNight), 'ALL');
+
+  const satAfternoon = new Date('2026-11-21T19:00:00Z');
+  assert.equal(isWebullOvernightWindow(satAfternoon), false);
+  assert.equal(defaultWebullTradingSession(satAfternoon), 'ALL');
+
+  const sunNight = new Date('2026-11-23T01:15:00Z');
+  assert.equal(isWebullOvernightWindow(sunNight), true);
+  assert.equal(defaultWebullTradingSession(sunNight), 'NIGHT');
+
+  const monMorning = new Date('2026-11-23T15:30:00Z');
+  assert.equal(defaultWebullTradingSession(monMorning), 'CORE');
+});

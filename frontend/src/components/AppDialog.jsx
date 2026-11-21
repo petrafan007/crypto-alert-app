@@ -1,3 +1,4 @@
+import { cleanUserErrorMessage } from '../utils/errorDisplay.mjs';
 import React, { useEffect, useState } from 'react';
 import './AppDialog.css';
 
@@ -36,7 +37,7 @@ export default function AppDialogHost() {
   return <div className="app-dialog-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && options.cancelLabel) finish(false); }}>
     <section className={`app-dialog app-dialog-${options.tone || 'info'}`} role="alertdialog" aria-modal="true" aria-labelledby="app-dialog-title" aria-describedby="app-dialog-message">
       <header><span aria-hidden="true">{options.icon || (options.tone === 'danger' ? '⚠️' : 'ℹ️')}</span><h2 id="app-dialog-title">{options.title || 'Crypto & Securities Dashboard'}</h2></header>
-      <p id="app-dialog-message">{options.message}</p>
+      <p id="app-dialog-message">{cleanUserErrorMessage(options.message)}</p>
       <footer>
         {options.cancelLabel && <button type="button" className="app-dialog-secondary" onClick={() => finish(false)}>{options.cancelLabel}</button>}
         <button type="button" autoFocus className={options.tone === 'danger' ? 'app-dialog-danger' : 'app-dialog-primary'} onClick={() => finish(true)}>{options.confirmLabel || 'OK'}</button>

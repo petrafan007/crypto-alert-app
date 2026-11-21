@@ -208,6 +208,28 @@ WEBULL_CHARTABLE_INSTRUMENT_TYPES = {'CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION
 WEBULL_MARKET_INTERVALS = {'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D', 'W', 'M'}
 
 
+def clean_broker_error_message(message):
+    """Strip internal broker API codes, HTTP status prefixes, and request IDs from user-facing text."""
+    import re
+    text = str(message or '').strip()
+    if not text:
+        return text
+    # Strip internal wrapper prefixes like 'Webull order placement failed (HTTP 417): '
+    text = re.sub(r'^Webull\s+[\w\s-]+?\s+failed\s*\(HTTP\s*\d+\):\s*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'^APIError\(code=-?\d+\):\s*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'^BinanceAPIException:\s*', '', text, flags=re.IGNORECASE)
+    # Strip trailing or inline provider request IDs and OPENAPI_* / numeric error codes
+    text = re.sub(r'\s*\(Webull\s+request\s+ID:[^)]*\)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s*\(Request\s+ID:[^)]*\)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s*\(OPENAPI_[A-Z0-9_]+\)', '', text)
+    text = re.sub(r'\bOPENAPI_[A-Z0-9_]+\b', '', text)
+    text = re.sub(r'\s*\(HTTP\s*\d+\)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s*\(code\s*=\s*-?\d+\)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s{2,}', ' ', text).strip()
+    text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+    return text
+
+
 class WebullConnectionError(Exception):
     """Raised when a Webull credential, connection, or order check fails."""
 
@@ -215,6 +237,7 @@ class WebullConnectionError(Exception):
         self,
         message,
         *,
+        user_message=None,
         error_code=None,
         agreement_url=None,
         request_id=None,
@@ -223,6 +246,7 @@ class WebullConnectionError(Exception):
     ):
         super().__init__(message)
         self.message = message
+        self.user_message = clean_broker_error_message(user_message if user_message is not None else message)
         self.error_code = error_code
         self.agreement_url = agreement_url
         self.request_id = request_id
@@ -377,31 +401,45 @@ def _response_payload(response, action):
 
         http_status = getattr(response, 'status_code', 'unknown')
 
-        # Translate known Webull OpenAPI error codes into actionable user guidance
+        # Translate known Webull OpenAPI error codes into clear, user-friendly guidance
+        # without exposing raw OPENAPI_* identifiers, HTTP status codes, or request IDs in modals.
         if error_code == 'OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE' or (agreement_url and 'TRADE_FRACT_PROB' in agreement_url):
-            detail = (
+            user_detail = (
                 "Fractional stock and ETF trading is not enabled on this Webull account. "
                 "Webull requires you to sign the in-app Fractional Shares Risk Disclosure inside the Webull Mobile App "
                 "(open Webull app -> attempt a $5 trade -> tap 'I Agree') and accept the Third-Party Fractional Agreement."
             )
             if agreement_url:
-                detail += f" Agreement link: {agreement_url}"
+                user_detail += f" Agreement link: {agreement_url}"
+        elif (
+            error_code == 'OPENAPI_OVERNIGHT_CAN_NOT_TRADING_FOR_NON_TRADING_HOURS'
+            or (message_field and 'overnight trading is only available' in message_field.lower())
+        ):
+            user_detail = (
+                "Overnight Trading is currently closed. Webull's Overnight Session operates "
+                "Sunday through Thursday from 8:00 PM to 4:00 AM ET (closed Friday night and Saturday). "
+                "Switch Trading Session to Including Extended Hours or Only Regular Hours to queue your order for the next trading day."
+            )
         elif error_code == 'OPENAPI_EVENT_CONTRACT_CAN_NOT_TRADING_FOR_ACCOUNT_BIZ':
-            detail = "Event Contract trading is not supported on this Webull account. Please select an Events Cash account to trade Event Contracts."
+            user_detail = "Event Contract trading is not supported on this Webull account. Please select an Events Cash account to trade Event Contracts."
         elif error_code == 'OPENAPI_INVALID_PARAMETER':
-            detail = "Webull rejected one or more order parameters. Please check your order side, type, time in force, or limit price."
+            user_detail = "Webull rejected one or more order parameters. Please check your order side, type, time in force, or limit price."
+        elif error_code == 'OPENAPI_ORDER_PRICE_CAN_NOT_BE_NEAR':
+            user_detail = "Order prices are too close together for Webull to accept. Increase the gap between your limit/stop prices and try again."
         elif message_field and not message_field.startswith('http') and not message_field.startswith('{'):
-            detail = f"{message_field} ({error_code})" if error_code else message_field
-        elif raw_text:
-            detail = raw_text
+            user_detail = clean_broker_error_message(message_field)
+        elif raw_text and not raw_text.strip().startswith('{'):
+            user_detail = clean_broker_error_message(raw_text)
         else:
-            detail = f"Webull could not {action}."
+            user_detail = f"Webull could not complete the {action}."
 
+        log_detail = user_detail
         if request_id:
-            detail = f"{detail} (Webull request ID: {request_id})"
+            log_detail = f"{log_detail} (Webull request ID: {request_id})"
 
         raise WebullConnectionError(
-            f"Webull {action} failed (HTTP {http_status}): {detail}",
+            f"Webull {action} failed (HTTP {http_status}): {log_detail}",
+            user_message=user_detail,
             error_code=error_code,
             agreement_url=agreement_url,
             request_id=request_id,

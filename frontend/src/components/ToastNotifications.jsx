@@ -1,3 +1,4 @@
+import { cleanUserErrorMessage } from '../utils/errorDisplay.mjs';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import './ToastNotifications.css';
@@ -243,7 +244,8 @@ export default function ToastNotifications({ isLightMode }) {
                 </div>
               )}
               {(() => {
-                const msg = toast.message || config.defaultMessage || '';
+                const rawMsg = toast.message || config.defaultMessage || '';
+                const msg = (cat === 'error' || cat === 'system_error' || cat === 'warning' || toast.type === 'error' || toast.type === 'warning') ? cleanUserErrorMessage(rawMsg) : rawMsg;
                 
                 // If it is an AI Sentiment Signal
                 if (cat === 'sentiment_alert' || cat === 'ai_sentiment' || msg.includes('AI Signal:')) {

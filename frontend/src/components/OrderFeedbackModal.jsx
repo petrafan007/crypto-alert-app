@@ -1,3 +1,4 @@
+import { cleanUserErrorMessage } from '../utils/errorDisplay.mjs';
 import React from 'react';
 import './OrderFeedbackModal.css';
 
@@ -47,7 +48,7 @@ export default function OrderFeedbackModal({ isVisible, onClose, message, type =
         
         <div className="order-feedback-modal-content">
           <div className="order-feedback-message">
-            {message}
+            {type === 'error' || type === 'warning' ? cleanUserErrorMessage(message) : message}
           </div>
         </div>
         
