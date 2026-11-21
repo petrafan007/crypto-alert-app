@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.16
+**Version:** 4.19.17
 
 ## Recent Updates
+
+### v4.19.17
+
+* **Fix Webull Trading & Positions crash when holding Event contracts (including QSE mode):** `cutoffFromSymbol()` returns a numeric epoch-millisecond timestamp rather than a `Date` object, so opening Webull Trading or Positions with an active Event contract (such as in Quantitative Strategy Engine mode) threw `TypeError: p.getTime is not a function` (and `.toISOString is not a function` in the Positions cutoff column). All five call sites across `WebullTrading.jsx` and `positions.mjs` now consume the numeric timestamp directly, with a regression unit test pinning both helpers.
 
 ### v4.19.16
 

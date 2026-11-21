@@ -100,7 +100,10 @@ function valueForColumn(position, columnId) {
     case 'account': return firstValue(position, 'account_label', 'account_name', 'webull_account_type', 'source_label') || '—';
     case 'side': return positionSide(position);
     case 'status': return positionStatus(position);
-    case 'cutoff': return cutoffFromSymbol(position.symbol)?.toISOString() || position.settlement?.cutoff_at || position.cutoff_at || position.details?.cutoff_at || null;
+    case 'cutoff': {
+      const symbolCutoffMs = cutoffFromSymbol(position?.symbol);
+      return symbolCutoffMs !== null ? new Date(symbolCutoffMs).toISOString() : (position.settlement?.cutoff_at || position.cutoff_at || position.details?.cutoff_at || null);
+    }
     case 'countdown': return timestamp(valueForColumn(position, 'cutoff'));
     case 'confirmed_outcome': return position.settlement?.confirmed_outcome || null;
     case 'contract_multiplier': return numericValue(position, 'contract_multiplier', 'option_multiplier') ?? position.details?.multiplier ?? null;

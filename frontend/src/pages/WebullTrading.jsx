@@ -1167,7 +1167,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     for (const h of list) {
       if (String(h.instrument_type || h.asset_type || '').toUpperCase().includes('EVENT')) {
         const cutoff = cutoffFromSymbol(h.symbol || h.underlying_symbol);
-        if (cutoff && cutoff.getTime() <= liveClock) {
+        if (cutoff !== null && cutoff <= liveClock) {
           expired.push(h);
           continue;
         }
@@ -5113,7 +5113,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     for (const o of list) {
       if (String(o.instrument_type || o.asset_type || '').toUpperCase().includes('EVENT')) {
         const cutoff = cutoffFromSymbol(o.symbol || o.underlying_symbol);
-        if (cutoff && cutoff.getTime() <= liveClock) {
+        if (cutoff !== null && cutoff <= liveClock) {
           expired.push(o);
           continue;
         }
@@ -5266,7 +5266,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         price: h.cost_price || h.avg_entry,
         pnl: h.unrealized_profit_loss,
         realized_pnl_pct: h.unrealized_profit_loss_rate,
-        created_at: new Date(cutoffFromSymbol(h.symbol || h.underlying_symbol)?.getTime() || Date.now()).toISOString(),
+        created_at: new Date(cutoffFromSymbol(h.symbol || h.underlying_symbol) || Date.now()).toISOString(),
         _isSyntheticSettlement: true
       });
     });
@@ -5275,7 +5275,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       combined.push({
         ...o,
         status: 'Expired',
-        created_at: new Date(cutoffFromSymbol(o.symbol || o.underlying_symbol)?.getTime() || Date.now()).toISOString(),
+        created_at: new Date(cutoffFromSymbol(o.symbol || o.underlying_symbol) || Date.now()).toISOString(),
         _isSyntheticExpired: true
       });
     });

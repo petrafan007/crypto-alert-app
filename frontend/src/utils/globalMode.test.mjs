@@ -56,3 +56,14 @@ test('canPerformRowAction blocks all actions in QSE and restricts Paper actions'
   assert.equal(canPerformRowAction('real', 'stake'), true);
   assert.equal(canPerformRowAction('real', 'alert'), true);
 });
+
+import { cutoffFromSymbol, valueForColumn } from './positions.mjs';
+
+test('cutoffFromSymbol returns numeric ms and valueForColumn cutoff returns ISO string without throwing', () => {
+  const ms = cutoffFromSymbol('KXBTCD-26NOV2017-T85000');
+  assert.equal(typeof ms, 'number');
+  assert.equal(Number.isFinite(ms), true);
+  const iso = valueForColumn({ symbol: 'KXBTCD-26NOV2017-T85000', instrument_type: 'EVENT' }, 'cutoff');
+  assert.equal(typeof iso, 'string');
+  assert.ok(iso.endsWith('Z'));
+});
