@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './components/AuthContext';
+import { GlobalModeProvider } from './components/GlobalModeContext';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
@@ -51,7 +52,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <ErrorBoundary fallbackTitle="Crypto & Securities Dashboard Error" fallbackMessage="An error occurred while loading the application interface. Please reload to reconnect.">
       <BrowserRouter>
         <AuthProvider>
-          <App />
+          <GlobalModeProvider>
+            <App />
+          </GlobalModeProvider>
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>

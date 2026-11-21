@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.15
+**Version:** 4.19.16
 
 ## Recent Updates
+
+### v4.19.16
+
+* **Global Real / Paper / QSE Site-Wide Mode & Mode-Aware Themes:** A single persisted three-way mode switcher (**Real | Paper | QSE**, with QSE admin-only) now sits in the top navigation bar between **Help** and the Light/Dark theme switch and controls the entire application. The local Test Mode toggle on Binance.US Trading, the internal Real/Test/Quant buttons on Webull Trading, and the local mode buttons on Combined Positions have been removed so there is one global source of truth. Each mode applies a subtle full-page color theme in both Light and Dark modes (Real unchanged; Paper uses a subtle green tint in Light mode and dark purple tint in Dark mode; QSE uses a subtle light-blue tint in Light mode and dark-blue tint in Dark mode).
+* **Dashboard, Orders, Tax & Unhide Parity by Mode:** In **Paper** mode, the Dashboard displays your merged Webull Test + Binance.US Paper portfolio alongside an isolated basic Paper Watchlist (stored separately in `paper_watchlist_items` with live prices, add/remove, and paper Buy — never touching real alerts or automation), with Price Down/Up Alerts, Volatility %, Sentiment, Notes, News, and Alerts grayed out and Real-only widgets hidden; **Orders** shows all global paper orders; **Unhide Assets** is scoped strictly to paper holdings; and **Tax Report** is disabled. In **QSE** mode (admin-only, strictly read-only on backend and frontend), the Dashboard omits the Watchlist, disables all trade/alert/edit actions, grays out **Binance.US** in the Trading menu and **Tax Report** / **Unhide Assets**, and filters **Orders** to Webull QSE read-only.
+* **Quantitative Strategy Engine (QSE) Redesign (Paper Ledger Only):** Replaces the single-SPY 50-session switch with a weighted composite regime across the configured equities/ETF watchlist (`healthy`, `pullback` at half size, `falling_hard` defensive); gates every module strictly on its own configured watchlist; adds a per-symbol market-state classifier (`bottoming`, `still_falling`, `topping`, `still_rising`, `neutral`) over stored price, volatility, and volume history for confirmed dip entries and top/collapse exits; adds continuous crypto sell-side evaluation (trend break, top rollover, collapse detection); logs exact rejection reasons for every options credit-spread filter without loosening existing risk bounds; and introduces a unified three-layer decision stack (quantitative signals + AI news/direction summaries → Decision Models, preserving `subq`, `inception` Mercury Decide, and `gemini`).
 
 ### v4.19.15
 
@@ -4002,3 +4008,17 @@ Historical changelog entries retain the product name used when they were origina
 - **Frontend Quality of Life**: Refactored the Quick Trade Widget to honor dynamic balance constraints and carry state securely between views.
 - **Robust Market Charts**: Wrapped CoinGecko market charts with server-side memory caching and localized fallbacks to prevent rate limit timeouts from crashing components.
 - **Auth & Transaction Integrity**: Updated desktop session polling to correctly use standard bearer flow and restored the transaction history endpoint with accurate unified records.
+
+---
+## AI HOUSEKEEPING — MANDATORY (Joseph's order, Nov 20, 2026)
+
+Any AI agent working in this project MUST leave the workspace exactly as clean as it found it. Joseph is done cleaning up after AI. Rules:
+
+1. **Clean up after yourself, every time.** Any temporary file, scratch script, test output, downloaded artifact, or one-off helper you create during a task is DELETED before the task is reported done — unless it is a deliverable Joseph asked for.
+2. **Scratch work goes in ONE place:** a `scratch/` folder inside the project (create it if missing) or the OS temp directory. NEVER scatter temp files in the project root, source folders, or web-served directories.
+3. **`scratch/` is always git-ignored.** Add `scratch/` to the project's `.gitignore` if it is not already there. Nothing in `scratch/` is ever committed.
+4. **Backups are dated, capped, and in one place:** if you must keep a backup, put it in the project's existing `backups/` folder with a date in the filename, and keep at most the 3 most recent per file. No `file.bak`, `file.old`, `file copy`, `file2`, or backup files sitting next to the original in source folders.
+5. **Anything that must be kept long-term goes in its proper folder** (docs in `docs/`, scripts that are part of the project in `scripts/`, data in `data/`) — never loose in the root.
+6. **Files that must never reach GitHub** (secrets, local config, generated data, scratch, backups) belong in `.gitignore`. If you create a file that should not be committed and it is not covered, add the pattern to `.gitignore` in the same change.
+7. **Before reporting any task done, do a final sweep:** list what you created during the task; delete the temp/scratch items, confirm the keepers are in their proper folders, and state in your report what you cleaned up. "It works" is not done until the mess is gone.
+---

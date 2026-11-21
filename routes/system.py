@@ -2639,22 +2639,41 @@ def api_webull_place_order():
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         test_mode_param = data.get('test_mode')
         req_account_id = str(data.get('account_id') or '').strip()
-        paper_mode_enabled = bool(getattr(setting, 'webull_test_mode_enabled', False))
-        paper_requested = test_mode_param is True or req_account_id.startswith('TEST_') or req_account_id == 'TEST_PAPER_ACCOUNT'
-        if not paper_requested and test_mode_param is False and not req_account_id.startswith('QUANT_'):
-            if paper_mode_enabled:
-                paper_mode_enabled = False
-                if setting:
-                    setting.webull_test_mode_enabled = False
-                    db.session.commit()
-        if paper_requested and not paper_mode_enabled:
+        if req_account_id.startswith('QUANT_'):
             return jsonify({
                 'success': False,
-                'message': 'Enable Webull Test Mode before placing a simulated paper order.',
-            }), 409
-        # The persisted server setting is authoritative. A stale or modified
-        # browser payload cannot opt out of Test Mode and reach live trading.
-        is_test_order = paper_mode_enabled
+                'message': 'Manual order placement is disabled in Quantitative Strategy Engine mode.',
+            }), 403
+        raw_scope = data.get('scope')
+        if raw_scope is not None:
+            if not isinstance(raw_scope, str) or raw_scope not in ('paper', 'real'):
+                return jsonify({
+                    'success': False,
+                    'message': 'Invalid order scope. Must be "paper" or "real".',
+                }), 400
+            # Explicit scoped request routes cleanly without ever mutating persisted settings.
+            is_test_order = (raw_scope == 'paper')
+        else:
+            if str(getattr(setting, 'global_trading_mode', 'real') or 'real').lower() == 'qse':
+                return jsonify({
+                    'success': False,
+                    'message': 'Manual order placement is disabled while in Quantitative Strategy Engine mode.',
+                }), 403
+            paper_mode_enabled = bool(getattr(setting, 'webull_test_mode_enabled', False))
+            paper_requested = test_mode_param is True or req_account_id.startswith('TEST_') or req_account_id == 'TEST_PAPER_ACCOUNT'
+            if not paper_requested and test_mode_param is False and not req_account_id.startswith('QUANT_'):
+                if paper_mode_enabled:
+                    paper_mode_enabled = False
+                    if setting:
+                        setting.webull_test_mode_enabled = False
+                        db.session.commit()
+            if paper_requested and not paper_mode_enabled:
+                return jsonify({
+                    'success': False,
+                    'message': 'Enable Webull Test Mode before placing a simulated paper order.',
+                }), 409
+            # The persisted server setting is authoritative for unscoped requests.
+            is_test_order = paper_mode_enabled
         event_market = None
         if str(data.get('instrument_type') or '').strip().upper() == 'EVENT':
             try:

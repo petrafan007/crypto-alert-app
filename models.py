@@ -305,6 +305,29 @@ class WebullWatchlistItem(db.Model):
     )
 
 
+class PaperWatchlistItem(db.Model):
+    """Isolated paper-mode watchlist storing symbols only.
+
+    Deliberately carries no alert, favorite, note, sentiment, or auto-trade
+    columns so no real-account automation can ever read or trigger from it.
+    """
+    __tablename__ = 'paper_watchlist_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    provider = db.Column(db.String(20), nullable=False)  # 'webull' or 'binance'
+    symbol = db.Column(db.String(60), nullable=False)
+    instrument_type = db.Column(db.String(20), nullable=False, default='EQUITY')  # 'EQUITY' or 'CRYPTO'
+    display_name = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'provider', 'symbol', 'instrument_type',
+                            name='uq_paper_watchlist_user_provider_symbol_type'),
+        db.Index('ix_paper_watchlist_user', 'user_id'),
+    )
+
+
 class WebullTestAccount(db.Model):
     """Simulated paper trading account for Webull test mode."""
     __tablename__ = 'webull_test_accounts'
@@ -346,6 +369,7 @@ class WebullTestPosition(db.Model):
     option_expiration = db.Column(db.String(20), nullable=True)
     underlying_symbol = db.Column(db.String(40), nullable=True)
     event_outcome = db.Column(db.String(10), nullable=True)
+    hidden = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -372,6 +396,7 @@ class WebullTestPosition(db.Model):
             'option_strike': self.option_strike,
             'option_expiration': self.option_expiration,
             'event_outcome': self.event_outcome,
+            'hidden': bool(getattr(self, 'hidden', False)),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

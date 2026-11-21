@@ -1,6 +1,10 @@
-/* CSS Variables for Theme Management */
+/* CSS Variables for Theme & Global Trading Mode Management */
 
-/* Light Theme Variables */
+/* =========================================================================
+   REAL TRADING MODE (Default — unchanged neutral Light & Dark themes)
+   ========================================================================= */
+
+/* Light Theme Variables (Real) */
 :root,
 [data-theme="light"],
 body.light-mode {
@@ -10,55 +14,56 @@ body.light-mode {
   --bg-secondary: #ffffff;
   --bg-tertiary: #edf2f7;
   --bg-quaternary: #f7fafc;
-  
+  --footer-bg: #f8f9fa;
+
   --text-primary: #2d3748;
   --text-secondary: #4a5568;
   --text-tertiary: #718096;
   --text-inverse: #ffffff;
-  
+
   --border-color: #e2e8f0;
   --border-hover: #cbd5e0;
-  
+
   --accent-primary: #3182ce;
   --accent-secondary: #4fd1c5;
   --accent-success: #48bb78;
   --accent-warning: #ed8936;
   --accent-danger: #f56565;
   --accent-purple: #9f7aea;
-  
+
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  
+
   --nav-bg: #ffffff;
   --nav-border: #e2e8f0;
   --nav-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-  
+
   --card-bg: #ffffff;
   --card-border: #e2e8f0;
   --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-  
+
   --table-header-bg: #f7fafc;
   --table-header-text: #3182ce;
   --table-row-bg: #ffffff;
   --table-row-hover: #edf2f7;
   --table-border: #e2e8f0;
-  
+
   --input-bg: #ffffff;
   --input-border: #e2e8f0;
   --input-focus-border: #3182ce;
   --input-focus-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
-  
+
   --button-bg: #3182ce;
   --button-hover-bg: #2c5282;
   --button-text: #ffffff;
-  
+
   --modal-bg: #ffffff;
   --modal-border: #e2e8f0;
   --modal-overlay: rgba(0, 0, 0, 0.5);
 }
 
-/* Dark Theme Variables */
+/* Dark Theme Variables (Real) */
 [data-theme="dark"],
 body.dark-mode {
   color-scheme: dark;
@@ -66,50 +71,274 @@ body.dark-mode {
   --bg-secondary: #232b31;
   --bg-tertiary: #2d3748;
   --bg-quaternary: #1a1f23;
-  
+  --footer-bg: #0f0f23;
+
   --text-primary: #ffffff;
   --text-secondary: #e2e8f0;
   --text-tertiary: #a0aec0;
   --text-inverse: #181f23;
-  
+
   --border-color: #333;
   --border-hover: #4a5568;
-  
+
   --accent-primary: #4fd1c5;
   --accent-secondary: #4fd1c5;
   --accent-success: #48bb78;
   --accent-warning: #ed8936;
   --accent-danger: #f56565;
   --accent-purple: #9f7aea;
-  
+
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-  
+
   --nav-bg: #232b31;
   --nav-border: #333;
   --nav-shadow: none;
-  
+
   --card-bg: #232b31;
   --card-border: #333;
   --card-shadow: none;
-  
+
   --table-header-bg: #1a1f23;
   --table-header-text: #4fd1c5;
   --table-row-bg: #232b31;
   --table-row-hover: #2d3748;
   --table-border: #333;
-  
+
   --input-bg: #1a1f23;
   --input-border: #444;
   --input-focus-border: #4fd1c5;
   --input-focus-shadow: none;
-  
+
   --button-bg: #4fd1c5;
   --button-hover-bg: #38b2ac;
   --button-text: #0f1419;
-  
+
   --modal-bg: #232b31;
   --modal-border: #333;
   --modal-overlay: rgba(0, 0, 0, 0.7);
+}
+
+/* =========================================================================
+   PAPER TRADING MODE — Subtle Green (Light) & Subtle Dark Purple (Dark)
+   ========================================================================= */
+
+[data-theme="light"][data-trading-mode="paper"],
+body.light-mode.mode-paper {
+  --bg-primary: #eef7f0;
+  --bg-secondary: #f7fcf8;
+  --bg-tertiary: #dff0e4;
+  --bg-quaternary: #eaf5ed;
+  --footer-bg: #e5f3e9;
+
+  --text-primary: #173022;
+  --text-secondary: #2e523d;
+  --text-tertiary: #527560;
+
+  --border-color: #c5e0cc;
+  --border-hover: #9ec9aa;
+
+  --accent-primary: #1b7a48;
+  --accent-secondary: #2a9d63;
+
+  --nav-bg: #f3fbf5;
+  --nav-border: #c5e0cc;
+  --nav-shadow: 0 1px 3px 0 rgba(21, 90, 51, 0.1);
+
+  --card-bg: #f7fcf8;
+  --card-border: #c5e0cc;
+  --card-shadow: 0 1px 3px 0 rgba(21, 90, 51, 0.08);
+
+  --table-header-bg: #e4f3e8;
+  --table-header-text: #166534;
+  --table-row-bg: #f8fdf9;
+  --table-row-hover: #e7f5eb;
+  --table-border: #cde4d3;
+
+  --input-bg: #ffffff;
+  --input-border: #bddbc5;
+  --input-focus-border: #1b7a48;
+  --input-focus-shadow: 0 0 0 3px rgba(27, 122, 72, 0.14);
+
+  --modal-bg: #f7fcf8;
+  --modal-border: #c5e0cc;
+}
+
+[data-theme="dark"][data-trading-mode="paper"],
+body.dark-mode.mode-paper {
+  --bg-primary: #171224;
+  --bg-secondary: #221b36;
+  --bg-tertiary: #2f254a;
+  --bg-quaternary: #1b152b;
+  --footer-bg: #130e1f;
+
+  --text-primary: #f6f3ff;
+  --text-secondary: #ded6f5;
+  --text-tertiary: #a99bc9;
+
+  --border-color: #3d315c;
+  --border-hover: #564680;
+
+  --accent-primary: #b794f4;
+  --accent-secondary: #a78bfa;
+
+  --nav-bg: #201833;
+  --nav-border: #3d315c;
+  --nav-shadow: 0 1px 4px 0 rgba(10, 5, 22, 0.45);
+
+  --card-bg: #221b36;
+  --card-border: #3d315c;
+  --card-shadow: none;
+
+  --table-header-bg: #1b152b;
+  --table-header-text: #c4b5fd;
+  --table-row-bg: #221b36;
+  --table-row-hover: #2e2447;
+  --table-border: #382d54;
+
+  --input-bg: #1a1429;
+  --input-border: #483a6b;
+  --input-focus-border: #b794f4;
+
+  --modal-bg: #221b36;
+  --modal-border: #3d315c;
+}
+
+/* =========================================================================
+   QSE MODE — Subtle Light Blue (Light) & Subtle Dark Blue (Dark)
+   ========================================================================= */
+
+[data-theme="light"][data-trading-mode="qse"],
+body.light-mode.mode-qse {
+  --bg-primary: #ecf4fc;
+  --bg-secondary: #f6faff;
+  --bg-tertiary: #dcebfa;
+  --bg-quaternary: #e6f1fc;
+  --footer-bg: #e2effb;
+
+  --text-primary: #142b42;
+  --text-secondary: #2b4c6e;
+  --text-tertiary: #527394;
+
+  --border-color: #c2daf2;
+  --border-hover: #99c0e8;
+
+  --accent-primary: #1a6cb5;
+  --accent-secondary: #2b82d4;
+
+  --nav-bg: #f2f8ff;
+  --nav-border: #c2daf2;
+  --nav-shadow: 0 1px 3px 0 rgba(20, 74, 130, 0.1);
+
+  --card-bg: #f6faff;
+  --card-border: #c2daf2;
+  --card-shadow: 0 1px 3px 0 rgba(20, 74, 130, 0.08);
+
+  --table-header-bg: #e1eefb;
+  --table-header-text: #165a96;
+  --table-row-bg: #f8fbff;
+  --table-row-hover: #e6f1fc;
+  --table-border: #cadff4;
+
+  --input-bg: #ffffff;
+  --input-border: #b7d4f0;
+  --input-focus-border: #1a6cb5;
+  --input-focus-shadow: 0 0 0 3px rgba(26, 108, 181, 0.14);
+
+  --modal-bg: #f6faff;
+  --modal-border: #c2daf2;
+}
+
+[data-theme="dark"][data-trading-mode="qse"],
+body.dark-mode.mode-qse {
+  --bg-primary: #0d1726;
+  --bg-secondary: #152338;
+  --bg-tertiary: #1e314d;
+  --bg-quaternary: #101d30;
+  --footer-bg: #0a121f;
+
+  --text-primary: #f0f7ff;
+  --text-secondary: #d4e5f7;
+  --text-tertiary: #94b1d1;
+
+  --border-color: #284061;
+  --border-hover: #3b5c87;
+
+  --accent-primary: #38bdf8;
+  --accent-secondary: #60a5fa;
+
+  --nav-bg: #132033;
+  --nav-border: #284061;
+  --nav-shadow: 0 1px 4px 0 rgba(4, 10, 22, 0.45);
+
+  --card-bg: #152338;
+  --card-border: #284061;
+  --card-shadow: none;
+
+  --table-header-bg: #101d30;
+  --table-header-text: #7dd3fc;
+  --table-row-bg: #152338;
+  --table-row-hover: #1d304a;
+  --table-border: #253b59;
+
+  --input-bg: #101c2e;
+  --input-border: #314d73;
+  --input-focus-border: #38bdf8;
+
+  --modal-bg: #152338;
+  --modal-border: #284061;
+}
+
+/* =========================================================================
+   Full-page surface overrides for Paper & QSE modes (Real stays untouched)
+   ========================================================================= */
+
+body.mode-paper,
+body.mode-qse {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+body.mode-paper .app-container,
+body.mode-paper .main-content,
+body.mode-paper .trading-page,
+body.mode-paper .trading-container,
+body.mode-paper .settings-page-container,
+body.mode-paper .tax-report-container,
+body.mode-qse .app-container,
+body.mode-qse .main-content,
+body.mode-qse .trading-page,
+body.mode-qse .trading-container,
+body.mode-qse .settings-page-container,
+body.mode-qse .tax-report-container {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+body.mode-paper .nav-container,
+body.mode-qse .nav-container {
+  background: var(--nav-bg) !important;
+  border-bottom: 1px solid var(--nav-border) !important;
+  box-shadow: var(--nav-shadow) !important;
+}
+
+body.mode-paper .nav-menu-popover,
+body.mode-qse .nav-menu-popover {
+  background: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
+}
+
+body.mode-paper .card,
+body.mode-paper .panel,
+body.mode-paper .modal-content,
+body.mode-paper .total-value,
+body.mode-paper .table-container,
+body.mode-qse .card,
+body.mode-qse .panel,
+body.mode-qse .modal-content,
+body.mode-qse .total-value,
+body.mode-qse .table-container {
+  background-color: var(--card-bg) !important;
+  border-color: var(--card-border) !important;
 }

@@ -24,7 +24,7 @@ ALLOWED = (ast.Module, ast.FunctionDef, ast.arguments, ast.arg, ast.Return, ast.
            ast.BinOp, ast.BoolOp, ast.UnaryOp, ast.Call, ast.List, ast.Tuple,
            ast.Load, ast.Store, ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Gt,
            ast.Lt, ast.GtE, ast.LtE, ast.Eq, ast.NotEq, ast.And, ast.Or, ast.Not,
-           ast.Is, ast.IsNot, ast.IfExp)
+           ast.Is, ast.IsNot, ast.In, ast.NotIn, ast.IfExp)
 BUILTINS = {'abs': abs, 'min': min, 'max': max, 'round': round, 'float': float,
             'int': int, 'bool': bool}
 ROOT = Path(os.environ.get('QUANT_STRATEGY_ROOT', '/var/lib/crypto-quant-strategy'))

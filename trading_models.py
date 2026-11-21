@@ -144,6 +144,7 @@ class TestPortfolio(db.Model):
     total_cost_basis = Column(Float, nullable=True)
     realized_pnl = Column(Float, default=0.0)
     unrealized_pnl = Column(Float, default=0.0)
+    hidden = Column(Boolean, default=False)
     last_updated = Column(DateTime, default=datetime.utcnow)
     
     __table_args__ = (
@@ -162,6 +163,7 @@ class TestPortfolio(db.Model):
             'total_cost_basis': self.total_cost_basis,
             'realized_pnl': self.realized_pnl,
             'unrealized_pnl': self.unrealized_pnl,
+            'hidden': bool(getattr(self, 'hidden', False)),
             'last_updated': self.last_updated.isoformat() if self.last_updated else None
         }
 

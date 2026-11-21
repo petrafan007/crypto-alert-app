@@ -218,3 +218,6 @@ backups/
 
 # Rotated application logs
 app_debug.log*
+
+# Scratch directory (AI housekeeping rule)
+scratch/

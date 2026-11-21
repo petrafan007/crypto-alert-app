@@ -3,6 +3,7 @@ import axios from 'axios';
 import CombinedPositions from '../components/CombinedPositions';
 import ConfigurableOrderTable from '../components/ConfigurableOrderTable';
 import { useAuth } from '../components/AuthContext';
+import { useGlobalMode } from '../components/GlobalModeContext';
 import CancelOrderModal from '../components/CancelOrderModal';
 import SyntheticOrdersTable from '../components/SyntheticOrdersTable';
 import TrailingOrdersTable from '../components/TrailingOrdersTable';
@@ -278,7 +279,7 @@ function AccountCell({ order, webullAccounts }) {
   return <div className="combined-order-account">{label}</div>;
 }
 
-function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts, userId }) {
+function OrderTable({ orders, open, readOnly = false, onCancelOrder, cancellingId, webullAccounts, userId }) {
   const accountValue = (order) => {
     const account = webullAccounts.find((candidate) => String(candidate.account_id) === webullAccountId(order));
     return isWebull(order) ? (account ? accountLabel(account) : order.webull_account_type || 'Webull account') : 'Binance.US';
@@ -340,7 +341,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts,
     { id: 'status', label: 'Status', value: (order) => order.status, filterable: true, render: (order) => <>{order.status}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</> },
     ...(open ? [
       { id: 'estimated_pnl', label: 'EST P&L', value: (order) => Number(order.estimated_pnl), render: (order) => Number.isFinite(Number(order.estimated_pnl)) ? `${Number(order.estimated_pnl) >= 0 ? '+' : ''}$${amount(Math.abs(Number(order.estimated_pnl)), 2)}` : '—' },
-      {
+      ...(!readOnly ? [{
         id: 'actions',
         label: 'Actions',
         value: () => '',
@@ -384,7 +385,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts,
             </button>
           </div>
         ),
-      },
+      }] : []),
     ] : []),
   ];
   return <ConfigurableOrderTable rows={orders} columns={columns} tableId={`combined-${open ? 'open' : 'history'}`} userId={userId} emptyText={`No ${open ? 'open' : 'historical'} orders for the selected accounts.`} rowKey={(order) => `${order.source}-${order.id}`} />;
@@ -397,6 +398,9 @@ function Pagination({ page, setPage, pageSize, setPageSize, total }) {
 
 export default function Orders() {
   const { user } = useAuth();
+  const { globalMode, isRealMode, isPaperMode, isQseMode } = useGlobalMode();
+  const globalModeRef = useRef(globalMode);
+  globalModeRef.current = globalMode;
   const [positionsRefresh, setPositionsRefresh] = useState(0);
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -463,6 +467,38 @@ export default function Orders() {
 
   const loadOpenOrders = async ({ silent = false } = {}) => {
     const requestId = ++openOrdersRequestId.current;
+    const modeNow = globalModeRef.current;
+
+    if (modeNow === 'paper' || modeNow === 'qse') {
+      setScheduledOrders([]);
+      setWebullOpenLoading(false);
+      setWebullOpenProgress({ complete: 0, total: 0 });
+      if (modeNow === 'paper') {
+        axios.get('/api/trading/trailing-orders?test_mode=true').then(r => {
+          const trails = (r.data.orders || []).filter(o => o.test_mode && ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length;
+          axios.get('/api/trading/ladder-orders?test_mode=true').then(r2 => {
+            const ladders = (r2.data.orders || []).filter(o => o.test_mode && ['SUBMITTED', 'ACTIVE', 'PARTIALLY_FILLED', 'CANCEL_PENDING'].includes(o.status)).length;
+            setActiveSyntheticCount(trails + ladders);
+          }).catch(() => {});
+        }).catch(() => {});
+      } else {
+        setActiveSyntheticCount(0);
+      }
+      try {
+        const resp = await axios.get(`/api/dashboard/orders?mode=${encodeURIComponent(modeNow)}`, { withCredentials: true });
+        if (requestId !== openOrdersRequestId.current || globalModeRef.current !== modeNow) return;
+        const openList = (resp.data?.open_orders || []).map((o) => normalize(o, isWebull(o) ? 'webull' : 'binance'));
+        const histList = (resp.data?.history_orders || []).map((o) => normalize(o, isWebull(o) ? 'webull' : 'binance'));
+        setOpenOrders(openList);
+        setHistory(histList);
+        setHistoryTotal(histList.length);
+      } catch (error) {
+        if (!silent && requestId === openOrdersRequestId.current) {
+          setNotice(error.response?.data?.error || error.response?.data?.message || `Unable to load ${modeNow.toUpperCase()} orders.`);
+        }
+      }
+      return;
+    }
     
     // Fetch synthetic order count
     axios.get('/api/trading/trailing-orders').then(r => {
@@ -546,6 +582,22 @@ export default function Orders() {
   };
 
   const loadHistory = async ({ silent = false } = {}) => {
+    const modeNow = globalModeRef.current;
+    if (modeNow === 'paper' || modeNow === 'qse') {
+      if (!silent) setHistoryLoading(true);
+      try {
+        const resp = await axios.get(`/api/dashboard/orders?mode=${encodeURIComponent(modeNow)}`, { withCredentials: true });
+        if (globalModeRef.current !== modeNow) return;
+        const histList = (resp.data?.history_orders || []).map((o) => normalize(o, isWebull(o) ? 'webull' : 'binance'));
+        setHistory(histList);
+        setHistoryTotal(histList.length);
+      } catch (error) {
+        if (!silent) setNotice(error.response?.data?.error || error.response?.data?.message || 'Unable to load order history.');
+      } finally {
+        if (!silent) setHistoryLoading(false);
+      }
+      return;
+    }
     if (!silent) setHistoryLoading(true);
     try {
       const historyResponse = await axios.get(
@@ -659,11 +711,25 @@ export default function Orders() {
   };
 
   useEffect(() => {
-    load();
     loadLatestWorkflowData();
     fetchWorkflowPrompt('market-analysis');
     fetchWorkflowPrompt('portfolio-review');
   }, []);
+
+  useEffect(() => {
+    setOpenOrders([]);
+    setHistory([]);
+    setHistoryTotal(0);
+    setNotice('');
+    setFilters((prev) => ({
+      ...prev,
+      source: isQseMode ? 'webull' : 'all',
+      account: 'all',
+    }));
+    load();
+    if (activeTab === 'history') loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalMode]);
   const activeOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status || order.status === '—'), [openOrders]);
   const matchesFilters = (order) => {
     if (filters.source !== 'all' && orderSource(order) !== filters.source) return false;
@@ -828,13 +894,29 @@ export default function Orders() {
     <div className="trading-page" style={{ padding: '20px', maxWidth: '1500px', margin: '0 auto' }}>
       <div className="trading-header" style={{ marginBottom: 18 }}>
         <div>
-          <h1 style={{ fontSize: '2rem', margin: 0 }}>📋 Orders</h1>
+          <h1 style={{ fontSize: '2rem', margin: 0 }}>
+            📋 {isQseMode ? 'Orders (QSE · Webull Read-Only)' : isPaperMode ? 'Orders (Paper Trading)' : 'Orders'}
+          </h1>
           <p style={{ margin: '6px 0 0', color: 'var(--text-secondary, #94a3b8)' }}>
-            Orders, history, and positions across Binance.US and Webull.
+            {isQseMode
+              ? 'Read-only Quantitative Strategy Engine orders filtered to Webull.'
+              : isPaperMode
+                ? 'Simulated paper trading orders, history, and positions across Webull Test and Binance.US Paper.'
+                : 'Orders, history, and positions across Binance.US and Webull.'}
           </p>
         </div>
         <button type="button" className="btn btn-secondary" onClick={load}>🔄 Refresh</button>
       </div>
+      {isPaperMode && (
+        <div className="mode-banner mode-banner-paper" role="status">
+          <span>🧪 Paper Trading Mode — Showing global simulated paper orders across Webull Test &amp; Binance.US Paper.</span>
+        </div>
+      )}
+      {isQseMode && (
+        <div className="mode-banner mode-banner-qse" role="status">
+          <span>🤖 Quantitative Strategy Engine (QSE) — Filtered to Webull QSE · Strictly Read-Only (cancellations &amp; replacements disabled).</span>
+        </div>
+      )}
       {notice && <div className="modern-real-warning" style={{ marginBottom: 16 }}>⚠️ {notice}</div>}
       <div className="trading-tabs">
         <button className={`tab-button ${activeTab === 'open' ? 'active' : ''}`} onClick={() => selectTab('open')}>
@@ -871,14 +953,18 @@ export default function Orders() {
                 Unified server-side synthetic orders (Trailing Stops, Scale-Out Ladders, and Smart Brackets) across Binance.US and Webull (Equities, ETFs, and Crypto).
               </p>
             </div>
-            <SyntheticOrdersTable showBrokerFilter={true} defaultBroker="all" />
+            {isQseMode ? (
+              <div className="empty-state"><p>Synthetic manual orders are not used in Quantitative Strategy Engine mode.</p></div>
+            ) : (
+              <SyntheticOrdersTable showBrokerFilter={true} defaultBroker="all" testMode={isPaperMode} />
+            )}
           </section>
         )}
         {(activeTab === 'open' || activeTab === 'history') && (
           <section className="order-history-container">
             <div className="combined-order-filters" aria-label="Combined order filters">
-              <label>Source<select value={filters.source} onChange={(event) => setFilter('source', event.target.value)}><option value="all">All sources</option><option value="binance">Binance.US</option><option value="webull">Webull</option><option value="automation">Auto-Buy / Auto-Sell</option></select></label>
-              <label>Account<select value={filters.account} onChange={(event) => setFilter('account', event.target.value)}><option value="all">All accounts</option><option value="binance">Binance.US</option>{webullAccounts.map((account) => <option key={account.account_id} value={account.account_id}>{accountLabel(account)}</option>)}</select></label>
+              <label>Source<select value={isQseMode ? 'webull' : filters.source} disabled={isQseMode} onChange={(event) => setFilter('source', event.target.value)}>{!isQseMode && <option value="all">All sources</option>}{!isQseMode && <option value="binance">Binance.US</option>}<option value="webull">Webull{isQseMode ? ' (QSE)' : ''}</option>{isRealMode && <option value="automation">Auto-Buy / Auto-Sell</option>}</select></label>
+              <label>Account<select value={filters.account} onChange={(event) => setFilter('account', event.target.value)}><option value="all">All accounts</option>{!isQseMode && <option value="binance">Binance.US</option>}{webullAccounts.map((account) => <option key={account.account_id} value={account.account_id}>{accountLabel(account)}</option>)}</select></label>
               <label>Symbol<input type="search" value={filters.symbol} onChange={(event) => setFilter('symbol', event.target.value)} placeholder="BTC, TSLA…" /></label>
               <label>Product<select value={filters.product} onChange={(event) => setFilter('product', event.target.value)}><option value="all">All products</option><option value="crypto">Crypto</option><option value="equity">Stock / ETF</option><option value="option">Options</option><option value="future">Futures</option><option value="event">Event Contracts</option><option value="automation">Automation</option><option value="other">Other</option></select></label>
               <label>Time range<select value={filters.timeRange} onChange={(event) => setFilter('timeRange', event.target.value)}><option value="all">All time</option><option value="1">Past 24 hours</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="90">Past 90 days</option></select></label>
@@ -987,14 +1073,18 @@ export default function Orders() {
                 )}
                 <h2>All Open Orders</h2>
                 {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders{webullOpenProgress.total ? ` (${webullOpenProgress.complete}/${webullOpenProgress.total} accounts)…` : '…'}</p>}
-                <OrderTable orders={filteredOpenOrders} open onCancelOrder={openCancelModalForOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} userId={user?.id} />
+                <OrderTable orders={filteredOpenOrders} open readOnly={isQseMode} onCancelOrder={isQseMode ? undefined : openCancelModalForOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} userId={user?.id} />
               </>
             ) : historyLoading && !sortedHistory.length ? (
               <div className="empty-state"><p>Loading order history…</p></div>
             ) : (
               <>
-                <h2>Synthetic Strategy History</h2>
-                <SyntheticOrdersTable historyMode />
+                {!isQseMode && (
+                  <>
+                    <h2>Synthetic Strategy History</h2>
+                    <SyntheticOrdersTable historyMode testMode={isPaperMode} />
+                  </>
+                )}
                 <h2>All Order History</h2>
                 <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} userId={user?.id} />
                 <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={historyTotal} />

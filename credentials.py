@@ -668,6 +668,7 @@ class UserSetting(db.Model):
     sentiment_chart_default_range = db.Column(db.String(10), default='3d')
     max_slippage_pct = db.Column(db.Float, default=2.0)
     webull_test_mode_enabled = db.Column(db.Boolean, default=False)
+    global_trading_mode = db.Column(db.String(16), default='real')
 
 
 class OnboardingDefaultProfile(db.Model):

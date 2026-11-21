@@ -28,6 +28,7 @@ from portfolio_algo_models import (
 )
 from services.portfolio_strategy_signals import (
     MODULES, TYPES, ET, finite, utc, in_session, session_bounds,
+    compute_watchlist_regime, compute_crypto_regime,
     equity_signal, equity_rotation_scores, option_regime, crypto_signal, futures_signal, select_credit_spread, performance,
 )
 
@@ -412,10 +413,18 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     side = signal.get('side', 'LONG')
     price = fill_price(module, price, side)
     budget = min(module_budget(cfg, acc, state, module), acc.cash_balance)
-    # Per-position maximum: 20% of a bucket, and 0.5% portfolio stop risk.
+    # Per-position maximum: 20% of a bucket, and 0.5% portfolio stop risk,
+    # scaled by regime state (e.g. 0.5x in pullback, 0x in falling_hard).
+    size_multiplier = signal.get('size_multiplier')
+    if size_multiplier is None:
+        size_multiplier = 1.0
+    else:
+        size_multiplier = max(0.0, min(1.0, float(size_multiplier)))
+    if size_multiplier <= 0:
+        return reject('Composite regime is defensive (size_multiplier=0); new long entries paused.')
     weight = allocations_for(cfg)[module]
     fraction = 1.0 if module == 'futures' else 0.2
-    budget = min(budget, max(0, acc.total_equity)*weight/100*fraction)
+    budget = min(budget, max(0, acc.total_equity)*weight/100*fraction*size_multiplier)
     # Aggregate per-module risk limit. The per-trade cap is applied
     # independently to every position, so a module holding several
     # correlated positions could risk several times that amount in one
@@ -490,7 +499,7 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     # spread's maximum loss is fixed by its width, so capping the loss at a
     # flat fraction of total equity sized every options entry to a single
     # contract and made the module unable to reach its allocation.
-    risk_cap_pct = TRADE_RISK_CAP.get(module, 0.005)
+    risk_cap_pct = TRADE_RISK_CAP.get(module, 0.005) * size_multiplier
     legs = int((details or {}).get('legs') or 2)
     quantity = entry_quantity(module, price, budget, acc.total_equity, stop,
                               multiplier=multiplier, unit=unit, max_loss=max_loss,
@@ -1139,6 +1148,45 @@ def decision_verdict(user_id, module, symbol, price, signal, now, config, evalua
             'evaluation_id': (result or {}).get('evaluation_id')}
 
 
+def combined_decision_verdict(user_id, module, symbol, price, signal, now, config, evaluate_entry, *, news_summary=None):
+    """Unified three-layer QSE decision gate across all trading modules.
+
+    Combines Layer 1 (quantitative math/regime/market-state checks) and
+    Layer 2 (AI news & direction summary) and submits BOTH to Layer 3
+    (Decision Models: subq / inception Mercury / gemini).
+    A BLOCK rejects the entry; ABSTAIN or provider outage fails open to the
+    deterministic quantitative layer so no single outage silences the book.
+    """
+    if module not in ('equities', 'options', 'crypto', 'events'):
+        return None
+    if not (config.get('decision_enabled') and config.get('decision_quant_enabled')):
+        return None
+    try:
+        result = evaluate_entry(
+            user_id, symbol, price, signal, now, config,
+            module=module, news_summary=news_summary,
+        )
+    except TypeError:
+        try:
+            result = evaluate_entry(user_id, symbol, price, signal, now, config)
+        except Exception as exc:
+            logger.warning('Decision Engine could not evaluate the %s (%s) entry: %s', symbol, module, str(exc)[:150])
+            return {'verdict': 'ABSTAIN', 'probability': None,
+                    'reason': 'The decision engine was unavailable.', 'evaluation_id': None}
+    except Exception as exc:
+        logger.warning('Decision Engine could not evaluate the %s (%s) entry: %s', symbol, module, str(exc)[:150])
+        return {'verdict': 'ABSTAIN', 'probability': None,
+                'reason': 'The decision engine was unavailable.', 'evaluation_id': None}
+    verdict = str((result or {}).get('verdict') or 'ABSTAIN').upper()
+    if verdict not in ('CONFIRM', 'BLOCK', 'ABSTAIN'):
+        verdict = 'ABSTAIN'
+    return {'verdict': verdict, 'probability': (result or {}).get('probability'),
+            'reason': (result or {}).get('reason') or 'The decision engine abstained.',
+            'evaluation_id': (result or {}).get('evaluation_id'),
+            'provider': (result or {}).get('provider'),
+            'model': (result or {}).get('model')}
+
+
 def run_scan(user_id, force=False, provider=None):
     token = claim(user_id, force)
     if not token:
@@ -1212,7 +1260,7 @@ def run_scan(user_id, force=False, provider=None):
                                 # path. Passing a hardcoded True disabled the
                                 # gate for every open position.
                                 signal = crypto_signal(bars, price, settings[module], data.dominance_ok(symbol, now))
-                            reason = 'STRATEGY_EXIT' if signal['exit'] else None
+                            reason = (signal.get('exit_reason') or 'STRATEGY_EXIT') if signal['exit'] else None
                         except Exception as exc:
                             # A history outage must not suppress marking or an existing stop.
                             report[module]['messages'].append(f'{symbol}: indicators unavailable ({str(exc)[:120]})')
@@ -1261,21 +1309,63 @@ def run_scan(user_id, force=False, provider=None):
                 db.session.rollback()
                 report[module]['messages'].append(f'{symbol}: {str(exc)[:200]}')
         rotation_ranks = {}
+        equities_composite_regime = None
+        equities_watchlist = watches.get('equities', [])
         if settings['equities']['enabled'] and in_session(datetime.utcnow()):
             try:
                 market_data()
                 ranking_time = datetime.utcnow()
-                benchmark = data.bars('SPY', 'EQUITY', ranking_time)
                 histories = {}
-                for candidate in watches.get('equities', []):
+                for candidate in equities_watchlist:
                     try:
                         histories[candidate] = data.bars(candidate, 'EQUITY', ranking_time,
                             limit=max(settings['equities']['trend_sma_days'] + 10, 260))
                     except Exception as exc:
                         report['equities']['messages'].append(f'{candidate}: daily history unavailable ({str(exc)[:120]})')
-                rotation_ranks = equity_rotation_scores(histories, benchmark, settings['equities'])
+                equities_composite_regime = compute_watchlist_regime(histories, equities_watchlist)
+                report['equities']['regime'] = {
+                    'state': equities_composite_regime['state'],
+                    'weighted_breadth': equities_composite_regime['weighted_breadth'],
+                    'size_multiplier': equities_composite_regime['size_multiplier'],
+                    'above_sma50_count': equities_composite_regime['above_sma50_count'],
+                    'evaluated_symbols': equities_composite_regime['evaluated_symbols'],
+                    'reason': equities_composite_regime['reason'],
+                }
+                benchmark = histories.get('SPY')
+                if benchmark is None:
+                    try:
+                        benchmark = data.bars('SPY', 'EQUITY', ranking_time)
+                    except Exception:
+                        benchmark = next(iter(histories.values()), [])
+                rotation_ranks = equity_rotation_scores(
+                    histories, benchmark, settings['equities'],
+                    watchlist=equities_watchlist, composite_regime=equities_composite_regime,
+                )
             except Exception as exc:
-                report['equities']['messages'].append(f'Rotation ranking unavailable: {str(exc)[:120]}')
+                report['equities']['messages'].append(f'Composite regime / rotation ranking unavailable: {str(exc)[:120]}')
+
+        crypto_watchlist_regime = None
+        crypto_watchlist = watches.get('crypto', [])
+        if settings['crypto']['enabled'] and crypto_watchlist:
+            try:
+                market_data()
+                crypto_time = datetime.utcnow()
+                crypto_histories = {}
+                for candidate in crypto_watchlist:
+                    try:
+                        crypto_histories[candidate] = data.bars(candidate, 'CRYPTO', crypto_time, interval='H1', limit=150)
+                    except Exception as exc:
+                        report['crypto']['messages'].append(f'{candidate}: hourly history unavailable ({str(exc)[:120]})')
+                if crypto_histories:
+                    crypto_watchlist_regime = compute_crypto_regime(crypto_histories, crypto_watchlist)
+                    report['crypto']['regime'] = {
+                        'state': crypto_watchlist_regime['state'],
+                        'breadth': crypto_watchlist_regime['breadth'],
+                        'size_multiplier': crypto_watchlist_regime['size_multiplier'],
+                        'evaluated_symbols': crypto_watchlist_regime['evaluated_symbols'],
+                    }
+            except Exception as exc:
+                report['crypto']['messages'].append(f'Crypto watchlist regime unavailable: {str(exc)[:120]}')
         for module in MODULES:
             if module == 'events':
                 # Do not delay short-lived decisions behind this scan's provider
@@ -1312,8 +1402,28 @@ def run_scan(user_id, force=False, provider=None):
                                 {'checks': regime['checks'], 'basis': regime['basis'],
                                  'min_ivr': settings[module]['min_ivr']}, now)
                             if choice['enter']:
-                                spread = select_credit_spread(contracts, price, rank, settings[module], now,
-                                    allow_warmup=rank is None, preferred_kind=regime['option_type'])
+                                spread_diagnostics = {}
+                                try:
+                                    spread = select_credit_spread(
+                                        contracts, price, rank, settings[module], now,
+                                        allow_warmup=rank is None, preferred_kind=regime['option_type'],
+                                        diagnostics=spread_diagnostics,
+                                    )
+                                except ValueError as spread_exc:
+                                    report['options'].setdefault('filter_diagnostics', []).append({
+                                        'symbol': symbol,
+                                        'option_type': regime.get('option_type'),
+                                        'reason': str(spread_exc)[:300],
+                                        **spread_diagnostics,
+                                    })
+                                    _record_portfolio_log(
+                                        user_id, 'OPTIONS_FILTER_REJECTED',
+                                        f"{symbol} ({regime.get('option_type')}) rejected by spread filters: {str(spread_exc)[:240]}",
+                                        module='options', symbol=symbol,
+                                        details=spread_diagnostics,
+                                    )
+                                    raise
+                                details_spread_diag = spread_diagnostics
                                 price, multiplier = spread['credit'], 100
                                 margin = (spread['width']-price)*100
                                 # The stop is a risk limit expressed in the same
@@ -1332,6 +1442,7 @@ def run_scan(user_id, force=False, provider=None):
                                 if entry_mark >= stop_price:
                                     raise ValueError('Selected spread is already beyond its own risk limit; waiting for a tighter quote.')
                                 details = {**spread, 'regime': regime, 'iv_readiness': readiness,
+                                           'spread_filter_diagnostics': details_spread_diag,
                                            'stop_price': stop_price, 'entry_mark': entry_mark,
                                            'max_loss': max_loss,
                                            # The loss actually taken is the distance
@@ -1358,7 +1469,11 @@ def run_scan(user_id, force=False, provider=None):
                             details = {'root': watch_symbol, 'margin_assumption': margin}
                         elif module == 'crypto':
                             price = data.quote(symbol, 'CRYPTO', now)
-                            signal = crypto_signal(data.bars(symbol, 'CRYPTO', now, interval='H1', limit=150), price, settings[module], data.dominance_ok(symbol, now))
+                            signal = crypto_signal(
+                                data.bars(symbol, 'CRYPTO', now, interval='H1', limit=150),
+                                price, settings[module], data.dominance_ok(symbol, now),
+                                crypto_regime=crypto_watchlist_regime,
+                            )
                             from services.strategy_client import evaluate as strategy_evaluate
                             choice = strategy_evaluate(user_id, 'crypto', symbol, {'checks': signal['checks']}, now)
                             signal.update(enter=choice['enter'], setup=choice['setup'],
@@ -1367,14 +1482,33 @@ def run_scan(user_id, force=False, provider=None):
                         else:
                             price = data.quote(symbol, 'EQUITY', now)
                             bars = data.bars(symbol, 'EQUITY', now, limit=max(settings[module]['trend_sma_days']+10, 260))
-                            signal = equity_signal(bars, price, settings[module],
-                                data.bars('SPY', 'EQUITY', now), rotation_ranks.get(symbol))
+                            spy_bars = None
+                            try:
+                                spy_bars = data.bars('SPY', 'EQUITY', now)
+                            except Exception:
+                                spy_bars = bars
+                            signal = equity_signal(
+                                bars, price, settings[module], spy_bars,
+                                rotation_ranks.get(symbol),
+                                composite_regime=equities_composite_regime,
+                            )
                             from services.strategy_client import evaluate as strategy_evaluate
                             choice = strategy_evaluate(user_id, 'equities', symbol, {'checks': signal['checks']}, now)
                             signal.update(enter=choice['enter'], setup=choice['setup'],
                                           reason=choice['reason'], strategy_version=choice['strategy_version'],
                                           code_sha256=choice['code_sha256'])
                         entries = [(symbol, price, signal, details, None)]
+                    # Gather Layer 2 (AI news & direction summary) outside the DB row lock
+                    # for any qualified candidate when the Decision Engine is active.
+                    news_summaries = {}
+                    if decision_config.get('decision_enabled') and decision_config.get('decision_quant_enabled'):
+                        from services.portfolio_ai_context import get_news_direction_summary
+                        for cand_sym, _cand_price, cand_sig, _cand_det, _cand_key in entries:
+                            if cand_sig and cand_sig.get('enter'):
+                                try:
+                                    news_summaries[cand_sym] = get_news_direction_summary(user_id, cand_sym, module, now)
+                                except Exception as news_exc:
+                                    logger.debug('News summary skipped for %s (%s): %s', cand_sym, module, str(news_exc)[:120])
                     if datetime.utcnow()-now > timedelta(seconds=120):
                         raise ValueError('Market-data collection exceeded the quote freshness window.')
                     cfg, acc, state = locked(user_id)
@@ -1411,9 +1545,13 @@ def run_scan(user_id, force=False, provider=None):
                                 # BLOCK rejects the entry; an ABSTAIN never disables
                                 # a module, and a failure never stops a deterministic
                                 # entry.
-                                decision = decision_verdict(
+                                cand_news = news_summaries.get(entry_symbol)
+                                if cand_news and isinstance(signal.get('checks'), dict):
+                                    signal['checks']['news_direction_bias'] = cand_news.get('direction_bias')
+                                    signal['checks']['news_summary_source'] = cand_news.get('source')
+                                decision = combined_decision_verdict(
                                     user_id, module, entry_symbol, price, signal, now,
-                                    decision_config, evaluate_entry)
+                                    decision_config, evaluate_entry, news_summary=cand_news)
                                 rejections = []
                                 if decision and decision['verdict'] == 'BLOCK':
                                     rejections.append(decision['reason'])

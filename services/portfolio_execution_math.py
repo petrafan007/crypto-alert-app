@@ -66,7 +66,7 @@ def entry_quantity(module, price, budget, equity, stop=None, *, multiplier=1,
 
 def spot_exit(module, price, side, old_stop, signal):
     """Existing stop precedes trailing-stop updates, exactly as the live scan."""
-    reason = 'STRATEGY_EXIT' if signal and signal.get('exit') else None
+    reason = (signal.get('exit_reason') or 'STRATEGY_EXIT') if signal and signal.get('exit') else None
     if old_stop is not None and ((side == 'LONG' and price <= old_stop) or
                                  (side == 'SHORT' and price >= old_stop)):
         reason = 'STOP_LOSS'

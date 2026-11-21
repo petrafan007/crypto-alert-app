@@ -65,7 +65,7 @@ def init_db(app=None):
         AICopilotSession, AIConversation, AICache, AIAnalysisSchedule, PriceHistory,
         WebullAccountSnapshot, WebullHolding, WebullOrder, BinanceOrder, OrderHistorySyncState,
         WebullWatchlistItem, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition,
-        WebullTestOrder, WebullScheduledOrder, AlertState, CredentialHealth,
+        WebullTestOrder, WebullScheduledOrder, AlertState, CredentialHealth, PaperWatchlistItem,
     )
     from event_algo_models import EventStrategyConfig, EventStrategyRun, EventStrategyLog, EventStrategyAIEvaluation, EventMarketSnapshot, EventStrategyDecision, EventStrategyOrder, EventStrategyPosition, EventStrategyPerformance, EventContractOutcome, EventStrategyReport
     from portfolio_algo_models import (PortfolioStrategyConfig, PortfolioStrategyAccount,
@@ -157,6 +157,9 @@ def init_db(app=None):
             ("user_settings", "webull_crypto_sentiment_horizon_hours", "INTEGER DEFAULT 24"),
             ("user_settings", "webull_equity_sentiment_horizon_hours", "INTEGER DEFAULT 24"),
             ("user_settings", "webull_test_mode_enabled", "BOOLEAN DEFAULT FALSE"),
+            ("user_settings", "global_trading_mode", "VARCHAR(16) DEFAULT 'real'"),
+            ("webull_test_positions", "hidden", "BOOLEAN DEFAULT FALSE"),
+            ("test_portfolio", "hidden", "BOOLEAN DEFAULT FALSE"),
             ("user_settings", "tax_webull_manual_invested_updated", "VARCHAR"),
             ("user_settings", "onboarding_required", "BOOLEAN DEFAULT FALSE"),
             ("user_settings", "onboarding_completed", "BOOLEAN DEFAULT FALSE"),
@@ -511,6 +514,19 @@ def init_db(app=None):
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
+                """))
+                conn.execute(db.text("""
+                    CREATE TABLE IF NOT EXISTS paper_watchlist_items (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        provider VARCHAR(20) NOT NULL,
+                        symbol VARCHAR(60) NOT NULL,
+                        instrument_type VARCHAR(20) NOT NULL DEFAULT 'EQUITY',
+                        display_name VARCHAR(200),
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT uq_paper_watchlist_user_provider_symbol_type UNIQUE (user_id, provider, symbol, instrument_type)
+                    );
+                    CREATE INDEX IF NOT EXISTS ix_paper_watchlist_user ON paper_watchlist_items (user_id);
                 """))
         except Exception as ex:
             print(f"Migration note for webull test tables: {ex}")

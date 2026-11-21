@@ -1755,9 +1755,19 @@ def place_test_order():
         if order_type not in valid_order_types:
             return jsonify({'success': False, 'error': f'Invalid order type. Must be one of: {", ".join(valid_order_types)}'}), 400
 
-        settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
-        if not settings or not settings.test_mode_enabled:
-            return jsonify(success=False, error='Enable Binance.US Test Mode before placing paper orders.'), 409
+        raw_scope = data.get('scope')
+        if raw_scope is not None:
+            if not isinstance(raw_scope, str) or raw_scope not in ('paper', 'real'):
+                return jsonify(success=False, error='Invalid order scope. Must be "paper" or "real".'), 400
+            if raw_scope != 'paper':
+                return jsonify(success=False, error='Scope mismatch: real scope is not allowed on the paper order endpoint.'), 400
+        else:
+            user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+            if str(getattr(user_setting, 'global_trading_mode', 'real') or 'real').lower() == 'qse':
+                return jsonify(success=False, error='Binance.US trading is disabled in Quantitative Strategy Engine mode.'), 403
+            settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+            if not settings or not settings.test_mode_enabled:
+                return jsonify(success=False, error='Enable Binance.US Test Mode before placing paper orders.'), 409
         from services.synthetic_execution_service import binance_client
         client = binance_client(public=True)
 
@@ -2770,16 +2780,26 @@ def place_real_order():
     """Place a REAL order on Binance.US (requires test mode to be disabled)"""
     import traceback
     try:
-        # Check trading settings
-        settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        data = request.get_json(silent=True) or {}
+        raw_scope = data.get('scope')
+        if raw_scope is not None:
+            if not isinstance(raw_scope, str) or raw_scope not in ('paper', 'real'):
+                return jsonify({'success': False, 'error': 'Invalid order scope. Must be "paper" or "real".'}), 400
+            if raw_scope != 'real':
+                return jsonify({'success': False, 'error': 'Scope mismatch: paper scope is not allowed on the live order endpoint.'}), 400
+            settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        else:
+            user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+            if str(getattr(user_setting, 'global_trading_mode', 'real') or 'real').lower() == 'qse':
+                return jsonify({'success': False, 'error': 'Binance.US trading is disabled in Quantitative Strategy Engine mode.'}), 403
+            # Check trading settings
+            settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
 
-        if not settings or settings.test_mode_enabled:
-            return jsonify({
-                'success': False,
-                'error': 'Real trading is disabled. Please disable test mode in settings to place real orders.'
-            }), 403
-
-        data = request.get_json()
+            if not settings or settings.test_mode_enabled:
+                return jsonify({
+                    'success': False,
+                    'error': 'Real trading is disabled. Please disable test mode in settings to place real orders.'
+                }), 403
 
         # Validate required fields
         required_fields = ['symbol', 'side', 'type']
@@ -4726,11 +4746,45 @@ def api_sync_coins():
 @portfolio_bp.route("/api/unhide-all", methods=["POST"])
 @login_required
 def unhide_all():
-    data = request.get_json() or {}
-    coin_ids = data.get('coin_ids', [])
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get('mode') or request.args.get('mode') or 'real').strip().lower()
+    if mode == 'qse':
+        return jsonify({"success": False, "error": "Quantitative Strategy Engine mode is strictly read-only."}), 403
 
+    coin_ids = data.get('coin_ids', [])
     if not coin_ids:
         return jsonify({"success": False, "error": "No coins selected"})
+
+    if mode == 'paper':
+        from models import WebullTestPosition
+        wb_paper_ids = []
+        bn_paper_ids = []
+        for cid in coin_ids:
+            s = str(cid)
+            if s.startswith('paper_pos_'):
+                raw = s.replace('paper_pos_', '')
+                if raw.isdigit():
+                    wb_paper_ids.append(int(raw))
+            elif s.startswith('webull-paper-'):
+                raw = s.replace('webull-paper-', '')
+                if raw.isdigit():
+                    wb_paper_ids.append(int(raw))
+            elif s.startswith('binance-paper-'):
+                raw = s.replace('binance-paper-', '')
+                if raw.isdigit():
+                    bn_paper_ids.append(int(raw))
+        if wb_paper_ids:
+            WebullTestPosition.query.filter(
+                WebullTestPosition.user_id == current_user.id,
+                WebullTestPosition.id.in_(wb_paper_ids),
+            ).update({WebullTestPosition.hidden: False}, synchronize_session=False)
+        if bn_paper_ids:
+            TestPortfolio.query.filter(
+                TestPortfolio.user_id == current_user.id,
+                TestPortfolio.id.in_(bn_paper_ids),
+            ).update({TestPortfolio.hidden: False}, synchronize_session=False)
+        db.session.commit()
+        return jsonify({"success": True})
 
     binance_ids = []
     webull_ids = []
@@ -5355,10 +5409,47 @@ def api_tax_reconciliation():
 @portfolio_bp.route("/api/hide-coin", methods=["POST"])
 @login_required
 def hide_coin():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get("mode") or request.args.get("mode") or "real").strip().lower()
+    if mode == "qse":
+        return jsonify({"success": False, "error": "Quantitative Strategy Engine mode is strictly read-only."}), 403
+
     coin_id = data.get("coin_id") or data.get("id")  # Support both coin_id and id
-    hidden = data.get("hidden", True)
+    hidden = bool(data.get("hidden", True))
     sym = data.get('symbol')
+
+    if mode == "paper":
+        from models import WebullTestPosition
+        cid_str = str(coin_id or '')
+        if cid_str.startswith('paper_pos_') or cid_str.startswith('webull-paper-'):
+            raw = cid_str.replace('paper_pos_', '').replace('webull-paper-', '')
+            if raw.isdigit():
+                pos = WebullTestPosition.query.filter_by(id=int(raw), user_id=current_user.id).first()
+                if pos:
+                    pos.hidden = hidden
+                    db.session.commit()
+                    return jsonify({"success": True})
+        if cid_str.startswith('binance-paper-'):
+            raw = cid_str.replace('binance-paper-', '')
+            if raw.isdigit():
+                tp = TestPortfolio.query.filter_by(id=int(raw), user_id=current_user.id).first()
+                if tp:
+                    tp.hidden = hidden
+                    db.session.commit()
+                    return jsonify({"success": True})
+        if sym:
+            sym_clean = str(sym).upper().strip()
+            pos = WebullTestPosition.query.filter_by(symbol=sym_clean, user_id=current_user.id).first()
+            if pos:
+                pos.hidden = hidden
+                db.session.commit()
+                return jsonify({"success": True})
+            tp = TestPortfolio.query.filter_by(symbol=sym_clean, user_id=current_user.id).first()
+            if tp:
+                tp.hidden = hidden
+                db.session.commit()
+                return jsonify({"success": True})
+        return jsonify({"success": False, "error": "Paper asset not found"}), 404
 
     logger.info(f"Hide coin request: coin_id={coin_id}, symbol={sym}, hidden={hidden}, user_id={current_user.id}")
 
@@ -6128,6 +6219,56 @@ def api_watchlist_remove():
 @login_required
 def api_hidden_coins():
     try:
+        mode = str(request.args.get("mode") or "real").strip().lower()
+        if mode == "qse":
+            return jsonify([])
+        if mode == "paper":
+            from models import WebullTestPosition
+            from services.webull_paper_trading_service import _test_account_mapping
+            paper_result = []
+            for tp in TestPortfolio.query.filter_by(user_id=current_user.id, hidden=True).all():
+                if not str(tp.symbol or '').strip():
+                    continue
+                qty = float(tp.quantity or 0.0)
+                price = float(tp.avg_entry_price or 0.0)
+                paper_result.append({
+                    'id': f'binance-paper-{tp.id}',
+                    'coin_id': f'binance-paper-{tp.id}',
+                    'raw_id': tp.id,
+                    'symbol': tp.symbol,
+                    'amount': qty,
+                    'current_price': price,
+                    'current_value': round(qty * price, 2),
+                    'source': 'binance',
+                    'source_label': 'Binance.US Paper',
+                    'asset_type': 'crypto',
+                    'is_crypto': True,
+                    'is_etf': False,
+                    'is_paper': True,
+                })
+            for wp in WebullTestPosition.query.filter_by(user_id=current_user.id, hidden=True).all():
+                if not str(wp.symbol or '').strip():
+                    continue
+                _acct_id, acct_name = _test_account_mapping(wp.instrument_type)
+                qty = float(wp.quantity or 0.0)
+                price = float(wp.last_price or wp.cost_price or 0.0)
+                paper_result.append({
+                    'id': f'paper_pos_{wp.id}',
+                    'coin_id': f'paper_pos_{wp.id}',
+                    'raw_id': wp.id,
+                    'symbol': wp.symbol,
+                    'amount': qty,
+                    'current_price': price,
+                    'current_value': float(wp.market_value or (qty * price)),
+                    'source': 'webull',
+                    'source_label': 'Webull Paper',
+                    'instrument_type': wp.instrument_type or 'EQUITY',
+                    'webull_account_type': f'{acct_name} (Paper)',
+                    'is_external': True,
+                    'is_etf': False,
+                    'is_paper': True,
+                })
+            return jsonify(paper_result)
         try:
             update_all_coin_prices_from_binance(current_user.id)
             db.session.commit()  # Ensure all changes are saved

@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../components/AuthContext';
+import { useGlobalMode } from '../components/GlobalModeContext';
+import { toWebullTradingMode } from '../utils/globalMode.mjs';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import { FaArrowDown, FaArrowUp, FaSearch, FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import WebullTradingViewChart, { DEFAULT_STOCKS } from '../components/WebullTradingViewChart';
@@ -1139,8 +1141,12 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     return () => { cancelled = true; clearTimeout(timer); };
   }, [showQuantAuditModal, quantAuditPending]);
 
-  // Webull Trading Mode (Real, Paper Test, Quantitative Algo) state
-  const [tradingMode, setTradingMode] = useState('REAL'); // 'REAL' | 'TEST' | 'QUANT'
+  const { globalMode } = useGlobalMode();
+  const globalModeRef = useRef(globalMode);
+  globalModeRef.current = globalMode;
+
+  // Webull Trading Mode (driven solely by global top-navbar Real / Paper / QSE mode)
+  const [tradingMode, setTradingMode] = useState(() => toWebullTradingMode(globalMode)); // 'REAL' | 'TEST' | 'QUANT'
   const modeRef = useRef(tradingMode);
   modeRef.current = tradingMode;
   const openOrdersRequestRef = useRef(0);
@@ -1903,7 +1909,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     }
   };
 
-  const handleSwitchMode = async (mode) => {
+  const handleSwitchMode = async (mode, { syncServer = false } = {}) => {
     if (mode === tradingMode) return;
     setError('');
     ++openOrdersRequestRef.current;
@@ -1925,7 +1931,9 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         await loadQuantTradingData();
         setOrderFeedback({ type: '', message: '' });
       } else if (mode === 'TEST') {
-        await axios.post('/api/webull/test/toggle', { enabled: true }, { withCredentials: true });
+        if (syncServer) {
+          await axios.post('/api/webull/test/toggle', { enabled: true }, { withCredentials: true });
+        }
         setTradingMode('TEST');
         setHoldings([]);
         setHistory([]);
@@ -1941,7 +1949,9 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
         await loadPaperTradingData();
         setOrderFeedback({ type: '', message: '' });
       } else {
-        await axios.post('/api/webull/test/toggle', { enabled: false }, { withCredentials: true });
+        if (syncServer) {
+          await axios.post('/api/webull/test/toggle', { enabled: false }, { withCredentials: true });
+        }
         setTradingMode('REAL');
         setHoldings([]);
         setHistory([]);
@@ -1956,6 +1966,16 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       setOrderFeedback({ type: 'error', message: 'Failed to switch trading mode.' });
     }
   };
+
+  // Keep WebullTrading synchronized whenever the top-navbar Global Mode changes
+  useEffect(() => {
+    const desired = toWebullTradingMode(globalMode);
+    if (desired === 'QUANT' && !isAdmin) return;
+    if (desired !== modeRef.current) {
+      handleSwitchMode(desired, { syncServer: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalMode, isAdmin]);
 
   const handleDownloadQuantArchive = async () => {
     try {
@@ -2070,40 +2090,24 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
       const urlHoldingId = urlParams.get('holding_id')?.trim();
       const urlMode = (urlParams.get('mode') || location?.state?.mode || '')?.toUpperCase()?.trim();
 
-      // Explicit real trading requested (e.g. from Dashboard or query param),
-      // OR a trade symbol/target was supplied from an action link without specifying test/quant.
-      // ALWAYS default to REAL trading mode when triggered from dashboard actions.
-      const isRealModeTarget = urlMode === 'REAL' || (Boolean(urlSymbol) && urlMode !== 'TEST' && urlMode !== 'QUANT');
-
-      let testModeActive = false;
-      if (isRealModeTarget) {
-        testModeActive = false;
-        setTradingMode('REAL');
-        if (testStatusRes?.data?.enabled) {
-          try {
-            await axios.post('/api/webull/test/toggle', { enabled: false }, { withCredentials: true });
-          } catch (syncErr) {
-            console.warn('Failed to sync server test mode to off:', syncErr);
-          }
-        }
-      } else if (urlMode === 'QUANT') {
-        testModeActive = false;
-        setTradingMode('QUANT');
-      } else if (urlMode === 'TEST' || forcedTestMode === true) {
-        testModeActive = true;
-        setTradingMode('TEST');
-        if (!testStatusRes?.data?.enabled) {
-          try {
-            await axios.post('/api/webull/test/toggle', { enabled: true }, { withCredentials: true });
-          } catch (syncErr) {
-            console.warn('Failed to sync server test mode to on:', syncErr);
-          }
-        }
-      } else {
-        testModeActive = forcedTestMode == null
-          ? Boolean(testStatusRes?.data?.enabled)
-          : Boolean(forcedTestMode);
-        setTradingMode((prev) => (prev === 'QUANT' ? 'QUANT' : (testModeActive ? 'TEST' : 'REAL')));
+      // Global top-navbar mode is the single source of truth across the entire site.
+      const resolvedGlobalMode = toWebullTradingMode(globalModeRef.current);
+      const effectiveMode = (resolvedGlobalMode === 'QUANT' && !isAdmin) ? 'REAL' : resolvedGlobalMode;
+      const testModeActive = effectiveMode === 'TEST';
+      setTradingMode(effectiveMode);
+      if (effectiveMode === 'QUANT') {
+        const targetType = requestedInstrumentType || selectedInstrumentType;
+        const initialQuantAcc = (targetType === 'CRYPTO')
+          ? 'QUANT_ACC_CRYPTO'
+          : (targetType === 'EVENT')
+            ? 'QUANT_ACC_EVENTS'
+            : (targetType === 'FUTURES')
+              ? 'QUANT_ACC_FUTURES'
+              : 'QUANT_ACC_INDIVIDUAL_CASH';
+        setSelectedAccountId(initialQuantAcc);
+        setLoading(false);
+        loadQuantTradingData();
+        return;
       }
 
       const importedHoldings = (portfolioResponse.data?.portfolio || []).filter(
@@ -5520,93 +5524,6 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                 ? 'Webull Paper Trading Mode — practice trading across all assets with simulated funds & real-time live quotes.'
                 : 'Execute orders, manage open positions, and review signals via Webull OpenAPI.'}
           </p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-          {/* 3-Way Mode Switcher */}
-          <div
-            className="webull-trading-mode-selector"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              background: isLightMode ? '#f1f5f9' : '#0f172a',
-              border: isLightMode ? '1px solid #cbd5e1' : '1px solid #334155',
-              borderRadius: '10px',
-              padding: '3px',
-              gap: '4px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-            }}
-            role="group"
-            aria-label="Trading Mode Selector"
-          >
-            <button
-              type="button"
-              onClick={() => handleSwitchMode('REAL')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '7px 14px',
-                borderRadius: '8px',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '0.85rem',
-                fontWeight: tradingMode === 'REAL' ? 700 : 500,
-                background: tradingMode === 'REAL' ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : 'transparent',
-                color: tradingMode === 'REAL' ? '#ffffff' : (isLightMode ? '#64748b' : '#94a3b8'),
-                boxShadow: tradingMode === 'REAL' ? '0 2px 8px rgba(37, 99, 235, 0.4)' : 'none',
-                transition: 'all 0.2s ease',
-              }}
-            >
-              ⚡ Real Trading Mode
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleSwitchMode('TEST')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '7px 14px',
-                borderRadius: '8px',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '0.85rem',
-                fontWeight: tradingMode === 'TEST' ? 700 : 500,
-                background: tradingMode === 'TEST' ? 'linear-gradient(135deg, #0d9488, #0f766e)' : 'transparent',
-                color: tradingMode === 'TEST' ? '#ffffff' : (isLightMode ? '#64748b' : '#94a3b8'),
-                boxShadow: tradingMode === 'TEST' ? '0 2px 8px rgba(13, 148, 136, 0.4)' : 'none',
-                transition: 'all 0.2s ease',
-              }}
-            >
-              🧪 Test Mode
-            </button>
-
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => handleSwitchMode('QUANT')}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '7px 14px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: tradingMode === 'QUANT' ? 700 : 500,
-                  background: tradingMode === 'QUANT' ? 'linear-gradient(135deg, #8b5cf6, #6366f1)' : 'transparent',
-                  color: tradingMode === 'QUANT' ? '#ffffff' : (isLightMode ? '#64748b' : '#94a3b8'),
-                  boxShadow: tradingMode === 'QUANT' ? '0 2px 8px rgba(139, 92, 246, 0.4)' : 'none',
-                  transition: 'all 0.2s ease',
-                }}
-                title="Administrator Only: View Quantitative Strategy Engine orders, positions, and live automated signals"
-              >
-                🤖 Quantitative Strategy Mode
-              </button>
-            )}
-          </div>
         </div>
       </div>
 

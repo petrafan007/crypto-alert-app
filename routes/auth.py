@@ -151,7 +151,7 @@ def enforce_required_onboarding():
         return None
     path = request.path
     allowed_exact = {
-        '/onboarding', '/api/session', '/api/logout', '/logout',
+        '/onboarding', '/api/session', '/api/global-mode', '/api/logout', '/logout',
         '/privacy', '/terms', '/acceptable-use', '/risk-disclosure', '/support',
         '/api/settings', '/api/test-binance-connection',
         '/api/test-webull-connection', '/api/webull/accounts',
@@ -357,14 +357,18 @@ def sso_callback():
 @auth_bp.route('/api/session', methods=['GET'])
 @login_required
 def api_session():
+    from routes.dashboard_modes import resolve_global_mode
     setting = _onboarding_setting()
+    global_mode = resolve_global_mode(current_user, setting)
     return jsonify({
         'success': True,
         'user': {
             'id': current_user.id,
             'username': current_user.username,
-            'is_admin': bool(getattr(current_user, 'is_admin', False))
+            'is_admin': bool(getattr(current_user, 'is_admin', False)),
+            'global_trading_mode': global_mode,
         },
+        'global_trading_mode': global_mode,
         'onboarding_required': bool(setting.onboarding_required and not setting.onboarding_completed),
     })
 

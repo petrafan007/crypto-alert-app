@@ -94,6 +94,7 @@ export function AuthProvider({ children }) {
           id: response.data.user.id,
           username: response.data.user.username,
           is_admin: Boolean(response.data.user.is_admin || response.data.user.id === 1),
+          global_trading_mode: response.data.user.global_trading_mode || response.data.global_trading_mode || 'real',
           isAuthenticated: true,
           onboardingRequired: Boolean(response.data.onboarding_required)
         };
@@ -161,6 +162,7 @@ export function AuthProvider({ children }) {
           id: response.data.user.id,
           username: response.data.user.username,
           is_admin: Boolean(response.data.user.is_admin || response.data.user.id === 1),
+          global_trading_mode: response.data.user.global_trading_mode || response.data.global_trading_mode || 'real',
           isAuthenticated: true,
           onboardingRequired: Boolean(response.data.onboarding_required)
         };

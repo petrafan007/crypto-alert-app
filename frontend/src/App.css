@@ -1,1 +1,136 @@
-/* App-level custom styles can go here */
+/* App-level custom styles & Global Trading Mode Switcher */
+
+.global-mode-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--bg-tertiary, #2d3748);
+  border: 1px solid var(--border-color, #4a5568);
+  flex-shrink: 0;
+}
+
+.global-mode-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #cbd5e1);
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+  white-space: nowrap;
+}
+
+.global-mode-btn:hover:not(:disabled):not(.active) {
+  background: rgba(128, 128, 128, 0.16);
+  color: var(--text-primary, #ffffff);
+}
+
+.global-mode-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.global-mode-btn.active {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.global-mode-btn.active-real {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  box-shadow: 0 1px 6px rgba(37, 99, 235, 0.45);
+}
+
+.global-mode-btn.active-paper {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  box-shadow: 0 1px 6px rgba(22, 163, 74, 0.45);
+}
+
+body.dark-mode .global-mode-btn.active-paper {
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  box-shadow: 0 1px 6px rgba(124, 58, 237, 0.5);
+}
+
+.global-mode-btn.active-qse {
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  box-shadow: 0 1px 6px rgba(2, 132, 199, 0.45);
+}
+
+.nav-link-disabled {
+  opacity: 0.42 !important;
+  cursor: not-allowed !important;
+  filter: grayscale(0.8);
+}
+
+.nav-link-disabled:hover {
+  background: transparent !important;
+}
+
+.nav-menu-item-disabled {
+  display: block;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  color: var(--text-tertiary, #94a3b8) !important;
+  opacity: 0.55;
+  cursor: not-allowed;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* Muted / grayed-out cells for Paper & QSE Dashboard columns */
+.mode-muted-cell {
+  opacity: 0.38;
+  filter: grayscale(0.85);
+  pointer-events: none;
+  user-select: none;
+}
+
+.mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.mode-banner-paper {
+  background: rgba(22, 163, 74, 0.12);
+  border: 1px solid rgba(22, 163, 74, 0.35);
+  color: #166534;
+}
+
+body.dark-mode .mode-banner-paper {
+  background: rgba(139, 92, 246, 0.16);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  color: #ddd6fe;
+}
+
+.mode-banner-qse {
+  background: rgba(2, 132, 199, 0.12);
+  border: 1px solid rgba(2, 132, 199, 0.35);
+  color: #0c4a6e;
+}
+
+body.dark-mode .mode-banner-qse {
+  background: rgba(56, 189, 248, 0.14);
+  border: 1px solid rgba(56, 189, 248, 0.38);
+  color: #bae6fd;
+}
+
+.qse-readonly-surface {
+  position: relative;
+}
+
+.qse-readonly-surface .qse-dimmed-section {
+  filter: grayscale(0.45);
+  opacity: 0.88;
+}

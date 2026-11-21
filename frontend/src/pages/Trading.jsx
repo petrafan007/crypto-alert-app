@@ -15,6 +15,7 @@ import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import SearchablePairSelect from '../components/SearchablePairSelect';
 import ConfigurableOrderTable from '../components/ConfigurableOrderTable';
 import { useAuth } from '../components/AuthContext';
+import { useGlobalMode } from '../components/GlobalModeContext';
 import CryptoIcon, { BinanceLogo } from '../components/CryptoIcon';
 import AIDashboard from './AIDashboard';
 import Staking from './Staking';
@@ -87,9 +88,13 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
     }
   }, [location.state, location.search]);
 
-  // Trading Settings - Default to real live trading mode
+  const { globalMode, setGlobalMode, isPaperMode, isQseMode } = useGlobalMode();
+  const isPaperModeRef = useRef(isPaperMode);
+  isPaperModeRef.current = isPaperMode;
+
+  // Trading Settings - Driven globally by the navbar Real / Paper / QSE mode switcher
   const [settings, setSettings] = useState({
-    test_mode_enabled: false,
+    test_mode_enabled: isPaperMode,
     max_order_size_usd: 0,
     daily_loss_limit_usd: 500,
     require_2fa: false
@@ -985,9 +990,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
       }));
       setQuoteQuantity('');
       setBalancePercentage(0);
-      if (settings.test_mode_enabled) {
-        handleSettingsUpdate({ test_mode_enabled: false });
-      }
+      // Mode is controlled globally from the top navigation bar.
       loadLivePortfolio();
       loadOpenOrders();
       navigate('.', { replace: true, state: {} });
@@ -1095,7 +1098,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
     loadTrailingOrders();
     loadLadderOrders();
     loadLivePortfolio();
-    if (!isRealModeRequested && settings.test_mode_enabled) {
+    if (isPaperModeRef.current) {
       loadTestPortfolio();
       loadTestOrders();
     }
@@ -1208,21 +1211,26 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
     }
   }, [location.search]);
 
+  useEffect(() => {
+    setSettings((prev) => ({ ...prev, test_mode_enabled: isPaperMode }));
+    if (isPaperMode) {
+      loadTestPortfolio();
+      loadTestOrders();
+    } else if (!isQseMode) {
+      loadLivePortfolio();
+      loadOpenOrders();
+    }
+    loadTrailingOrders();
+    loadLadderOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalMode, isPaperMode, isQseMode]);
+
   const loadTradingSettings = async () => {
     try {
       const response = await axios.get('/api/trading/settings', { withCredentials: true });
       if (response.data.success) {
         const fetched = response.data.settings || {};
-        if (isRealModeRequested && fetched.test_mode_enabled) {
-          try {
-            await axios.post('/api/trading/settings', { test_mode_enabled: false }, { withCredentials: true });
-          } catch (syncErr) {
-            console.warn('Failed to sync trading settings test mode to false:', syncErr);
-          }
-          setSettings({ ...fetched, test_mode_enabled: false });
-        } else {
-          setSettings(fetched);
-        }
+        setSettings({ ...fetched, test_mode_enabled: isPaperModeRef.current });
       }
     } catch (error) {
       console.error('Failed to load trading settings:', error);
@@ -2200,6 +2208,31 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
   ];
 
   return (
+    isQseMode && !isEmbeddedReplaceMode ? (
+      <div className="trading-container" style={{ minHeight: '70vh', padding: '32px 20px' }}>
+        <div className="panel" style={{ maxWidth: 680, margin: '36px auto', padding: '28px', textAlign: 'center' }}>
+          <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <BinanceLogo size={28} /> Binance.US Unavailable in Quantitative Strategy Engine Mode
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            The Quantitative Strategy Engine runs exclusively on the isolated Webull QSE ledger.
+            Switch the global mode toggle in the top bar to <strong>Real</strong> or <strong>Paper</strong> to trade on Binance.US,
+            or open Webull Trading to monitor the read-only QSE portfolio.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginTop: 18 }}>
+            <button type="button" className="btn btn-primary" onClick={() => navigate('/trading/webull')}>
+              🤖 Open Webull QSE View
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => setGlobalMode('paper')}>
+              🧪 Switch to Paper Mode
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => setGlobalMode('real')}>
+              ⚡ Switch to Real Mode
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : (
     <div className={`trading-container ${isEmbeddedReplaceMode ? 'embedded-replace-mode' : ''}`} style={isEmbeddedReplaceMode ? { color: isLightMode ? '#2d3748' : '#ffffff' } : { minHeight: '100vh', padding: '20px', color: isLightMode ? '#2d3748' : '#ffffff' }}>
       {/* API Key Required Modal */}
       <ApiKeyRequiredModal
@@ -2239,19 +2272,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
                 setTempMaxOrderSize(String(settings.max_order_size_usd || 0)); setShowMaxOrderModal(true);
               }} title="Configure the maximum live order value">🛡️ Order Limit: {settings.max_order_size_usd > 0 ? `$${Number(settings.max_order_size_usd).toLocaleString()}` : 'Unlimited'} ⚙️</button>
             </div>
-            <div className="trading-mode-toggle">
-              <span className="trading-mode-caption">Test Mode</span>
-              <label className="toggle-switch">
-                <input
-                  type="checkbox"
-                  aria-label="Binance.US Test Mode"
-                  checked={settings.test_mode_enabled}
-                  onChange={(e) => handleSettingsUpdate({ test_mode_enabled: e.target.checked })}
-                />
-                <span className="toggle-slider"></span>
-              </label>
-              <span className="trading-mode-status">{settings.test_mode_enabled ? 'Enabled' : 'Disabled'}</span>
-            </div>
+
           </div>
         </div>
       )}
@@ -3270,6 +3291,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
         </div>
       )}
     </div>
+    )
   );
 };
 

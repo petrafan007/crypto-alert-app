@@ -15,6 +15,8 @@ import { PortfolioPie, PortfolioTrend } from '../components/DashboardCharts';
 import PriceHistoryPopup from '../components/PriceHistoryPopup';
 import AIAnalysisModal from '../components/AIAnalysisModal';
 import { useAuth } from '../components/AuthContext';
+import { useGlobalMode } from '../components/GlobalModeContext';
+import { createModeRaceGuard } from '../utils/globalMode.mjs';
 import { showAppToast } from '../utils/toast';
 import { showAppAlert } from '../components/AppDialog';
 import TotpCodeInput from '../components/TotpCodeInput';
@@ -142,11 +144,17 @@ function Dashboard({ isLightMode }) {
   // Pending buys belong in Watchlist until a real position reaches this amount.
   const MINIMUM_PORTFOLIO_AMOUNT = 0.0001;
   const { isLoggingOut, user } = useAuth();
+  const { globalMode, isRealMode, isPaperMode, isQseMode } = useGlobalMode();
+  const globalModeRef = useRef(globalMode);
+  globalModeRef.current = globalMode;
+  const modeRaceGuardRef = useRef(null);
+  if (!modeRaceGuardRef.current) modeRaceGuardRef.current = createModeRaceGuard(globalMode);
   const navigate = useNavigate();
   // Financial snapshots belong to this authenticated mount, never browser-wide
   // storage shared by different users/accounts/environments.
   const [totalValue, setTotalValue] = useState(null);
   const [accountTotals, setAccountTotals] = useState({});
+  const [accountDetail, setAccountDetail] = useState(null);
   const [accountScope, setAccountScope] = useState(() => localStorage.getItem('dashboard_account_scope') || 'all');
   const [portfolio, setPortfolio] = useState([]);
   const [optimisticHiddenCoins, setOptimisticHiddenCoins] = useState(new Set());
@@ -262,7 +270,7 @@ function Dashboard({ isLightMode }) {
   const applyPortfolioUpdate = (incoming, readMark, sources) => {
     if (!Array.isArray(incoming)) return;
     const ordersToCheck = pendingOrdersRef.current;
-    const providerComplete = row => sources?.[rowProvider(row)]?.complete === true;
+    const providerComplete = row => sources?.[row?.source]?.complete === true || sources?.[rowProvider(row)]?.complete === true;
 
     setPortfolio(prev => {
       const incomingMap = new Map();
@@ -492,8 +500,9 @@ function Dashboard({ isLightMode }) {
   // Symbols currently held in the portfolio, used to highlight owned coins in the Top Movers widget
   const scopedPortfolio = useMemo(() => {
     let list = portfolio;
-    if (accountScope === 'binance') list = portfolio.filter(item => !(item.is_external === true || item.source === 'webull'));
-    else if (accountScope === 'webull') list = portfolio.filter(item => item.is_external === true || item.source === 'webull');
+    const effectiveScope = isQseMode ? 'all' : accountScope;
+    if (effectiveScope === 'binance') list = portfolio.filter(item => !(item.is_external === true || item.source === 'webull' || item.provider === 'webull'));
+    else if (effectiveScope === 'webull') list = portfolio.filter(item => item.is_external === true || item.source === 'webull' || item.provider === 'webull');
     // Defensively exclude any duplicate Webull Events Cash USD holding if one was returned
     return list.filter(item => {
       if (optimisticHiddenCoins.has(portfolioRowIdentity(item))) return false;
@@ -504,14 +513,15 @@ function Dashboard({ isLightMode }) {
       const accountType = String(item?.webull_account_type || item?.account_label || '').toLowerCase();
       return !accountType.includes('event');
     });
-  }, [portfolio, accountScope, optimisticHiddenCoins]);
+  }, [portfolio, accountScope, optimisticHiddenCoins, isQseMode]);
 
   const scopedTotalValue = useMemo(() => {
-    const apiTotal = accountTotals[accountScope];
+    const effectiveScope = isQseMode ? 'all' : accountScope;
+    const apiTotal = accountTotals[effectiveScope];
     if (apiTotal != null && Number.isFinite(Number(apiTotal))) return Number(apiTotal);
-    if (accountScope === 'all' && totalValue != null) return Number(totalValue) || 0;
+    if (effectiveScope === 'all' && totalValue != null) return Number(totalValue) || 0;
     return scopedPortfolio.reduce((sum, item) => sum + (Number(item.current_value) || 0), 0);
-  }, [accountScope, accountTotals, totalValue, scopedPortfolio]);
+  }, [accountScope, accountTotals, totalValue, scopedPortfolio, isQseMode]);
 
   const ownedSymbols = useMemo(() => {
     return new Set(scopedPortfolio.map(c => (c.symbol || '').toUpperCase()).filter(Boolean));
@@ -525,25 +535,27 @@ function Dashboard({ isLightMode }) {
     || asset?.asset_type === 'stock'
   );
   const isWebullAsset = (asset) => Boolean(
-    asset?.is_external === true || asset?.source === 'webull'
+    asset?.is_external === true || asset?.source === 'webull' || asset?.provider === 'webull'
   );
   const isTradableWebullAsset = (asset) => Boolean(
     (isWebullAsset(asset) || asset?.asset_type === 'stock')
     && webullTradeTargetForAsset(asset)
   );
-  const navigateToWebullTrading = (symbol, side = 'BUY', accountId = null, { instrumentType = null, accountPreference = null, holdingId = null, mode = 'REAL' } = {}) => {
+  const navigateToWebullTrading = (symbol, side = 'BUY', accountId = null, { instrumentType = null, accountPreference = null, holdingId = null, mode = null } = {}) => {
+    if (globalModeRef.current === 'qse') return false;
     const cleanSymbol = normalizeWebullTradeSymbol(symbol, instrumentType);
     if (!cleanSymbol) {
       showAppToast('A Webull cash balance is funding, not a stock or ETF order symbol.', 'error', { symbol: String(symbol || '').toUpperCase() });
       return false;
     }
-    const cleanMode = (mode || 'REAL').toUpperCase();
+    const cleanMode = (mode || (globalModeRef.current === 'paper' ? 'TEST' : 'REAL')).toUpperCase();
+    const dashboardScope = cleanMode === 'TEST' ? 'paper' : 'real';
     let url = `/trading/webull?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}&mode=${encodeURIComponent(cleanMode)}`;
     if (accountId) url += `&account_id=${encodeURIComponent(accountId)}`;
     if (instrumentType) url += `&instrument_type=${encodeURIComponent(instrumentType)}`;
     if (accountPreference) url += `&account_preference=${encodeURIComponent(accountPreference)}`;
     if (holdingId) url += `&holding_id=${encodeURIComponent(holdingId)}`;
-    navigate(url, { state: { mode: cleanMode } });
+    navigate(url, { state: { mode: cleanMode, dashboardScope } });
     return true;
   };
   const navigateToWebullInstrument = (asset, side = 'BUY') => {
@@ -929,6 +941,10 @@ function Dashboard({ isLightMode }) {
   };
 
   const getWebullCashBalance = (accountId = null) => {
+    if (isQseMode) return 0.0;
+    if (isPaperMode) {
+      return Math.max(0, Number(accountDetail?.webull_cash ?? 0));
+    }
     const rawCash = getRawWebullCashBalance(accountId);
     if (rawCash <= 0) return 0.0;
     return Math.max(0, rawCash - webullCashReservation(accountId, pendingOrders).total);
@@ -1020,7 +1036,27 @@ function Dashboard({ isLightMode }) {
 
   // Helper to determine Buy eligibility based on pair availability and minimum $1.00 balance
   const getBuyEligibility = (symbol) => {
+    if (isQseMode) {
+      return { canBuy: false, canBuyUsd: false, canBuyUsdt: false, hasUsd: false, hasUsdt: false, usdBalance: 0, usdtBalance: 0, reason: 'Read-only QSE mode' };
+    }
     const sym = (symbol || '').toUpperCase();
+    if (isPaperMode) {
+      if (sym === 'USD') {
+        return { canBuy: false, canBuyUsd: false, canBuyUsdt: false, hasUsd: false, hasUsdt: false, usdBalance: 0, usdtBalance: 0, reason: 'Cannot purchase fiat USD' };
+      }
+      const pUsd = Number(accountDetail?.binance_usd ?? 0);
+      const pUsdt = Number(accountDetail?.binance_usdt ?? 0);
+      return {
+        canBuy: true,
+        canBuyUsd: true,
+        canBuyUsdt: sym !== 'USDT',
+        hasUsd: true,
+        hasUsdt: sym !== 'USDT',
+        usdBalance: pUsd,
+        usdtBalance: pUsdt,
+        reason: '',
+      };
+    }
     if (sym === 'USD') {
       return {
         canBuy: false,
@@ -2201,38 +2237,137 @@ function Dashboard({ isLightMode }) {
       setLoading(true);
     }
     if (isLoggingOut || !user?.id) return;
+    // Reset mode-scoped state cleanly whenever globalMode switches so data never bleeds across views.
+    const activeMode = globalMode;
+    modeRaceGuardRef.current.setMode(activeMode);
+    setPortfolio([]);
+    setWatchlist([]);
+    setAccountTotals({});
+    setTotalValue(null);
+    setAccountDetail(null);
+    setOptimisticHiddenCoins(new Set());
+    setPendingOrders([]);
+    pendingOrdersRef.current = [];
+    pendingModeRef.current = undefined;
+    setOrderSourceNotice('');
+    watchlistIntentsRef.current.clear();
+    rowEditsRef.current.clear();
+    watchlistAppliedIdRef.current = ++watchlistFetchIdRef.current;
+    setPortfolioFreshness('loading');
+    setLoading(true);
+
     let hydrate = true;
     const seenFills = new Set();
+    const isStillActiveMode = (ticket, raceTicket) => (
+      ticket.isCurrent()
+      && !window.globalIsLoggingOut
+      && modeRaceGuardRef.current.isCurrent(raceTicket)
+      && globalModeRef.current === activeMode
+    );
+
     const coordinator = createDashboardRefreshCoordinator(async ticket => {
-      if (window.globalIsLoggingOut) return;
+      if (window.globalIsLoggingOut || globalModeRef.current !== activeMode) return;
+      const raceTicket = modeRaceGuardRef.current.issueTicket();
       const requestId = refreshRequestId(ticket);
       const options = { withCredentials: true, signal: ticket.signal, timeout: 30000, headers: { 'X-Dashboard-Refresh': requestId } };
-      logRefresh('start', { request: requestId, hydrate });
+      logRefresh('start', { request: requestId, hydrate, mode: activeMode });
+
+      // ---------------- PAPER MODE ----------------
+      if (activeMode === 'paper') {
+        if (hydrate) {
+          hydrate = false;
+          const storedFetchId = nextWatchlistFetchId();
+          const storedMark = rowEditsRef.current.mark();
+          axios.get('/api/dashboard/paper-watchlist', options)
+            .then(response => {
+              if (!isStillActiveMode(ticket, raceTicket)) return;
+              if (Array.isArray(response.data)) {
+                applyWatchlistUpdate(response.data, storedFetchId, storedMark);
+              }
+            })
+            .catch(() => {});
+        }
+        const wFetchId = nextWatchlistFetchId();
+        const readMark = rowEditsRef.current.mark();
+        const [portfolioRes, watchlistRes] = await Promise.allSettled([
+          axios.get('/api/dashboard/paper-portfolio', options),
+          axios.get('/api/dashboard/paper-watchlist-live', options),
+        ]);
+        if (!isStillActiveMode(ticket, raceTicket)) return;
+        if ([portfolioRes, watchlistRes].some(r => r.status === 'rejected' && [302, 401].includes(r.reason.response?.status))) {
+          setNeedsLogin(true);
+          setLoading(false);
+          return;
+        }
+        setNeedsLogin(false);
+        if (watchlistRes.status === 'fulfilled' && Array.isArray(watchlistRes.value.data)) {
+          applyWatchlistUpdate(watchlistRes.value.data, wFetchId, readMark);
+        }
+        if (portfolioRes.status === 'fulfilled' && Array.isArray(portfolioRes.value.data?.portfolio)) {
+          const snapshot = portfolioRes.value.data;
+          pendingModeRef.current = snapshot.pending_mode || 'paper';
+          publishPendingOrders(Array.isArray(snapshot.pending_orders) ? snapshot.pending_orders : []);
+          applyPortfolioUpdate(snapshot.portfolio, readMark, snapshot.sources);
+          const totalsComplete = publishSnapshotTotals(snapshot.account_totals);
+          setAccountDetail(snapshot.account_detail || null);
+          const holdingsComplete = !snapshot.sources || Object.values(snapshot.sources).every(s => s?.complete === true);
+          setPortfolioFreshness(!holdingsComplete ? 'incomplete' : totalsComplete ? 'live' : 'partial');
+          setError(null);
+        } else {
+          setPortfolioFreshness('stale');
+        }
+        setLoading(false);
+        return;
+      }
+
+      // ---------------- QSE MODE (Admin-only, Read-Only, No Watchlist) ----------------
+      if (activeMode === 'qse') {
+        hydrate = false;
+        const readMark = rowEditsRef.current.mark();
+        try {
+          const portfolioRes = await axios.get('/api/dashboard/qse-portfolio', options);
+          if (!isStillActiveMode(ticket, raceTicket)) return;
+          setNeedsLogin(false);
+          const snapshot = portfolioRes.data || {};
+          pendingModeRef.current = snapshot.pending_mode || 'quant';
+          publishPendingOrders(Array.isArray(snapshot.pending_orders) ? snapshot.pending_orders : []);
+          applyPortfolioUpdate(Array.isArray(snapshot.portfolio) ? snapshot.portfolio : [], readMark, snapshot.sources);
+          publishSnapshotTotals(snapshot.account_totals);
+          setAccountDetail(snapshot.account_detail || null);
+          setWatchlist([]);
+          setPortfolioFreshness('live');
+          setError(null);
+        } catch (err) {
+          if (!isStillActiveMode(ticket, raceTicket)) return;
+          if ([302, 401].includes(err.response?.status)) {
+            setNeedsLogin(true);
+          } else {
+            setPortfolioFreshness('stale');
+          }
+        } finally {
+          if (isStillActiveMode(ticket, raceTicket)) setLoading(false);
+        }
+        return;
+      }
+
+      // ---------------- REAL MODE (Unchanged existing pipeline) ----------------
       if (hydrate) {
         hydrate = false;
-        // Paint the watchlist right away from stored prices so the section
-        // is not blank while the live batch below fetches fresh quotes. This
-        // stored fetch takes a lower fetch id than the live batch's, so the
-        // live response supersedes it when it lands, and a stored response
-        // that resolves late is dropped by the staleness guard in
-        // applyWatchlistUpdate instead of overwriting fresher live rows.
         const storedFetchId = nextWatchlistFetchId();
         const storedMark = rowEditsRef.current.mark();
         axios.get('/api/watchlist', options)
           .then(response => {
-            if (!ticket.isCurrent() || window.globalIsLoggingOut) return;
+            if (!isStillActiveMode(ticket, raceTicket)) return;
             if (Array.isArray(response.data)) {
               applyWatchlistUpdate(response.data, storedFetchId, storedMark);
             }
           })
-          .catch(() => {
-            // Best-effort pre-paint only; the live batch below still runs.
-          });
+          .catch(() => {});
         try {
           const hydrateMark = rowEditsRef.current.mark();
           const response = await axios.get('/api/coin-data', options);
-          if (!ticket.isCurrent() || window.globalIsLoggingOut) {
-            logRefresh('discarded', { request: requestId, source: 'saved snapshot', why: 'superseded by a newer action or sign-out' });
+          if (!isStillActiveMode(ticket, raceTicket)) {
+            logRefresh('discarded', { request: requestId, source: 'saved snapshot', why: 'superseded by a newer action or mode switch' });
             return;
           }
           acceptPendingOrders({ pending_orders: response.data?.pending_orders, mode: response.data?.pending_mode });
@@ -2241,16 +2376,15 @@ function Dashboard({ isLightMode }) {
           setPortfolioFreshness('cached');
           setLoading(false);
         } catch (error) {
-          if (!ticket.isCurrent()) return;
+          if (!isStillActiveMode(ticket, raceTicket)) return;
           if ([302, 401].includes(error.response?.status)) {
             setNeedsLogin(true);
             setLoading(false);
             return;
           }
-          // A failed cache read must not prevent the live read.
         }
       }
-      if (!ticket.isCurrent()) return;
+      if (!isStillActiveMode(ticket, raceTicket)) return;
       const wFetchId = nextWatchlistFetchId();
       const readMark = rowEditsRef.current.mark();
       const [portfolioResponse, ordersResponse, watchlistResponse, fillsResponse] = await Promise.allSettled([
@@ -2259,8 +2393,8 @@ function Dashboard({ isLightMode }) {
         axios.get('/api/watchlist-live', options),
         axios.get('/api/orders', options),
       ]);
-      if (!ticket.isCurrent() || window.globalIsLoggingOut) {
-        logRefresh('discarded', { request: requestId, source: 'live', why: 'superseded by a newer action or sign-out' });
+      if (!isStillActiveMode(ticket, raceTicket)) {
+        logRefresh('discarded', { request: requestId, source: 'live', why: 'superseded by a newer action or mode switch' });
         return;
       }
       if ([portfolioResponse, ordersResponse, watchlistResponse].some(response =>
@@ -2270,8 +2404,6 @@ function Dashboard({ isLightMode }) {
         return;
       }
       setNeedsLogin(false);
-      // Dedicated order reads own order state after hydration. Embedded fast
-      // orders can be cached and must never override this accepted list.
       const ordersAccepted = ordersResponse.status === 'fulfilled' ? acceptPendingOrders(ordersResponse.value.data) : null;
       if (ordersResponse.status !== 'fulfilled') setOrderSourceNotice('Orders could not be refreshed · showing last known orders');
       logRefresh('applied', {
@@ -2327,9 +2459,10 @@ function Dashboard({ isLightMode }) {
       window.removeEventListener('app:refresh-dashboard', handleRefreshEvent);
       window.removeEventListener('app:synthetic-updated', handleRefreshEvent);
     };
-  }, [user?.id, isLoggingOut]);
+  }, [user?.id, isLoggingOut, globalMode]);
 
   useEffect(() => {
+    if (!isRealMode) return undefined;
     const controller = new AbortController();
 
     async function fetchTrend() {
@@ -2359,11 +2492,11 @@ function Dashboard({ isLightMode }) {
     }
     fetchTrend();
     return () => controller.abort();
-  }, [trendRange, accountScope]);
+  }, [trendRange, accountScope, isRealMode]);
 
-  // Fetch stakeable coins
+  // Fetch stakeable coins (Real mode only)
   useEffect(() => {
-    if (!user?.id) return undefined;
+    if (!user?.id || !isRealMode) return undefined;
     const controller = new AbortController();
     async function fetchStakeableCoins() {
       try {
@@ -3060,16 +3193,30 @@ function Dashboard({ isLightMode }) {
           <div className="actions-bottom-sheet__body">
             <button
               onClick={() => {
+                if (!isRealMode) return;
                 if (isPortfolio && !isPlaceholder) toggleAlert(coin);
                 if (isWatchlist) toggleWatchlistAlert(item);
                 closeActionMenu();
               }}
-              disabled={isPortfolio ? isPlaceholder : false}
+              disabled={!isRealMode || (isPortfolio ? isPlaceholder : false)}
+              className={!isRealMode ? 'mode-muted-cell' : undefined}
             >
               {isPortfolio ? (coin.alert_enabled ? 'Disable Alerts' : 'Enable Alerts') : (item.alert_enabled ? 'Disable Alerts' : 'Enable Alerts')}
             </button>
-            <button onClick={() => { openNews(isPortfolio ? coin : item); closeActionMenu(); }}>News</button>
-            <button onClick={() => { openNoteModal(isPortfolio ? coin : item, isPortfolio ? 'portfolio' : 'watchlist'); closeActionMenu(); }}>Notes</button>
+            <button
+              onClick={() => { if (!isRealMode) return; openNews(isPortfolio ? coin : item); closeActionMenu(); }}
+              disabled={!isRealMode}
+              className={!isRealMode ? 'mode-muted-cell' : undefined}
+            >
+              News
+            </button>
+            <button
+              onClick={() => { if (!isRealMode) return; openNoteModal(isPortfolio ? coin : item, isPortfolio ? 'portfolio' : 'watchlist'); closeActionMenu(); }}
+              disabled={!isRealMode}
+              className={!isRealMode ? 'mode-muted-cell' : undefined}
+            >
+              Notes
+            </button>
             {/* Buy button */}
             {(() => {
               const sym = isPortfolio ? coin.symbol : item.symbol;
@@ -3593,18 +3740,30 @@ function Dashboard({ isLightMode }) {
         <button
           role="menuitem"
           onClick={() => {
+            if (!isRealMode) return;
             if (isPortfolio && !isPlaceholder) toggleAlert(coin);
             if (isWatchlist) toggleWatchlistAlert(item);
             closeActionMenu();
           }}
-          disabled={isPlaceholder}
+          disabled={!isRealMode || isPlaceholder}
+          className={!isRealMode ? 'mode-muted-cell' : undefined}
         >
           <span>🔔</span>{subject.alert_enabled ? 'Disable Alerts' : 'Enable Alerts'}
         </button>
-        <button role="menuitem" onClick={() => { openNews(subject); closeActionMenu(); }}>
+        <button
+          role="menuitem"
+          disabled={!isRealMode}
+          className={!isRealMode ? 'mode-muted-cell' : undefined}
+          onClick={() => { if (!isRealMode) return; openNews(subject); closeActionMenu(); }}
+        >
           <span>📰</span>News
         </button>
-        <button role="menuitem" onClick={() => { openNoteModal(subject, isPortfolio ? 'portfolio' : 'watchlist'); closeActionMenu(); }}>
+        <button
+          role="menuitem"
+          disabled={!isRealMode}
+          className={!isRealMode ? 'mode-muted-cell' : undefined}
+          onClick={() => { if (!isRealMode) return; openNoteModal(subject, isPortfolio ? 'portfolio' : 'watchlist'); closeActionMenu(); }}
+        >
           <span>✏️</span>Notes
         </button>
         {(isWebullAsset(subject) || subject.asset_type === 'stock') && isNonTradableWebullCashAsset(subject) ? (
@@ -3741,6 +3900,7 @@ function Dashboard({ isLightMode }) {
   };
 
   const navigateToTrading = (symbol, side, quote = 'USDT', extra = {}) => {
+    if (globalModeRef.current === 'qse') return;
     const cleanSymbol = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const cleanBase = cleanSymbol === 'USDT'
       ? 'USDT'
@@ -3761,15 +3921,18 @@ function Dashboard({ isLightMode }) {
         avgEntry = Number(match.avg_entry);
       }
     }
-    navigate(`/trading?symbol=${encodeURIComponent(pair)}&side=${side === 'SELL' ? 'SELL' : 'BUY'}&mode=REAL`, {
+    const targetMode = globalModeRef.current === 'paper' ? 'TEST' : 'REAL';
+    const dashboardScope = targetMode === 'TEST' ? 'paper' : 'real';
+    navigate(`/trading?symbol=${encodeURIComponent(pair)}&side=${side === 'SELL' ? 'SELL' : 'BUY'}&mode=${encodeURIComponent(targetMode)}`, {
       state: {
-        mode: 'REAL',
+        mode: targetMode,
+        dashboardScope,
         tradePrefill: {
           symbol: pair,
           side: side === 'SELL' ? 'SELL' : 'BUY',
           baseCoin: cleanBase,
           avgEntry: avgEntry !== undefined && avgEntry !== null ? Number(avgEntry) : null,
-          mode: 'REAL'
+          mode: targetMode
         }
       }
     });
@@ -3933,8 +4096,9 @@ function Dashboard({ isLightMode }) {
     }
   };
 
-  // Hide coin function
+  // Hide coin function (scoped to active global mode; no-op in QSE)
   const hideCoin = async (coin) => {
+    if (globalModeRef.current === 'qse') return;
     const identity = portfolioRowIdentity(coin);
     const unhide = () => {
       setOptimisticHiddenCoins(prev => {
@@ -3951,6 +4115,7 @@ function Dashboard({ isLightMode }) {
       const response = await axios.post('/api/hide-coin', {
         coin_id: coin.id,
         symbol: coin.symbol,
+        mode: globalModeRef.current,
       }, { withCredentials: true });
       if (response.data.success) refreshDashboard();
       else unhide();
@@ -4013,6 +4178,7 @@ function Dashboard({ isLightMode }) {
   // Delete watchlist item function. The row stays removed until a list read
   // that began after the server confirmed it; a failure puts the row back.
   const deleteWatchlistItem = async (itemOrSymbol) => {
+    if (globalModeRef.current === 'qse') return;
     const item = itemOrSymbol && typeof itemOrSymbol === 'object'
       ? itemOrSymbol
       : watchlist.find(row => rowProvider(row) === 'binance' && rowSymbol(row) === String(itemOrSymbol || '').toUpperCase().trim());
@@ -4024,13 +4190,17 @@ function Dashboard({ isLightMode }) {
     intents.begin(identity, 'remove', item, seq);
     setWatchlist(prev => prev.filter(row => watchlistRowIdentity(row) !== identity));
     try {
-      const response = await queueWatchlistRequest(identity, () => axios.post('/api/watchlist/remove', {
-        symbol: rowSymbol(item),
-        provider: isWebull ? 'webull' : undefined,
-        id: item.id,
-        instrument_type: isWebull ? (item.instrument_type || 'EQUITY') : undefined,
-        event_outcome: isWebull ? (item.event_outcome || '') : undefined,
-      }, { withCredentials: true }));
+      const endpoint = globalModeRef.current === 'paper' ? '/api/dashboard/paper-watchlist/remove' : '/api/watchlist/remove';
+      const payload = globalModeRef.current === 'paper'
+        ? { id: item.id, symbol: rowSymbol(item), provider: isWebull ? 'webull' : 'binance', instrument_type: item.instrument_type || (isWebull ? 'EQUITY' : 'CRYPTO') }
+        : {
+            symbol: rowSymbol(item),
+            provider: isWebull ? 'webull' : undefined,
+            id: item.id,
+            instrument_type: isWebull ? (item.instrument_type || 'EQUITY') : undefined,
+            event_outcome: isWebull ? (item.event_outcome || '') : undefined,
+          };
+      const response = await queueWatchlistRequest(identity, () => axios.post(endpoint, payload, { withCredentials: true }));
       if (response.data?.success === false) throw new Error(response.data.error || 'The removal was not accepted.');
       intents.settle(identity, seq, rowEditsRef.current.tick());
     } catch (err) {
@@ -4044,6 +4214,7 @@ function Dashboard({ isLightMode }) {
 
   // Add to watchlist function
   const addToWatchlist = async (selection) => {
+    if (globalModeRef.current === 'qse') return;
     const { symbol: rawSym, asset_type = 'crypto', name, provider } = selection || {};
     const cleanSym = (rawSym || '').trim().toUpperCase();
     if (!cleanSym) return;
@@ -4084,13 +4255,23 @@ function Dashboard({ isLightMode }) {
 
     setAddingToWatchlist(true);
     try {
-      const response = await queueWatchlistRequest(identity, () => axios.post('/api/watchlist/add', {
-        symbol: cleanSym,
-        asset_type,
-        name,
-        provider,
-        ...instrument,
-      }, { withCredentials: true }));
+      const isPaperAdd = globalModeRef.current === 'paper';
+      const addEndpoint = isPaperAdd ? '/api/dashboard/paper-watchlist/add' : '/api/watchlist/add';
+      const addPayload = isPaperAdd
+        ? {
+            provider: (isWebull || asset_type === 'stock') ? 'webull' : 'binance',
+            symbol: cleanSym,
+            instrument_type: asset_type === 'stock' ? 'EQUITY' : 'CRYPTO',
+            display_name: name || cleanSym,
+          }
+        : {
+            symbol: cleanSym,
+            asset_type,
+            name,
+            provider,
+            ...instrument,
+          };
+      const response = await queueWatchlistRequest(identity, () => axios.post(addEndpoint, addPayload, { withCredentials: true }));
       if (!response.data?.success) throw new Error(response.data?.error || 'The watchlist did not accept this symbol.');
       const itemFromServer = {
         ...(response.data.item || { ...tempItem, id: response.data.id || tempItem.id, current_price: response.data.current_price || 0 }),
@@ -4934,25 +5115,50 @@ function Dashboard({ isLightMode }) {
   }
 
   return (
-    <div className="dashboard-page-container">
+    <div className={`dashboard-page-container ${isQseMode ? 'qse-readonly-surface' : ''}`}>
+      {isPaperMode && (
+        <div className="mode-banner mode-banner-paper" role="status">
+          <span>🧪 Paper Trading Mode — Viewing merged Webull Test &amp; Binance.US Paper accounts (isolated from live balances &amp; alerts).</span>
+          {accountDetail && (
+            <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+              Webull Paper Cash: ${Number(accountDetail.webull_cash || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {' · '}Binance Paper: ${Number(accountDetail.binance_usd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD / {Number(accountDetail.binance_usdt || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+            </span>
+          )}
+        </div>
+      )}
+      {isQseMode && (
+        <div className="mode-banner mode-banner-qse" role="status">
+          <span>🤖 Quantitative Strategy Engine (QSE) — Automated Paper Portfolio · Strictly Read-Only (manual edits and orders disabled).</span>
+          {accountDetail && (
+            <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+              Cash: ${Number(accountDetail.cash_balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {' · '}Starting Bankroll: ${Number(accountDetail.initial_balance || 50000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {' · '}Return: {Number(accountDetail.return_pct || 0) >= 0 ? '+' : ''}{Number(accountDetail.return_pct || 0).toFixed(2)}%
+            </span>
+          )}
+        </div>
+      )}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', margin: '4px 0 14px', padding: '0 2px' }}>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary, #94a3b8)', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-          Platforms
-          <select
-            value={accountScope}
-            onChange={(event) => changeAccountScope(event.target.value)}
-            aria-label="Dashboard platform scope"
-            style={{ minWidth: '170px', padding: '8px 30px 8px 10px', borderRadius: '7px', border: '1px solid rgba(56, 189, 248, 0.35)', background: 'var(--panel-bg, #172033)', color: 'var(--text-primary, #e2e8f0)', fontWeight: 700, cursor: 'pointer' }}
-          >
-            <option value="all">All Platforms</option>
-            <option value="binance">Binance.US</option>
-            <option value="webull">Webull</option>
-          </select>
-        </label>
-      </div>
-      {/* Mobile-Only Charts vs Tables Segmented Tab Bar */}
-      {isMobile && (
+      {!isQseMode && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', margin: '4px 0 14px', padding: '0 2px' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary, #94a3b8)', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Platforms
+            <select
+              value={accountScope}
+              onChange={(event) => changeAccountScope(event.target.value)}
+              aria-label="Dashboard platform scope"
+              style={{ minWidth: '170px', padding: '8px 30px 8px 10px', borderRadius: '7px', border: '1px solid var(--border-color)', background: 'var(--input-bg, #172033)', color: 'var(--text-primary, #e2e8f0)', fontWeight: 700, cursor: 'pointer' }}
+            >
+              <option value="all">All Platforms</option>
+              <option value="binance">Binance.US</option>
+              <option value="webull">Webull</option>
+            </select>
+          </label>
+        </div>
+      )}
+      {/* Mobile-Only Charts vs Tables Segmented Tab Bar (Real mode only) */}
+      {isMobile && isRealMode && (
         <div className="mobile-dashboard-tabs">
           <button
             type="button"
@@ -4971,7 +5177,8 @@ function Dashboard({ isLightMode }) {
         </div>
       )}
 
-      {/* Interactive Customizable Widgets Grid */}
+      {/* Interactive Customizable Widgets Grid (Real-only widgets hidden in Paper & QSE modes) */}
+      {isRealMode && (
       <div className={`dashboard-widgets-section ${isMobile && mobileTab !== 'charts' ? 'mobile-hidden' : ''}`}>
         <DashboardWidgetGrid
           isLightMode={isLightMode}
@@ -5090,12 +5297,14 @@ function Dashboard({ isLightMode }) {
         />
       </div>
 
+      )}
+
       {/* Tables Section */}
-      <div className={`dashboard-tables-section ${isMobile && mobileTab !== 'tables' ? 'mobile-hidden' : ''}`}>
+      <div className={`dashboard-tables-section ${isRealMode && isMobile && mobileTab !== 'tables' ? 'mobile-hidden' : ''} ${isQseMode ? 'qse-dimmed-section' : ''}`}>
         {/* Portfolio Table */}
         <div className="table-container portfolio-table">
           <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
-            <h2 className="table-title" style={{ margin: 0 }}>Portfolio</h2>
+            <h2 className="table-title" style={{ margin: 0 }}>{isQseMode ? 'QSE Portfolio (Read-Only)' : isPaperMode ? 'Paper Portfolio' : 'Portfolio'}</h2>
             {renderSortNote('portfolio')}
             {portfolioFreshness !== 'live' && <small role="status">{portfolioFreshness === 'cached' ? 'Saved snapshot · updating…' : portfolioFreshness === 'stale' ? 'Refresh unavailable · showing last snapshot' : portfolioFreshness === 'partial' ? 'Totals unavailable · showing last totals' : portfolioFreshness === 'incomplete' ? 'Some holdings could not be refreshed · showing last known rows' : 'Loading snapshot…'}</small>}
             {orderSourceNotice && <small role="status" className="order-source-notice">{orderSourceNotice}</small>}
@@ -5340,20 +5549,20 @@ function Dashboard({ isLightMode }) {
                               );
                             case 'down_alert':
                               return (
-                                <td key="down_alert" style={{ textAlign: 'center' }}>
-                                  {renderPortfolioAlertCell(coin, 'down')}
+                                <td key="down_alert" className={!isRealMode ? 'mode-muted-cell' : undefined} style={{ textAlign: 'center' }} title={!isRealMode ? 'Alerts are disabled outside Real Trading mode' : undefined}>
+                                  {isRealMode ? renderPortfolioAlertCell(coin, 'down') : '—'}
                                 </td>
                               );
                             case 'up_alert':
                               return (
-                                <td key="up_alert" style={{ textAlign: 'center' }}>
-                                  {renderPortfolioAlertCell(coin, 'up')}
+                                <td key="up_alert" className={!isRealMode ? 'mode-muted-cell' : undefined} style={{ textAlign: 'center' }} title={!isRealMode ? 'Alerts are disabled outside Real Trading mode' : undefined}>
+                                  {isRealMode ? renderPortfolioAlertCell(coin, 'up') : '—'}
                                 </td>
                               );
                             case 'volatility_pct':
                               return (
-                                <td key="volatility_pct" style={{ textAlign: 'center' }}>
-                                  {renderVolatilityCell(coin, isExternal ? 'webull' : 'portfolio')}
+                                <td key="volatility_pct" className={!isRealMode ? 'mode-muted-cell' : undefined} style={{ textAlign: 'center' }} title={!isRealMode ? 'Volatility alerts are disabled outside Real Trading mode' : undefined}>
+                                  {isRealMode ? renderVolatilityCell(coin, isExternal ? 'webull' : 'portfolio') : '—'}
                                 </td>
                               );
                             case 'avg_entry': {
@@ -5413,7 +5622,11 @@ function Dashboard({ isLightMode }) {
                                 </td>
                               );
                             case 'sentiment':
-                              return renderSentimentCell(coin, false);
+                              return isRealMode ? renderSentimentCell(coin, false) : (
+                                <td key="sentiment" className="mode-muted-cell" style={{ textAlign: 'center' }} title="Sentiment is disabled outside Real Trading mode">
+                                  —
+                                </td>
+                              );
                             case 'high_low_24h':
                               return (
                                 <td key="high_low_24h" style={{ whiteSpace: 'nowrap', textAlign: 'center', fontSize: '0.85rem' }}>
@@ -5483,6 +5696,20 @@ function Dashboard({ isLightMode }) {
                                 </td>
                               );
                             case 'actions':
+                              if (isQseMode) {
+                                return (
+                                  <td key="actions" className="actions-cell" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                    <div className="actions-cell-content">
+                                      <button type="button" className="action-icon-btn mode-muted-cell" disabled aria-disabled="true" title="Read-only in QSE mode">🔔</button>
+                                      <button type="button" className="action-icon-btn mode-muted-cell" disabled aria-disabled="true" title="Read-only in QSE mode">📰</button>
+                                      <button type="button" className="action-icon-btn mode-muted-cell" disabled aria-disabled="true" title="Read-only in QSE mode">✏️</button>
+                                      <button type="button" className="trade-action-btn buy mode-muted-cell" disabled aria-disabled="true" title="QSE is automated & read-only">Buy</button>
+                                      <button type="button" className="trade-action-btn sell mode-muted-cell" disabled aria-disabled="true" title="QSE is automated & read-only">Sell</button>
+                                      <button type="button" className="trade-action-btn hide mode-muted-cell" disabled aria-disabled="true" title="QSE is automated & read-only">Hide</button>
+                                    </div>
+                                  </td>
+                                );
+                              }
                               return (
                                 <td key="actions" className={`actions-cell ${!isMobile && portfolioActionsCollapsed ? 'actions-cell--collapsed' : ''}`} style={{ whiteSpace: 'nowrap', position: 'relative', textAlign: 'center' }}>
                                   {portfolioActionsCollapsed ? (
@@ -5501,27 +5728,32 @@ function Dashboard({ isLightMode }) {
                                     <div className="actions-cell-content">
                                       <button
                                         type="button"
-                                        onClick={!isPlaceholder ? () => toggleAlert(coin) : undefined}
-                                        className={`action-icon-btn alert-btn ${coin.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
-                                        title={alertTitle}
-                                        disabled={isPlaceholder}
-                                        style={{ cursor: isPlaceholder ? 'not-allowed' : 'pointer' }}
+                                        onClick={isRealMode && !isPlaceholder ? () => toggleAlert(coin) : undefined}
+                                        className={`action-icon-btn alert-btn ${coin.alert_enabled ? 'alert-enabled' : 'alert-disabled'} ${!isRealMode ? 'mode-muted-cell' : ''}`}
+                                        title={!isRealMode ? 'Alerts are disabled in Paper Trading mode' : alertTitle}
+                                        disabled={!isRealMode || isPlaceholder}
+                                        aria-disabled={!isRealMode || isPlaceholder}
+                                        style={{ cursor: (!isRealMode || isPlaceholder) ? 'not-allowed' : 'pointer' }}
                                       >
                                         🔔
                                       </button>
                                       <button
                                         type="button"
-                                        className="action-icon-btn news-btn"
-                                        title={getNewsTooltip(coin)}
-                                        onClick={() => openNews(coin)}
+                                        className={`action-icon-btn news-btn ${!isRealMode ? 'mode-muted-cell' : ''}`}
+                                        title={!isRealMode ? 'News is disabled in Paper Trading mode' : getNewsTooltip(coin)}
+                                        disabled={!isRealMode}
+                                        aria-disabled={!isRealMode}
+                                        onClick={isRealMode ? () => openNews(coin) : undefined}
                                       >
                                         📰
                                       </button>
                                       <button
                                         type="button"
-                                        className="action-icon-btn note-btn"
-                                        title={coin.note ? `Note: ${coin.note}` : 'Add note'}
-                                        onClick={() => openNoteModal(coin, 'portfolio')}
+                                        className={`action-icon-btn note-btn ${!isRealMode ? 'mode-muted-cell' : ''}`}
+                                        title={!isRealMode ? 'Notes are disabled in Paper Trading mode' : (coin.note ? `Note: ${coin.note}` : 'Add note')}
+                                        disabled={!isRealMode}
+                                        aria-disabled={!isRealMode}
+                                        onClick={isRealMode ? () => openNoteModal(coin, 'portfolio') : undefined}
                                       >
                                         ✏️
                                       </button>
@@ -5595,7 +5827,7 @@ function Dashboard({ isLightMode }) {
                                           </button>
                                         );
                                       })()}
-                                      {!isWebullAsset(coin) && (
+                                      {isRealMode && !isWebullAsset(coin) && (
                                         <button
                                           type="button"
                                           className="trade-action-btn stake"
@@ -5704,10 +5936,11 @@ function Dashboard({ isLightMode }) {
           document.body
         )}
 
-        {/* Watchlist Section */}
+        {/* Watchlist Section — omitted completely in QSE mode */}
+        {!isQseMode && (
         <div className="table-container watchlist-table">
           <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <h2 className="table-title" style={{ margin: 0 }}>Watchlist</h2>
+            <h2 className="table-title" style={{ margin: 0 }}>{isPaperMode ? 'Paper Watchlist' : 'Watchlist'}</h2>
             {renderSortNote('watchlist')}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <label title="Filter watchlist assets by type" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', color: 'var(--text-secondary, #94a3b8)' }}>
@@ -5900,24 +6133,28 @@ function Dashboard({ isLightMode }) {
                             }
                             case 'down_alert':
                               return (
-                                <td key="down_alert" style={{ textAlign: 'center' }}>
-                                  {renderWatchlistAlertCell(item, 'down')}
+                                <td key="down_alert" className={!isRealMode ? 'mode-muted-cell' : undefined} style={{ textAlign: 'center' }} title={!isRealMode ? 'Alerts are disabled in Paper Watchlist' : undefined}>
+                                  {isRealMode ? renderWatchlistAlertCell(item, 'down') : '—'}
                                 </td>
                               );
                             case 'up_alert':
                               return (
-                                <td key="up_alert" style={{ textAlign: 'center' }}>
-                                  {renderWatchlistAlertCell(item, 'up')}
+                                <td key="up_alert" className={!isRealMode ? 'mode-muted-cell' : undefined} style={{ textAlign: 'center' }} title={!isRealMode ? 'Alerts are disabled in Paper Watchlist' : undefined}>
+                                  {isRealMode ? renderWatchlistAlertCell(item, 'up') : '—'}
                                 </td>
                               );
                             case 'volatility_pct':
                               return (
-                                <td key="volatility_pct" style={{ textAlign: 'center' }}>
-                                  {renderVolatilityCell(item, 'watchlist')}
+                                <td key="volatility_pct" className={!isRealMode ? 'mode-muted-cell' : undefined} style={{ textAlign: 'center' }} title={!isRealMode ? 'Volatility alerts are disabled in Paper Watchlist' : undefined}>
+                                  {isRealMode ? renderVolatilityCell(item, 'watchlist') : '—'}
                                 </td>
                               );
                             case 'sentiment':
-                              return renderSentimentCell(item, true);
+                              return isRealMode ? renderSentimentCell(item, true) : (
+                                <td key="sentiment" className="mode-muted-cell" style={{ textAlign: 'center' }} title="Sentiment is disabled in Paper Watchlist">
+                                  —
+                                </td>
+                              );
                             case 'pct_change':
                               return (
                                 <td
@@ -5987,29 +6224,57 @@ function Dashboard({ isLightMode }) {
                                     <div className="actions-cell-content">
                                       <button
                                         type="button"
-                                        onClick={() => toggleWatchlistAlert(item)}
-                                        className={`action-icon-btn alert-btn ${item.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
-                                        title={item.alert_enabled ? 'Alerts enabled' : 'Alerts disabled'}
+                                        onClick={isRealMode ? () => toggleWatchlistAlert(item) : undefined}
+                                        disabled={!isRealMode}
+                                        aria-disabled={!isRealMode}
+                                        className={`action-icon-btn alert-btn ${item.alert_enabled ? 'alert-enabled' : 'alert-disabled'} ${!isRealMode ? 'mode-muted-cell' : ''}`}
+                                        title={!isRealMode ? 'Alerts are disabled in Paper Watchlist' : (item.alert_enabled ? 'Alerts enabled' : 'Alerts disabled')}
                                       >
                                         🔔
                                       </button>
                                       <button
                                         type="button"
-                                        className="action-icon-btn news-btn"
-                                        title={getNewsTooltip(item)}
-                                        onClick={() => openNews(item)}
+                                        disabled={!isRealMode}
+                                        aria-disabled={!isRealMode}
+                                        className={`action-icon-btn news-btn ${!isRealMode ? 'mode-muted-cell' : ''}`}
+                                        title={!isRealMode ? 'News is disabled in Paper Watchlist' : getNewsTooltip(item)}
+                                        onClick={isRealMode ? () => openNews(item) : undefined}
                                       >
                                         📰
                                       </button>
                                       <button
                                         type="button"
-                                        className="action-icon-btn note-btn"
-                                        title={item.note ? `Note: ${item.note}` : 'Add note'}
-                                        onClick={() => openNoteModal(item, 'watchlist')}
+                                        disabled={!isRealMode}
+                                        aria-disabled={!isRealMode}
+                                        className={`action-icon-btn note-btn ${!isRealMode ? 'mode-muted-cell' : ''}`}
+                                        title={!isRealMode ? 'Notes are disabled in Paper Watchlist' : (item.note ? `Note: ${item.note}` : 'Add note')}
+                                        onClick={isRealMode ? () => openNoteModal(item, 'watchlist') : undefined}
                                       >
                                         ✏️
                                       </button>
                                       {(() => {
+                                        if (isPaperMode) {
+                                          const isWbPaper = isWebullAsset(item) || item.asset_type === 'stock';
+                                          return (
+                                            <button
+                                              type="button"
+                                              className="trade-action-btn buy"
+                                              onClick={() => {
+                                                if (isWbPaper) {
+                                                  navigateToWebullTrading(item.symbol, 'BUY', null, {
+                                                    instrumentType: item.instrument_type || (item.asset_type === 'stock' ? 'EQUITY' : 'CRYPTO'),
+                                                    mode: 'TEST',
+                                                  });
+                                                } else {
+                                                  navigateToTrading(item.symbol, 'BUY', 'USDT');
+                                                }
+                                              }}
+                                              title={`Paper Buy ${item.symbol} on ${isWbPaper ? 'Webull Paper' : 'Binance.US Paper'}`}
+                                            >
+                                              Buy
+                                            </button>
+                                          );
+                                        }
                                         if ((isWebullAsset(item) || item.asset_type === 'stock') && isNonTradableWebullCashAsset(item)) {
                                           return (
                                             <button
@@ -6102,6 +6367,7 @@ function Dashboard({ isLightMode }) {
             </table>
           </div>
         </div>
+        )}
       </div>
 
       {/* Note Modal */}

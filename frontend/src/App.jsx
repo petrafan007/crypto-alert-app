@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from './components/AuthContext';
+import { useGlobalMode } from './components/GlobalModeContext';
 import axios from 'axios';
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const Login = React.lazy(() => import('./pages/Login'));
@@ -59,8 +60,26 @@ function ProtectedRoute({ children, isLightMode }) {
   return React.cloneElement(children, { isLightMode });
 }
 
+function TaxReportModeGuard({ children, globalMode, onSwitchToReal }) {
+  if (globalMode === 'real') return children;
+  const label = globalMode === 'paper' ? 'Paper Trading' : 'Quantitative Strategy Engine (QSE)';
+  return (
+    <div className="panel" style={{ maxWidth: 680, margin: '48px auto', padding: '28px', textAlign: 'center' }}>
+      <h2 style={{ marginTop: 0 }}>📄 Tax Reports Unavailable in {label} Mode</h2>
+      <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+        Tax Reports apply only to real-money brokerage activity. Switch the global mode toggle in the top bar back to{' '}
+        <strong>Real</strong> to view or export your Binance.US and Webull tax reports.
+      </p>
+      <button type="button" className="btn btn-primary" onClick={onSwitchToReal} style={{ marginTop: 12 }}>
+        ⚡ Switch to Real Trading Mode
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const { user, logout } = useAuth();
+  const { globalMode, setGlobalMode, isPaperMode, isQseMode, isAdmin, modeLoading } = useGlobalMode();
   const location = useLocation();
   const isDashboard = location.pathname === '/';
   const isOnboarding = location.pathname === '/onboarding' || location.pathname === '/signup';
@@ -109,6 +128,13 @@ export default function App() {
     return () => clearTimeout(timeout);
   }, [isLightMode]);
 
+  // Close open nav dropdowns on mode change
+  useEffect(() => {
+    setShowTradingMenu(false);
+    setShowTaxMenu(false);
+    setShowUnhideModal(false);
+  }, [globalMode]);
+
   // Auto-clear messages after 5 seconds
   useEffect(() => {
     if (message) {
@@ -148,11 +174,14 @@ export default function App() {
 
 
 
-  // Unhide Assets functionality
+  // Unhide Assets functionality (scoped to active global mode)
   const handleUnhideCoins = async () => {
+    if (isQseMode) return;
     try {
-      const response = await axios.get('/api/hidden-coins', { withCredentials: true });
+      const response = await axios.get(`/api/hidden-coins?mode=${encodeURIComponent(globalMode)}`, { withCredentials: true });
       setHiddenCoins((response.data || []).filter(coin => coin?.id && String(coin.symbol || '').trim()));
+      setSelectedHiddenCoins([]);
+      setSelectAllHidden(false);
       setShowUnhideModal(true);
     } catch (err) {
       console.error('Failed to fetch hidden assets:', err);
@@ -188,7 +217,8 @@ export default function App() {
 
     try {
       const response = await axios.post('/api/unhide-all', {
-        coin_ids: selectedHiddenCoins
+        coin_ids: selectedHiddenCoins,
+        mode: globalMode
       }, { withCredentials: true });
 
       if (response.data.success) {
@@ -243,7 +273,18 @@ export default function App() {
                 </button>
                 {showTradingMenu && (
                   <div className="nav-menu-popover" role="menu">
-                    <Link to="/trading/binance" state={{ resetTradingPair: true }} role="menuitem" onClick={() => setShowTradingMenu(false)}>Binance.US</Link>
+                    {isQseMode ? (
+                      <span
+                        className="nav-menu-item-disabled"
+                        role="menuitem"
+                        aria-disabled="true"
+                        title="Binance.US does not support Quantitative Strategy Engine mode"
+                      >
+                        Binance.US (Webull QSE only)
+                      </span>
+                    ) : (
+                      <Link to="/trading/binance" state={{ resetTradingPair: true }} role="menuitem" onClick={() => setShowTradingMenu(false)}>Binance.US</Link>
+                    )}
                     <Link to="/trading/webull" role="menuitem" onClick={() => setShowTradingMenu(false)}>Webull</Link>
                   </div>
                 )}
@@ -258,14 +299,19 @@ export default function App() {
               <div ref={taxMenuRef} className="nav-menu">
                 <button
                   type="button"
-                  className="nav-link"
+                  className={`nav-link ${globalMode !== 'real' ? 'nav-link-disabled' : ''}`}
                   aria-haspopup="menu"
-                  aria-expanded={showTaxMenu}
-                  onClick={() => setShowTaxMenu((shown) => !shown)}
+                  aria-expanded={globalMode === 'real' ? showTaxMenu : false}
+                  aria-disabled={globalMode !== 'real'}
+                  disabled={globalMode !== 'real'}
+                  title={globalMode !== 'real' ? 'Tax Reports are disabled in Paper Trading and Quantitative Strategy Engine modes' : 'View Tax Reports'}
+                  onClick={() => {
+                    if (globalMode === 'real') setShowTaxMenu((shown) => !shown);
+                  }}
                 >
                   📄 Tax Report ▾
                 </button>
-                {showTaxMenu && (
+                {showTaxMenu && globalMode === 'real' && (
                   <div className="nav-menu-popover" role="menu">
                     <Link to="/tax-report-binance" role="menuitem" onClick={() => setShowTaxMenu(false)}>Binance.US</Link>
                     <Link to="/tax-report-webull" role="menuitem" onClick={() => setShowTaxMenu(false)}>Webull</Link>
@@ -274,8 +320,12 @@ export default function App() {
               </div>
 
               <button
+                type="button"
                 onClick={handleUnhideCoins}
-                className="nav-link"
+                disabled={isQseMode}
+                aria-disabled={isQseMode}
+                title={isQseMode ? 'Unhide Assets is disabled in read-only Quantitative Strategy Engine mode' : (isPaperMode ? 'Unhide hidden Paper Trading assets' : 'Unhide hidden Real assets')}
+                className={`nav-link ${isQseMode ? 'nav-link-disabled' : ''}`}
               >
                 🚫 Unhide Assets
               </button>
@@ -283,6 +333,46 @@ export default function App() {
               <Link to="/help" className="nav-link">
                 ❓ Help
               </Link>
+
+              {/* Global site-wide trading mode switcher (sole mode toggle across the entire app) */}
+              <div
+                className={`global-mode-switcher mode-${globalMode}`}
+                role="group"
+                aria-label="Global Trading Mode"
+              >
+                <button
+                  type="button"
+                  disabled={modeLoading}
+                  aria-pressed={globalMode === 'real'}
+                  className={`global-mode-btn ${globalMode === 'real' ? 'active active-real' : ''}`}
+                  onClick={() => setGlobalMode('real')}
+                  title="Real Trading Mode — live Binance.US and Webull accounts"
+                >
+                  Real
+                </button>
+                <button
+                  type="button"
+                  disabled={modeLoading}
+                  aria-pressed={globalMode === 'paper'}
+                  className={`global-mode-btn ${globalMode === 'paper' ? 'active active-paper' : ''}`}
+                  onClick={() => setGlobalMode('paper')}
+                  title="Paper Trading Mode — simulated Webull and Binance.US paper accounts"
+                >
+                  Paper
+                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    disabled={modeLoading}
+                    aria-pressed={globalMode === 'qse'}
+                    className={`global-mode-btn ${globalMode === 'qse' ? 'active active-qse' : ''}`}
+                    onClick={() => setGlobalMode('qse')}
+                    title="Quantitative Strategy Engine Mode (Admin, Read-Only)"
+                  >
+                    QSE
+                  </button>
+                )}
+              </div>
 
               {/* New theme toggle switch */}
               <button onClick={toggleTheme} className={`theme-switch ${isLightMode ? 'light' : 'dark'}`} aria-label="Toggle theme">
@@ -402,17 +492,23 @@ export default function App() {
 
               <Route path="/tax-report" element={
                 <ProtectedRoute isLightMode={isLightMode}>
-                  <TaxReportBinance />
+                  <TaxReportModeGuard globalMode={globalMode} onSwitchToReal={() => setGlobalMode('real')}>
+                    <TaxReportBinance />
+                  </TaxReportModeGuard>
                 </ProtectedRoute>
               } />
               <Route path="/tax-report-binance" element={
                 <ProtectedRoute isLightMode={isLightMode}>
-                  <TaxReportBinance />
+                  <TaxReportModeGuard globalMode={globalMode} onSwitchToReal={() => setGlobalMode('real')}>
+                    <TaxReportBinance />
+                  </TaxReportModeGuard>
                 </ProtectedRoute>
               } />
               <Route path="/tax-report-webull" element={
                 <ProtectedRoute isLightMode={isLightMode}>
-                  <TaxReportWebull />
+                  <TaxReportModeGuard globalMode={globalMode} onSwitchToReal={() => setGlobalMode('real')}>
+                    <TaxReportWebull />
+                  </TaxReportModeGuard>
                 </ProtectedRoute>
               } />
               <Route path="/help" element={
@@ -441,7 +537,7 @@ export default function App() {
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '520px' }}>
             <div className="modal-header">
-              <h3>Unhide Assets</h3>
+              <h3>{isPaperMode ? 'Unhide Paper Assets' : 'Unhide Assets'}</h3>
               <button
                 onClick={() => setShowUnhideModal(false)}
                 className="modal-close"
@@ -586,9 +682,9 @@ export default function App() {
         display: isOnboarding ? 'none' : undefined,
         textAlign: 'center',
         padding: '20px',
-        borderTop: `1px solid ${isLightMode ? '#dee2e6' : '#2d3748'}`,
+        borderTop: '1px solid var(--border-color)',
         marginTop: '40px',
-        backgroundColor: isLightMode ? '#f8f9fa' : '#0f0f23'
+        backgroundColor: 'var(--footer-bg, var(--nav-bg))'
       }}>
         <div style={{
           display: 'flex',
