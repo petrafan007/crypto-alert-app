@@ -3751,7 +3751,8 @@ function Dashboard({ isLightMode }) {
     const coin = isPortfolio ? openActionMenu.payload.coin : null;
     const item = isWatchlist ? openActionMenu.payload.item : null;
     const subject = isPortfolio ? coin : item;
-    const symbol = subject.symbol;
+    const symbol = subject?.symbol;
+    if (!symbol) return null;
     const isPlaceholder = isPortfolio ? openActionMenu.payload.isPlaceholder : false;
     const buyEligibility = getBuyEligibility(symbol);
     const pendingSubject = isWatchlist ? { ...item, isWatchlist: true } : coin;
@@ -3759,9 +3760,9 @@ function Dashboard({ isLightMode }) {
     const hasOrders = allPendingItems.length > 0;
     const canSell = isPortfolio && canSellCoin(coin);
     const sellTitle = isPortfolio ? getSellButtonTitle(coin) : 'Sell';
-    const isStakeable = isPortfolio && stakeableCoins.includes(coin.symbol) && !isPlaceholder;
-    const stakedAmount = Number(coin.staked_amount || 0);
-    const availableAmount = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
+    const isStakeable = Boolean(isPortfolio && coin && stakeableCoins.includes(coin.symbol) && !isPlaceholder);
+    const stakedAmount = Number(coin?.staked_amount || 0);
+    const availableAmount = coin?.available_amount !== undefined ? Number(coin.available_amount) : Number(coin?.amount || 0);
     const isBonding = ['processing', 'pending'].includes((coin?.staking_status || '').toLowerCase());
     const activeStakedAmount = Number(
       coin?.active_staked_amount !== undefined
@@ -3770,8 +3771,8 @@ function Dashboard({ isLightMode }) {
     );
     const hasActiveStakedBalance = activeStakedAmount > 0.00001;
     const hasUnstakedBalance = availableAmount >= 0.0001;
-    const canStake = isStakeable && hasUnstakedBalance && (!coin.current_value || (availableAmount * (coin.current_price || 1)) >= 1);
-    const canUnstake = isPortfolio && !isWebullAsset(coin) && !isPlaceholder && hasActiveStakedBalance;
+    const canStake = Boolean(isStakeable && hasUnstakedBalance && (!coin?.current_value || (availableAmount * (coin?.current_price || 1)) >= 1));
+    const canUnstake = Boolean(isPortfolio && coin && !isWebullAsset(coin) && !isPlaceholder && hasActiveStakedBalance);
 
     return createPortal(
       <div

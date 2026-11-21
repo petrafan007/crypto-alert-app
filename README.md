@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.20
+**Version:** 4.19.21
 
 ## Recent Updates
+
+### v4.19.21
+
+* **Fix Actions menu crash on Watchlist rows when action buttons collapse into an "Actions" button:** `renderDesktopActionsContextMenu` in `Dashboard.jsx` evaluated `coin.staked_amount` unconditionally when `isWatchlist` was true (`coin` was `null`), throwing `TypeError: Cannot read properties of null (reading 'staked_amount')` and triggering the `View Loading Error` boundary.
 
 ### v4.19.20
 
