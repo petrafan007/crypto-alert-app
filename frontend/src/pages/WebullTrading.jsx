@@ -2616,11 +2616,40 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
     handleAssetClassChange(nextType);
   };
 
+  const orderModeSwitchRef = useRef(null);
+  const modeSwitchScrollTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (modeSwitchScrollTimerRef.current) {
+      window.clearTimeout(modeSwitchScrollTimerRef.current);
+    }
+  }, []);
+
+  // Switch between Single Order and Conditional Orders while locking the viewport
+  // in place relative to the tab bar (preventing browser scroll-anchoring jumps
+  // when the taller combo builder mounts/unmounts).
   const handleEquityOrderModeChange = (nextMode) => {
+    if (nextMode === equityOrderMode) return;
+    const anchorEl = orderModeSwitchRef.current;
+    const prevTopInViewport = anchorEl ? anchorEl.getBoundingClientRect().top : null;
     setEquityOrderMode(nextMode);
     if (nextMode === 'combo' && selectedSymbol) {
       setComboForm((previous) => ({ ...previous, symbol: selectedSymbol }));
     }
+    if (prevTopInViewport === null || typeof window === 'undefined') return;
+    const restoreScroll = () => {
+      if (!orderModeSwitchRef.current) return;
+      const nextTopInViewport = orderModeSwitchRef.current.getBoundingClientRect().top;
+      const diff = nextTopInViewport - prevTopInViewport;
+      if (Math.abs(diff) > 1) {
+        window.scrollBy({ top: diff, left: 0, behavior: 'instant' });
+      }
+    };
+    window.requestAnimationFrame(() => {
+      restoreScroll();
+      if (modeSwitchScrollTimerRef.current) window.clearTimeout(modeSwitchScrollTimerRef.current);
+      modeSwitchScrollTimerRef.current = window.setTimeout(restoreScroll, 40);
+    });
   };
 
   // Automatically default session for cash-based accounts when instrument or account changes
@@ -5408,7 +5437,11 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
   // without scrolling back to the chart. A replacement stays locked to the
   // original order's account, so they are hidden in the Replace dialog.
   const equityOrderModeSwitch = activeTab === 'order' && selectedInstrumentType === 'EQUITY' ? (
-    <div className="equity-order-header">
+    <div
+      ref={orderModeSwitchRef}
+      className="equity-order-header"
+      style={{ overflowAnchor: 'none' }}
+    >
       {!isEmbeddedReplaceMode && (
         <WebullTradingViewChart
           selectorsOnly
@@ -5715,7 +5748,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
           <>
             {/* ASSET ORDER WORKSPACE */}
             {activeTab === 'order' && !(selectedInstrumentType === 'EQUITY' && equityOrderMode === 'combo') && (
-              <div className="order-form-container">
+              <div className="order-form-container" style={{ overflowAnchor: 'none' }}>
                 {/* 1. FUTURES DISCOVERY & SELECTION SUITE (Appears FIRST at the top when FUTURES selected) */}
                 {!isEmbeddedReplaceMode && selectedInstrumentType === 'FUTURES' && (
                   <WebullFuturesDiscoverySuite
@@ -7446,7 +7479,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
 
             {/* EQUITY CONDITIONAL ORDERS (OTO / OCO / OTOCO) */}
             {activeTab === 'order' && selectedInstrumentType === 'EQUITY' && equityOrderMode === 'combo' && (
-              <div className="order-form-container">
+              <div className="order-form-container" style={{ overflowAnchor: 'none' }}>
                 {equityOrderModeSwitch}
                 <div className="combo-builder-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>

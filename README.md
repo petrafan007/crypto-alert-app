@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.19
+**Version:** 4.19.20
 
 ## Recent Updates
+
+### v4.19.20
+
+* **Keep scroll position pinned when switching between Single Order and Conditional Orders:** Clicking `Single Order` or `Conditional Orders` on Webull equity trading now anchors the tab bar in place (`overflow-anchor: none` + post-render viewport-position restoration) instead of letting browser scroll anchoring or height changes jump down to the bottom or back up toward the top chart.
 
 ### v4.19.19
 
