@@ -123,7 +123,7 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
   const [dropTarget, setDropTarget] = useState(null);
   const [isResizing, setIsResizing] = useState(false);
   const [now, setNow] = useState(Date.now());
-  const storageKey = columnStorageKey(userId, assetFilter);
+  const storageKey = columnStorageKey(userId, assetFilter, mode);
   const layoutKey = storageKey || assetFilter;
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);

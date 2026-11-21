@@ -279,7 +279,7 @@ function AccountCell({ order, webullAccounts }) {
   return <div className="combined-order-account">{label}</div>;
 }
 
-function OrderTable({ orders, open, readOnly = false, onCancelOrder, cancellingId, webullAccounts, userId }) {
+function OrderTable({ orders, open, readOnly = false, mode = 'real', onCancelOrder, cancellingId, webullAccounts, userId }) {
   const accountValue = (order) => {
     const account = webullAccounts.find((candidate) => String(candidate.account_id) === webullAccountId(order));
     return isWebull(order) ? (account ? accountLabel(account) : order.webull_account_type || 'Webull account') : 'Binance.US';
@@ -388,7 +388,7 @@ function OrderTable({ orders, open, readOnly = false, onCancelOrder, cancellingI
       }] : []),
     ] : []),
   ];
-  return <ConfigurableOrderTable rows={orders} columns={columns} tableId={`combined-${open ? 'open' : 'history'}`} userId={userId} emptyText={`No ${open ? 'open' : 'historical'} orders for the selected accounts.`} rowKey={(order) => `${order.source}-${order.id}`} />;
+  return <ConfigurableOrderTable rows={orders} columns={columns} tableId={`combined-${open ? 'open' : 'history'}${mode && mode !== 'real' ? `-${mode}` : ''}`} userId={userId} emptyText={`No ${open ? 'open' : 'historical'} orders for the selected accounts.`} rowKey={(order) => `${order.source}-${order.id}`} />;
 }
 
 function Pagination({ page, setPage, pageSize, setPageSize, total }) {
@@ -1073,7 +1073,7 @@ export default function Orders() {
                 )}
                 <h2>All Open Orders</h2>
                 {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders{webullOpenProgress.total ? ` (${webullOpenProgress.complete}/${webullOpenProgress.total} accounts)…` : '…'}</p>}
-                <OrderTable orders={filteredOpenOrders} open readOnly={isQseMode} onCancelOrder={isQseMode ? undefined : openCancelModalForOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} userId={user?.id} />
+                <OrderTable orders={filteredOpenOrders} open readOnly={isQseMode} mode={globalMode} onCancelOrder={isQseMode ? undefined : openCancelModalForOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} userId={user?.id} />
               </>
             ) : historyLoading && !sortedHistory.length ? (
               <div className="empty-state"><p>Loading order history…</p></div>
@@ -1086,7 +1086,7 @@ export default function Orders() {
                   </>
                 )}
                 <h2>All Order History</h2>
-                <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} userId={user?.id} />
+                <OrderTable orders={paginatedHistory} mode={globalMode} webullAccounts={webullAccounts} userId={user?.id} />
                 <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={historyTotal} />
               </>
             )}

@@ -16,7 +16,7 @@ import PriceHistoryPopup from '../components/PriceHistoryPopup';
 import AIAnalysisModal from '../components/AIAnalysisModal';
 import { useAuth } from '../components/AuthContext';
 import { useGlobalMode } from '../components/GlobalModeContext';
-import { createModeRaceGuard } from '../utils/globalMode.mjs';
+import { createModeRaceGuard, scopedTableKey } from '../utils/globalMode.mjs';
 import { showAppToast } from '../utils/toast';
 import { showAppAlert } from '../components/AppDialog';
 import TotpCodeInput from '../components/TotpCodeInput';
@@ -391,26 +391,27 @@ function Dashboard({ isLightMode }) {
   const [trendLoading, setTrendLoading] = useState(true);
   const [refreshingSentiment, setRefreshingSentiment] = useState({});
 
-  // Column customization state - Portfolio
-  const [portfolioVisibleCols, setPortfolioVisibleCols] = useState(() => {
+  // Mode-scoped column readers so Real, Paper, and QSE each keep independent table layouts
+  const readPortfolioVisibleCols = (mode) => {
     try {
-      const saved = localStorage.getItem('crypto_portfolio_visible_columns');
+      const saved = localStorage.getItem(scopedTableKey('crypto_portfolio_visible_columns', mode));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          const next = [...parsed];
           PORTFOLIO_REQUIRED_COLUMNS.forEach(rc => {
-            if (!parsed.includes(rc)) parsed.push(rc);
+            if (!next.includes(rc)) next.push(rc);
           });
-          return parsed;
+          return next;
         }
       }
     } catch (e) { }
     return [...PORTFOLIO_DEFAULT_COLUMNS];
-  });
+  };
 
-  const [portfolioColOrder, setPortfolioColOrder] = useState(() => {
+  const readPortfolioColOrder = (mode) => {
     try {
-      const saved = localStorage.getItem('crypto_portfolio_column_order');
+      const saved = localStorage.getItem(scopedTableKey('crypto_portfolio_column_order', mode));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -421,44 +422,45 @@ function Dashboard({ isLightMode }) {
       }
     } catch (e) { }
     return [...PORTFOLIO_DEFAULT_COLUMNS];
-  });
+  };
 
-  const [portfolioColWidths, setPortfolioColWidths] = useState(() => {
+  const readPortfolioColWidths = (mode) => {
     try {
-      const saved = localStorage.getItem('crypto_portfolio_column_widths');
+      const saved = localStorage.getItem(scopedTableKey('crypto_portfolio_column_widths', mode));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
-          if (parsed.actions && parsed.actions < 420) {
-            parsed.actions = 440;
+          const next = { ...parsed };
+          if (next.actions && next.actions < 420) {
+            next.actions = 440;
           }
-          return parsed;
+          return next;
         }
       }
     } catch (e) { }
     return {};
-  });
+  };
 
-  // Column customization state - Watchlist
-  const [watchlistVisibleCols, setWatchlistVisibleCols] = useState(() => {
+  const readWatchlistVisibleCols = (mode) => {
     try {
-      const saved = localStorage.getItem('crypto_watchlist_visible_columns');
+      const saved = localStorage.getItem(scopedTableKey('crypto_watchlist_visible_columns', mode));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          const next = [...parsed];
           WATCHLIST_REQUIRED_COLUMNS.forEach(rc => {
-            if (!parsed.includes(rc)) parsed.push(rc);
+            if (!next.includes(rc)) next.push(rc);
           });
-          return parsed;
+          return next;
         }
       }
     } catch (e) { }
     return [...WATCHLIST_DEFAULT_COLUMNS];
-  });
+  };
 
-  const [watchlistColOrder, setWatchlistColOrder] = useState(() => {
+  const readWatchlistColOrder = (mode) => {
     try {
-      const saved = localStorage.getItem('crypto_watchlist_column_order');
+      const saved = localStorage.getItem(scopedTableKey('crypto_watchlist_column_order', mode));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -469,23 +471,34 @@ function Dashboard({ isLightMode }) {
       }
     } catch (e) { }
     return [...WATCHLIST_DEFAULT_COLUMNS];
-  });
+  };
 
-  const [watchlistColWidths, setWatchlistColWidths] = useState(() => {
+  const readWatchlistColWidths = (mode) => {
     try {
-      const saved = localStorage.getItem('crypto_watchlist_column_widths');
+      const saved = localStorage.getItem(scopedTableKey('crypto_watchlist_column_widths', mode));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
-          if (parsed.actions && parsed.actions < 320) {
-            parsed.actions = 350;
+          const next = { ...parsed };
+          if (next.actions && next.actions < 320) {
+            next.actions = 350;
           }
-          return parsed;
+          return next;
         }
       }
     } catch (e) { }
     return {};
-  });
+  };
+
+  // Column customization state - Portfolio (per mode)
+  const [portfolioVisibleCols, setPortfolioVisibleCols] = useState(() => readPortfolioVisibleCols(globalMode));
+  const [portfolioColOrder, setPortfolioColOrder] = useState(() => readPortfolioColOrder(globalMode));
+  const [portfolioColWidths, setPortfolioColWidths] = useState(() => readPortfolioColWidths(globalMode));
+
+  // Column customization state - Watchlist (per mode)
+  const [watchlistVisibleCols, setWatchlistVisibleCols] = useState(() => readWatchlistVisibleCols(globalMode));
+  const [watchlistColOrder, setWatchlistColOrder] = useState(() => readWatchlistColOrder(globalMode));
+  const [watchlistColWidths, setWatchlistColWidths] = useState(() => readWatchlistColWidths(globalMode));
 
   const totalPortfolioWidth = useMemo(() => {
     const cols = portfolioColOrder.filter(k => portfolioVisibleCols.includes(k) && PORTFOLIO_COLUMN_DEFINITIONS[k]);
@@ -657,8 +670,36 @@ function Dashboard({ isLightMode }) {
       return parseSortPreference(null, []);
     }
   };
-  const [portfolioSort, setPortfolioSort] = useState(() => readSort('dashboardPortfolioSort', PORTFOLIO_COLUMN_DEFINITIONS, 'dashboardSortConfig'));
-  const [watchlistSort, setWatchlistSort] = useState(() => readSort('dashboardWatchlistSort', WATCHLIST_COLUMN_DEFINITIONS));
+  const [portfolioSort, setPortfolioSort] = useState(() => readSort(
+    scopedTableKey('dashboardPortfolioSort', globalMode),
+    PORTFOLIO_COLUMN_DEFINITIONS,
+    globalMode === 'real' ? 'dashboardSortConfig' : null
+  ));
+  const [watchlistSort, setWatchlistSort] = useState(() => readSort(
+    scopedTableKey('dashboardWatchlistSort', globalMode),
+    WATCHLIST_COLUMN_DEFINITIONS
+  ));
+
+  // Reload per-mode table settings (visible columns, order, widths, sort) whenever Real / Paper / QSE changes
+  useEffect(() => {
+    setPortfolioVisibleCols(readPortfolioVisibleCols(globalMode));
+    setPortfolioColOrder(readPortfolioColOrder(globalMode));
+    setPortfolioColWidths(readPortfolioColWidths(globalMode));
+    setWatchlistVisibleCols(readWatchlistVisibleCols(globalMode));
+    setWatchlistColOrder(readWatchlistColOrder(globalMode));
+    setWatchlistColWidths(readWatchlistColWidths(globalMode));
+    setPortfolioSort(readSort(
+      scopedTableKey('dashboardPortfolioSort', globalMode),
+      PORTFOLIO_COLUMN_DEFINITIONS,
+      globalMode === 'real' ? 'dashboardSortConfig' : null
+    ));
+    setWatchlistSort(readSort(
+      scopedTableKey('dashboardWatchlistSort', globalMode),
+      WATCHLIST_COLUMN_DEFINITIONS
+    ));
+    setColumnModal(prev => (prev.isOpen ? { ...prev, isOpen: false } : prev));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalMode]);
 
   // Note modal state
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -2612,8 +2653,12 @@ function Dashboard({ isLightMode }) {
     const next = nextSortPreference(isWatchlist ? watchlistSort : portfolioSort, key);
     (isWatchlist ? setWatchlistSort : setPortfolioSort)(next);
     try {
-      window.localStorage.setItem(isWatchlist ? 'dashboardWatchlistSort' : 'dashboardPortfolioSort', JSON.stringify(next));
-      window.localStorage.removeItem('dashboardSortConfig');
+      const modeNow = globalModeRef.current;
+      window.localStorage.setItem(
+        scopedTableKey(isWatchlist ? 'dashboardWatchlistSort' : 'dashboardPortfolioSort', modeNow),
+        JSON.stringify(next)
+      );
+      if (modeNow === 'real') window.localStorage.removeItem('dashboardSortConfig');
     } catch (err) {
       console.warn('Failed to persist sort config:', err);
     }
@@ -2703,7 +2748,7 @@ function Dashboard({ isLightMode }) {
         list.splice(targetIdx, 0, sourceColKey);
         const result = ['symbol', ...list.filter(c => c !== 'symbol' && c !== 'actions'), 'actions'];
         try {
-          localStorage.setItem('crypto_portfolio_column_order', JSON.stringify(result));
+          localStorage.setItem(scopedTableKey('crypto_portfolio_column_order', globalModeRef.current), JSON.stringify(result));
         } catch (err) { }
         return result;
       });
@@ -2717,7 +2762,7 @@ function Dashboard({ isLightMode }) {
         list.splice(targetIdx, 0, sourceColKey);
         const result = ['symbol', ...list.filter(c => c !== 'symbol' && c !== 'actions'), 'actions'];
         try {
-          localStorage.setItem('crypto_watchlist_column_order', JSON.stringify(result));
+          localStorage.setItem(scopedTableKey('crypto_watchlist_column_order', globalModeRef.current), JSON.stringify(result));
         } catch (err) { }
         return result;
       });
@@ -2765,7 +2810,7 @@ function Dashboard({ isLightMode }) {
         setPortfolioColWidths(prev => {
           const next = { ...prev, [colKey]: latestWidth };
           try {
-            localStorage.setItem('crypto_portfolio_column_widths', JSON.stringify(next));
+            localStorage.setItem(scopedTableKey('crypto_portfolio_column_widths', globalModeRef.current), JSON.stringify(next));
           } catch (err) { }
           return next;
         });
@@ -2773,7 +2818,7 @@ function Dashboard({ isLightMode }) {
         setWatchlistColWidths(prev => {
           const next = { ...prev, [colKey]: latestWidth };
           try {
-            localStorage.setItem('crypto_watchlist_column_widths', JSON.stringify(next));
+            localStorage.setItem(scopedTableKey('crypto_watchlist_column_widths', globalModeRef.current), JSON.stringify(next));
           } catch (err) { }
           return next;
         });
@@ -2797,12 +2842,12 @@ function Dashboard({ isLightMode }) {
         }
       });
       try {
-        localStorage.setItem('crypto_portfolio_column_order', JSON.stringify(order));
+        localStorage.setItem(scopedTableKey('crypto_portfolio_column_order', globalModeRef.current), JSON.stringify(order));
       } catch (err) { }
       return order;
     });
     try {
-      localStorage.setItem('crypto_portfolio_visible_columns', JSON.stringify(newCols));
+      localStorage.setItem(scopedTableKey('crypto_portfolio_visible_columns', globalModeRef.current), JSON.stringify(newCols));
     } catch (err) { }
   };
 
@@ -2811,9 +2856,9 @@ function Dashboard({ isLightMode }) {
     setPortfolioColOrder([...PORTFOLIO_DEFAULT_COLUMNS]);
     setPortfolioColWidths({});
     try {
-      localStorage.removeItem('crypto_portfolio_visible_columns');
-      localStorage.removeItem('crypto_portfolio_column_order');
-      localStorage.removeItem('crypto_portfolio_column_widths');
+      localStorage.removeItem(scopedTableKey('crypto_portfolio_visible_columns', globalModeRef.current));
+      localStorage.removeItem(scopedTableKey('crypto_portfolio_column_order', globalModeRef.current));
+      localStorage.removeItem(scopedTableKey('crypto_portfolio_column_widths', globalModeRef.current));
     } catch (err) { }
   };
 
@@ -2829,12 +2874,12 @@ function Dashboard({ isLightMode }) {
         }
       });
       try {
-        localStorage.setItem('crypto_watchlist_column_order', JSON.stringify(order));
+        localStorage.setItem(scopedTableKey('crypto_watchlist_column_order', globalModeRef.current), JSON.stringify(order));
       } catch (err) { }
       return order;
     });
     try {
-      localStorage.setItem('crypto_watchlist_visible_columns', JSON.stringify(newCols));
+      localStorage.setItem(scopedTableKey('crypto_watchlist_visible_columns', globalModeRef.current), JSON.stringify(newCols));
     } catch (err) { }
   };
 
@@ -2843,9 +2888,9 @@ function Dashboard({ isLightMode }) {
     setWatchlistColOrder([...WATCHLIST_DEFAULT_COLUMNS]);
     setWatchlistColWidths({});
     try {
-      localStorage.removeItem('crypto_watchlist_visible_columns');
-      localStorage.removeItem('crypto_watchlist_column_order');
-      localStorage.removeItem('crypto_watchlist_column_widths');
+      localStorage.removeItem(scopedTableKey('crypto_watchlist_visible_columns', globalModeRef.current));
+      localStorage.removeItem(scopedTableKey('crypto_watchlist_column_order', globalModeRef.current));
+      localStorage.removeItem(scopedTableKey('crypto_watchlist_column_widths', globalModeRef.current));
     } catch (err) { }
   };
 
@@ -7489,6 +7534,7 @@ function Dashboard({ isLightMode }) {
         isOpen={columnModal.isOpen}
         onClose={() => setColumnModal(prev => ({ ...prev, isOpen: false }))}
         tableType={columnModal.tableType}
+        modeLabel={isQseMode ? 'QSE' : isPaperMode ? 'Paper' : ''}
         columnDefinitions={columnModal.tableType === 'portfolio' ? PORTFOLIO_COLUMN_DEFINITIONS : WATCHLIST_COLUMN_DEFINITIONS}
         visibleColumns={columnModal.tableType === 'portfolio' ? portfolioVisibleCols : watchlistVisibleCols}
         onSave={columnModal.tableType === 'portfolio' ? handleSavePortfolioColumns : handleSaveWatchlistColumns}

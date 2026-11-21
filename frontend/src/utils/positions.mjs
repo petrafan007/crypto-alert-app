@@ -255,8 +255,11 @@ export function resizeColumnState(state, id, width) {
     },
   };
 }
-export function columnStorageKey(userId, view) {
-  return userId == null ? null : `positions-columns-v2:${encodeURIComponent(userId)}:${encodeURIComponent(view)}`;
+export function columnStorageKey(userId, view, mode = 'REAL') {
+  if (userId == null) return null;
+  const normalizedMode = String(mode || 'REAL').trim().toUpperCase();
+  const modeSuffix = normalizedMode && normalizedMode !== 'REAL' ? `:${encodeURIComponent(normalizedMode.toLowerCase())}` : '';
+  return `positions-columns-v2:${encodeURIComponent(userId)}${modeSuffix}:${encodeURIComponent(view)}`;
 }
 export function cutoffFromSymbol(symbol) {
   if (!symbol) return null;

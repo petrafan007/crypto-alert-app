@@ -7723,7 +7723,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                   cancellingId={cancellingOrderId}
                   optionClosePnlByOrder={optionClosePnlByOrder}
                   userId={user?.id}
-                  tableId="webull-open-orders"
+                  tableId={`webull-open-orders${tradingMode !== 'REAL' ? `-${tradingMode.toLowerCase()}` : ''}`}
                 />
               </section>
             )}
@@ -7752,7 +7752,7 @@ export default function WebullTrading({ isLightMode = false , isEmbeddedReplaceM
                   <div className="empty-state"><p>Loading Webull order history…</p></div>
                 ) : (
                   <>
-                    <WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." userId={user?.id} tableId="webull-order-history" accounts={accounts} />
+                    <WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." userId={user?.id} tableId={`webull-order-history${tradingMode !== 'REAL' ? `-${tradingMode.toLowerCase()}` : ''}`} accounts={accounts} />
                     <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={historyTotal} />
                   </>
                 )}

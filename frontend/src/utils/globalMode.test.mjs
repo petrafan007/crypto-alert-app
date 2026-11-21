@@ -5,6 +5,7 @@ import {
   toWebullTradingMode,
   createModeRaceGuard,
   canPerformRowAction,
+  scopedTableKey,
 } from './globalMode.mjs';
 
 test('normalizeGlobalMode enforces valid values and admin gate on QSE', () => {
@@ -57,7 +58,7 @@ test('canPerformRowAction blocks all actions in QSE and restricts Paper actions'
   assert.equal(canPerformRowAction('real', 'alert'), true);
 });
 
-import { cutoffFromSymbol, valueForColumn } from './positions.mjs';
+import { cutoffFromSymbol, valueForColumn, columnStorageKey } from './positions.mjs';
 
 test('cutoffFromSymbol returns numeric ms and valueForColumn cutoff returns ISO string without throwing', () => {
   const ms = cutoffFromSymbol('KXBTCD-26NOV2017-T85000');
@@ -66,4 +67,30 @@ test('cutoffFromSymbol returns numeric ms and valueForColumn cutoff returns ISO 
   const iso = valueForColumn({ symbol: 'KXBTCD-26NOV2017-T85000', instrument_type: 'EVENT' }, 'cutoff');
   assert.equal(typeof iso, 'string');
   assert.ok(iso.endsWith('Z'));
+});
+
+test('scopedTableKey isolates Paper and QSE table settings from Real', () => {
+  assert.equal(scopedTableKey('crypto_portfolio_visible_columns', 'real'), 'crypto_portfolio_visible_columns');
+  assert.equal(scopedTableKey('crypto_portfolio_visible_columns', 'paper'), 'crypto_portfolio_visible_columns:paper');
+  assert.equal(scopedTableKey('crypto_portfolio_visible_columns', 'qse'), 'crypto_portfolio_visible_columns:qse');
+  assert.equal(scopedTableKey('crypto_watchlist_visible_columns', 'paper'), 'crypto_watchlist_visible_columns:paper');
+  assert.notEqual(
+    scopedTableKey('crypto_portfolio_visible_columns', 'qse'),
+    scopedTableKey('crypto_portfolio_visible_columns', 'real')
+  );
+  assert.notEqual(
+    scopedTableKey('crypto_portfolio_visible_columns', 'qse'),
+    scopedTableKey('crypto_portfolio_visible_columns', 'paper')
+  );
+});
+
+test('columnStorageKey isolates Positions table columns across REAL, TEST, and QUANT modes', () => {
+  const realKey = columnStorageKey(1, 'All assets', 'REAL');
+  const legacyKey = columnStorageKey(1, 'All assets');
+  const testKey = columnStorageKey(1, 'All assets', 'TEST');
+  const quantKey = columnStorageKey(1, 'All assets', 'QUANT');
+  assert.equal(realKey, legacyKey);
+  assert.notEqual(realKey, testKey);
+  assert.notEqual(realKey, quantKey);
+  assert.notEqual(testKey, quantKey);
 });

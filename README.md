@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 4.19.17
+**Version:** 4.19.18
 
 ## Recent Updates
+
+### v4.19.18
+
+* **Per-mode table settings isolation across Real, Paper, and QSE views:** Visible columns, column order, column widths, and sort preferences are now stored independently per mode so customizing a table in QSE or Paper no longer alters your Real layout (and vice versa). Covers Dashboard Portfolio (Real / Paper / QSE), Dashboard Watchlist (Real / Paper), Webull & Combined Positions (`WebullPositions`), and Orders / Trading tables (`Orders`, `WebullTrading`, `Trading`), while preserving all existing Real-mode customizations unchanged.
 
 ### v4.19.17
 

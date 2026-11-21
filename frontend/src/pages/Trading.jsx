@@ -2888,7 +2888,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
             <ConfigurableOrderTable
               rows={filteredOpenOrders}
               columns={sharedOrderColumns({ open: true })}
-              tableId="binance-open-orders"
+              tableId={isPaperMode ? "binance-open-orders-paper" : "binance-open-orders"}
               userId={user?.id}
               emptyText={`No open orders ${historySymbolFilter !== 'ALL' ? `for ${historySymbolFilter}` : ''}`}
               rowKey={(order, index) => order.id || index}
@@ -2980,7 +2980,7 @@ const Trading = ({ isLightMode = false, isEmbeddedReplaceMode = false, embeddedO
                 <ConfigurableOrderTable
                   rows={paginatedOrders}
                   columns={sharedOrderColumns()}
-                  tableId="binance-order-history"
+                  tableId={isPaperMode ? "binance-order-history-paper" : "binance-order-history"}
                   userId={user?.id}
                   emptyText="No orders yet. Place your first order to get started!"
                 />

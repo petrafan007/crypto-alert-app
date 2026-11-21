@@ -5,6 +5,7 @@ export default function TableColumnModal({
   isOpen,
   onClose,
   tableType = 'portfolio',
+  modeLabel = '',
   columnDefinitions = {},
   visibleColumns = [],
   onSave,
@@ -23,7 +24,8 @@ export default function TableColumnModal({
   if (!isOpen) return null;
 
   const isPortfolio = tableType === 'portfolio';
-  const tableTitle = isPortfolio ? 'Portfolio' : 'Watchlist';
+  const baseTitle = isPortfolio ? 'Portfolio' : 'Watchlist';
+  const tableTitle = modeLabel ? `${modeLabel} ${baseTitle}` : baseTitle;
 
   const handleToggleColumn = (key, isRequired) => {
     if (isRequired) return; // Cannot toggle locked required columns

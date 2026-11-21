@@ -61,3 +61,13 @@ export function canPerformRowAction(globalMode, actionType) {
   }
   return true;
 }
+
+/**
+ * Scope a table persistence key by active trading mode ('real' | 'paper' | 'qse').
+ * Real mode retains the existing unsuffixed key so prior user customizations stay intact.
+ */
+export function scopedTableKey(baseKey, mode = 'real') {
+  const normalized = String(mode || 'real').trim().toLowerCase();
+  if (!normalized || normalized === 'real') return baseKey;
+  return `${baseKey}:${normalized}`;
+}
